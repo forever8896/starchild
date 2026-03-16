@@ -1,0 +1,11 @@
+{
+  "name": "starchild-whatsapp-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "pino": "^9.6.0"
+  }
+}

@@ -99,6 +99,16 @@ interface AppState {
   pendingMilestones: string[]
   setPendingMilestones: (milestones: string[]) => void
   dismissMilestone: (milestone: string) => void
+
+  // Progressive UI — hide sections until they're relevant
+  hasQuests: boolean
+  setHasQuests: (has: boolean) => void
+
+  // Spark Test (first-run personality quiz)
+  sparkTestComplete: boolean
+  setSparkTestComplete: (done: boolean) => void
+  sparkTestChecked: boolean
+  setSparkTestChecked: (checked: boolean) => void
 }
 
 // ─── Store implementation ────────────────────────────────────────────────────
@@ -173,4 +183,14 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       pendingMilestones: state.pendingMilestones.filter((m) => m !== milestone),
     })),
+
+  // Progressive UI
+  hasQuests: false,
+  setHasQuests: (hasQuests) => set({ hasQuests }),
+
+  // Spark Test
+  sparkTestComplete: false,
+  setSparkTestComplete: (sparkTestComplete) => set({ sparkTestComplete }),
+  sparkTestChecked: false,
+  setSparkTestChecked: (sparkTestChecked) => set({ sparkTestChecked }),
 }))

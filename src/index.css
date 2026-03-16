@@ -1,0 +1,213 @@
+@import "tailwindcss";
+
+/* ─── Starchild Design System ──────────────────────────────────────────── */
+/* Cosmic plush companion — soft pastels, dark void, illustrated warmth    */
+
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: 'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* ─── Color palette ──────────────────────────────────────────────────── */
+  --bg-deep: #1a1525;
+  --bg-primary: #221d2e;
+  --bg-secondary: #2a2438;
+  --bg-card: #302945;
+  --bg-card-hover: #3a3350;
+  --bg-input: #2a2438;
+
+  --text-primary: #ede8f5;
+  --text-secondary: #a89ec0;
+  --text-muted: #6e6485;
+
+  --accent-lavender: #b8a0d8;
+  --accent-peach: #ffb88c;
+  --accent-mint: #a8d8b8;
+  --accent-sky: #a8c8e8;
+  --accent-rose: #e8a8b8;
+  --accent-gold: #e8d8a8;
+
+  --outline: #4a3f60;
+  --outline-strong: #5a4f70;
+
+  --glow-lavender: rgba(184, 160, 216, 0.15);
+  --glow-peach: rgba(255, 184, 140, 0.12);
+
+  color-scheme: dark;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* ─── Custom scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--outline-strong); }
+
+/* ─── Creature float — gentle hovering ──────────────────────────────────── */
+@keyframes creature-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+/* ─── Creature breathe — subtle scale pulse ─────────────────────────────── */
+@keyframes creature-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+/* ─── Creature pulse (hunger warning) ────────────────────────────────────── */
+@keyframes creature-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.creature-pulse { animation: creature-pulse 1.4s ease-in-out infinite; }
+
+/* ─── Ambient glow pulse ─────────────────────────────────────────────────── */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.08); }
+}
+
+/* ─── Typing indicator dots ──────────────────────────────────────────────── */
+@keyframes typing-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+.typing-dot:nth-child(1) { animation: typing-dot 1.2s ease-in-out infinite 0s; }
+.typing-dot:nth-child(2) { animation: typing-dot 1.2s ease-in-out infinite 0.2s; }
+.typing-dot:nth-child(3) { animation: typing-dot 1.2s ease-in-out infinite 0.4s; }
+
+/* ─── Bar fill transition ────────────────────────────────────────────────── */
+.bar-fill { transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+
+/* ─── Micro-interactions ─────────────────────────────────────────────────── */
+button { cursor: pointer; }
+.press-scale { transition: transform 0.12s ease; }
+.press-scale:active { transform: scale(0.96); }
+
+/* ─── View fade-in ───────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-in { animation: fade-in 0.3s ease-out; }
+
+/* ─── Slide-up entrance (for spark test choices) ─────────────────────────── */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─── Staggered children entrance ────────────────────────────────────────── */
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 80ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 160ms; }
+
+/* ─── Message entrance ───────────────────────────────────────────────────── */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-msg-in { animation: msg-in 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─── Spark choice button ────────────────────────────────────────────────── */
+.spark-choice {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.spark-choice::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 100%, var(--accent-lavender) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.spark-choice:hover::before { opacity: 0.12; }
+.spark-choice:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-lavender) !important;
+  box-shadow: 0 4px 20px rgba(184, 160, 216, 0.2), 0 0 40px rgba(184, 160, 216, 0.08);
+}
+.spark-choice:active { transform: translateY(0) scale(0.98); }
+
+/* ─── Quest card in chat ─────────────────────────────────────────────────── */
+@keyframes quest-appear {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+.quest-card-appear { animation: quest-appear 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─── Glow border effect for special cards ───────────────────────────────── */
+.glow-border {
+  position: relative;
+}
+.glow-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--accent-lavender), var(--accent-peach), var(--accent-mint));
+  opacity: 0.25;
+  z-index: -1;
+  filter: blur(8px);
+  animation: glow-pulse 4s ease-in-out infinite;
+}
+
+/* ─── Star twinkle ───────────────────────────────────────────────────────── */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.9; }
+}
+
+/* ─── Gradient overlays ──────────────────────────────────────────────────── */
+.gradient-fade-down {
+  background: linear-gradient(to bottom, transparent 0%, var(--bg-deep) 100%);
+}
+
+/* ─── SVG breathe ────────────────────────────────────────────────────────── */
+@keyframes svg-breathe {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+.svg-breathe { animation: svg-breathe 4s ease-in-out infinite; transform-origin: center; }
+
+/* ─── Cloud drift ────────────────────────────────────────────────────────── */
+@keyframes cloud-drift { 0% { transform: translateX(0); } 100% { transform: translateX(40px); } }
+@keyframes cloud-drift-slow { 0% { transform: translateX(0); } 100% { transform: translateX(25px); } }
+
+/* ─── Noise texture overlay (very subtle) ─────────────────────────────────── */
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+}

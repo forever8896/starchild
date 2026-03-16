@@ -1,0 +1,20 @@
+# Runtime state - all session data in one place
+agency/data/
+.pids/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Claude session files
+.claude/
+
+# Obsidian session files
+.obsidian/
