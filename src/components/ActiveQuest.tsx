@@ -1,12 +1,15 @@
 /**
  * ActiveQuest.tsx — Floating quest card in the chat view
  *
- * Shows the current active quest as a glowing card pinned to the top of chat.
+ * Shows the current active quest as a clay-elevated card pinned to the top of chat.
  * User can expand it and mark it complete, which triggers a celebration
  * message from the Starchild.
+ *
+ * Animated with framer-motion spring physics and claymorphism surfaces.
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore, type Quest } from '../store'
 
@@ -66,13 +69,12 @@ export default function ActiveQuest({
 
   return (
     <div className="px-4 py-2">
-      <div
-        className="quest-card-appear glow-border rounded-2xl overflow-hidden cursor-pointer transition-all duration-300"
-        style={{
-          backgroundColor: 'rgba(48, 41, 69, 0.85)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid var(--outline)',
-        }}
+      <motion.div
+        className="clay-elevated overflow-hidden cursor-pointer"
+        initial={{ opacity: 0, y: -20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        whileHover={{ y: -2 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 26 }}
         onClick={() => setExpanded(!expanded)}
       >
         {/* Header row */}
@@ -91,16 +93,18 @@ export default function ActiveQuest({
           <span className="text-[10px] font-semibold" style={{ color: 'var(--accent-mint)' }}>
             +{quest.xp_reward} XP
           </span>
-          <svg
-            className="w-3.5 h-3.5 transition-transform duration-200 shrink-0"
-            style={{
-              color: 'var(--text-muted)',
-              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            }}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+          <motion.svg
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: 'var(--text-muted)' }}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            animate={{ rotate: expanded ? 180 : 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 24 }}
           >
             <path d="M6 9l6 6 6-6" />
-          </svg>
+          </motion.svg>
         </div>
 
         {/* Quest title */}
@@ -116,25 +120,39 @@ export default function ActiveQuest({
         </div>
 
         {/* Expanded — complete button */}
-        {expanded && (
-          <div className="px-4 pb-4 animate-in" style={{ animationDuration: '0.15s' }}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                handleComplete(quest)
-              }}
-              disabled={completing}
-              className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 press-scale disabled:opacity-50"
-              style={{
-                backgroundColor: 'var(--accent-mint)',
-                color: '#1a1525',
-              }}
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              key="quest-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+              style={{ overflow: 'hidden' }}
             >
-              {completing ? 'completing...' : 'i did it ✦'}
-            </button>
-          </div>
-        )}
-      </div>
+              <div className="px-4 pb-4">
+                <motion.button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleComplete(quest)
+                  }}
+                  disabled={completing}
+                  className="clay-button w-full py-2.5 text-sm font-semibold disabled:opacity-50"
+                  style={{
+                    background: 'rgba(168, 216, 184, 0.85)',
+                    color: '#1a1525',
+                  }}
+                  whileHover={{ scale: 1.02, y: -1 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+                >
+                  {completing ? 'completing...' : 'i did it ✦'}
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </div>
   )
 }

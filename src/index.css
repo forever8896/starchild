@@ -1,9 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-/* ─── Starchild Design System ──────────────────────────────────────────── */
-/* Cosmic plush companion — soft pastels, dark void, illustrated warmth    */
-
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap');
+/* ─── Starchild Design System ──────────────────────────────────────────────── */
+/* Cosmic claymorphism companion — tactile clay surfaces floating in a void     */
 
 :root {
   font-family: 'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -56,6 +55,208 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--outline-strong); }
 
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ─── CLAYMORPHISM DESIGN TOKENS ─────────────────────────────────────────── */
+/* Surfaces feel 3D — inflated clay floating in a cosmic void                 */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Standard clay surface ──────────────────────────────────────────────── */
+.clay {
+  background: rgba(48, 41, 69, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  border: 1px solid rgba(74, 63, 96, 0.4);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.06),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.15),
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* ─── Raised clay — for cards, quest panels ──────────────────────────────── */
+.clay-elevated {
+  background: rgba(48, 41, 69, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 28px;
+  border: 1.5px solid rgba(74, 63, 96, 0.5);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.08),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.2),
+    0 12px 40px rgba(0, 0, 0, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* ─── Pressed/inset state — for inputs, active elements ──────────────────── */
+.clay-pressed {
+  background: rgba(34, 29, 46, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 20px;
+  border: 1px solid rgba(74, 63, 96, 0.3);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* ─── Pushable button surface ────────────────────────────────────────────── */
+.clay-button {
+  background: rgba(184, 160, 216, 0.85);
+  border-radius: 20px;
+  border: 1.5px solid rgba(184, 160, 216, 0.5);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.2),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.15),
+    0 4px 16px rgba(184, 160, 216, 0.25);
+  color: #1a1525;
+  font-weight: 600;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+.clay-button:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.12),
+    0 8px 24px rgba(184, 160, 216, 0.35),
+    0 2px 8px rgba(184, 160, 216, 0.2);
+}
+.clay-button:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.2),
+    0 2px 8px rgba(184, 160, 216, 0.15);
+}
+
+/* ─── User message bubble ────────────────────────────────────────────────── */
+.clay-bubble-user {
+  background: rgba(184, 160, 216, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 22px 22px 6px 22px;
+  border: 1px solid rgba(184, 160, 216, 0.45);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.18),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.1),
+    0 4px 16px rgba(184, 160, 216, 0.2);
+  color: #1a1525;
+  font-weight: 500;
+}
+
+/* ─── Starchild AI message bubble ────────────────────────────────────────── */
+.clay-bubble-ai {
+  background: rgba(48, 41, 69, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 22px 22px 22px 6px;
+  border: 1px solid rgba(74, 63, 96, 0.45);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.07),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.12),
+    0 4px 16px rgba(0, 0, 0, 0.2);
+  color: #ede8f5;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ─── Text input field ───────────────────────────────────────────────────── */
+.clay-input {
+  background: rgba(34, 29, 46, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 22px;
+  border: 1.5px solid rgba(74, 63, 96, 0.4);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: all 0.25s ease;
+  color: var(--text-primary);
+  outline: none;
+}
+.clay-input:focus {
+  border-color: rgba(184, 160, 216, 0.65);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 2px rgba(0, 0, 0, 0.15),
+    0 0 0 3px rgba(184, 160, 216, 0.12),
+    0 0 16px rgba(184, 160, 216, 0.08);
+}
+
+/* ─── Navigation icon button ─────────────────────────────────────────────── */
+.clay-nav-button {
+  background: rgba(42, 36, 56, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  border: 1px solid rgba(74, 63, 96, 0.45);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.06),
+    0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.clay-nav-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(74, 63, 96, 0.6);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.07),
+    0 6px 18px rgba(0, 0, 0, 0.28);
+}
+.clay-nav-button:active {
+  transform: translateY(0px);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.25),
+    0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* ─── Pulsing outer glow utility ─────────────────────────────────────────── */
+.clay-glow {
+  animation: clay-glow-pulse 3.5s ease-in-out infinite;
+}
+@keyframes clay-glow-pulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.06),
+      0 8px 32px rgba(0, 0, 0, 0.25),
+      0 0 0 0 rgba(184, 160, 216, 0);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.08),
+      0 8px 40px rgba(0, 0, 0, 0.28),
+      0 0 28px 4px rgba(184, 160, 216, 0.12);
+  }
+}
+
+/* ─── View transition enter ──────────────────────────────────────────────── */
+.view-transition-enter {
+  animation: view-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── View transition exit ───────────────────────────────────────────────── */
+.view-transition-exit {
+  animation: view-exit 0.3s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ─── KEYFRAME ANIMATIONS ────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── View enter — spring-like entrance ──────────────────────────────────── */
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+/* ─── View exit ──────────────────────────────────────────────────────────── */
+@keyframes view-exit {
+  from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  to   { opacity: 0; transform: translateY(-12px) scale(0.98); filter: blur(3px); }
+}
+
 /* ─── Creature float — gentle hovering ──────────────────────────────────── */
 @keyframes creature-float {
   0%, 100% { transform: translateY(0px); }
@@ -91,20 +292,51 @@ html, body, #root {
 .typing-dot:nth-child(2) { animation: typing-dot 1.2s ease-in-out infinite 0.2s; }
 .typing-dot:nth-child(3) { animation: typing-dot 1.2s ease-in-out infinite 0.4s; }
 
-/* ─── Bar fill transition ────────────────────────────────────────────────── */
-.bar-fill { transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-
-/* ─── Micro-interactions ─────────────────────────────────────────────────── */
-button { cursor: pointer; }
-.press-scale { transition: transform 0.12s ease; }
-.press-scale:active { transform: scale(0.96); }
-
-/* ─── View fade-in ───────────────────────────────────────────────────────── */
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* ─── Mic recording pulse ───────────────────────────────────────────────── */
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 168, 184, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(232, 168, 184, 0); }
 }
-.animate-in { animation: fade-in 0.3s ease-out; }
+.mic-recording { animation: mic-pulse 1.2s ease-in-out infinite; }
+
+/* ─── Floating ambient particles ─────────────────────────────────────────── */
+@keyframes particle-float {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  20%  { opacity: 0.6; }
+  80%  { opacity: 0.6; }
+  100% { transform: translateY(-100vh) translateX(40px); opacity: 0; }
+}
+
+/* ─── Soft bounce for interactive elements ───────────────────────────────── */
+@keyframes soft-bounce {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* ─── Star twinkle ───────────────────────────────────────────────────────── */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.9; }
+}
+
+/* ─── SVG breathe ────────────────────────────────────────────────────────── */
+@keyframes svg-breathe {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+.svg-breathe { animation: svg-breathe 4s ease-in-out infinite; transform-origin: center; }
+
+/* ─── Cloud drift ────────────────────────────────────────────────────────── */
+@keyframes cloud-drift { 0% { transform: translateX(0); } 100% { transform: translateX(40px); } }
+@keyframes cloud-drift-slow { 0% { transform: translateX(0); } 100% { transform: translateX(25px); } }
+
+/* ─── View fade-in — spring cubic-bezier with scale ──────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-in { animation: fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* ─── Slide-up entrance (for spark test choices) ─────────────────────────── */
 @keyframes slide-up {
@@ -118,12 +350,22 @@ button { cursor: pointer; }
 .stagger-children > *:nth-child(2) { animation-delay: 80ms; }
 .stagger-children > *:nth-child(3) { animation-delay: 160ms; }
 
-/* ─── Message entrance ───────────────────────────────────────────────────── */
+/* ─── Message entrance — more dramatic spring ────────────────────────────── */
 @keyframes msg-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  from { opacity: 0; transform: translateY(16px) scale(0.9); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.animate-msg-in { animation: msg-in 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-msg-in { animation: msg-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─── Bar fill transition ────────────────────────────────────────────────── */
+.bar-fill { transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+
+/* ─── Micro-interactions ─────────────────────────────────────────────────── */
+button { cursor: pointer; }
+.press-scale {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.press-scale:active { transform: scale(0.95); }
 
 /* ─── Spark choice button ────────────────────────────────────────────────── */
 .spark-choice {
@@ -179,27 +421,10 @@ button { cursor: pointer; }
   animation: glow-pulse 4s ease-in-out infinite;
 }
 
-/* ─── Star twinkle ───────────────────────────────────────────────────────── */
-@keyframes twinkle {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.9; }
-}
-
 /* ─── Gradient overlays ──────────────────────────────────────────────────── */
 .gradient-fade-down {
   background: linear-gradient(to bottom, transparent 0%, var(--bg-deep) 100%);
 }
-
-/* ─── SVG breathe ────────────────────────────────────────────────────────── */
-@keyframes svg-breathe {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.05); }
-}
-.svg-breathe { animation: svg-breathe 4s ease-in-out infinite; transform-origin: center; }
-
-/* ─── Cloud drift ────────────────────────────────────────────────────────── */
-@keyframes cloud-drift { 0% { transform: translateX(0); } 100% { transform: translateX(40px); } }
-@keyframes cloud-drift-slow { 0% { transform: translateX(0); } 100% { transform: translateX(25px); } }
 
 /* ─── Noise texture overlay (very subtle) ─────────────────────────────────── */
 .noise-overlay::before {
@@ -210,4 +435,122 @@ button { cursor: pointer; }
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ─── SKILL TREE ANIMATIONS ──────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* Vision crown appears with a radiant glow */
+@keyframes tree-vision-in {
+  0%   { opacity: 0; transform: scale(0.3); filter: blur(8px); }
+  60%  { opacity: 1; transform: scale(1.15); filter: blur(0); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+.tree-vision-appear {
+  animation: tree-vision-in 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Star pulse — gentle breathing glow */
+@keyframes tree-star-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+.tree-star-pulse { animation: tree-star-pulse 3s ease-in-out infinite; }
+
+/* Star breathe — ambient glow scale */
+@keyframes tree-star-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.15); opacity: 0.5; }
+}
+.tree-star-breathe {
+  animation: tree-star-breathe 4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Line draw — stroke-dashoffset reveal */
+@keyframes tree-draw-line {
+  to { stroke-dashoffset: 0; }
+}
+.tree-line-draw {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: tree-draw-line var(--draw-duration, 0.8s) ease-out forwards;
+  animation-delay: var(--draw-delay, 0s);
+}
+
+/* Node appear — scale + opacity pop */
+@keyframes tree-node-pop {
+  0%   { opacity: 0; transform: scale(0); }
+  70%  { transform: scale(1.2); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.tree-node-appear {
+  animation: tree-node-pop 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--node-delay, 0s);
+  transform-origin: center;
+  transform-box: fill-box;
+  opacity: 0;
+}
+
+/* Quest node pulse for active quests */
+@keyframes tree-quest-ring {
+  0%, 100% { r: 20; opacity: 0.3; }
+  50% { r: 26; opacity: 0.08; }
+}
+.tree-quest-pulse {
+  animation: tree-quest-ring 2.5s ease-in-out infinite;
+}
+
+/* You-are-here breathing */
+@keyframes tree-you-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.2); opacity: 0.6; }
+}
+.tree-you-breathe {
+  animation: tree-you-breathe 3s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Text fade in */
+@keyframes tree-text-in {
+  from { opacity: 0; }
+  to   { opacity: 0.75; }
+}
+.tree-text-fade {
+  animation: tree-text-in 0.6s ease-out forwards;
+  animation-delay: var(--text-delay, 0s);
+  opacity: 0;
+}
+
+/* Progress ring animation */
+@keyframes tree-progress-fill {
+  from { stroke-dasharray: 0 113; }
+}
+.tree-progress-ring {
+  animation: tree-progress-fill 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: 2.5s;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* ─── Ambient particle drift ─────────────────────────────────────────────── */
+
+/* ─── Ambient particle drift ─────────────────────────────────────────────── */
+@keyframes particle-drift {
+  0%   { transform: translateY(0px) translateX(0px); opacity: 0; }
+  10%  { opacity: 0.7; }
+  90%  { opacity: 0.4; }
+  100% { transform: translateY(-130px) translateX(var(--drift-x, 8px)); opacity: 0; }
+}
+.ambient-particle {
+  animation: particle-drift var(--drift-dur, 6s) ease-in-out infinite;
+  animation-delay: var(--drift-delay, 0s);
+  pointer-events: none;
+  position: absolute;
+  border-radius: 9999px;
 }

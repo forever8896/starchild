@@ -22,13 +22,25 @@ tauri = { version = "2.9.5", features = ["tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
 rusqlite = { version = "0.35", features = ["bundled", "serde_json"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"], default-features = false }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 thiserror = "2"
+base64 = "0.22"
+dotenvy = "0.15.7"
+sha2 = "0.10.9"
+hex = "0.4.3"
+k256 = { version = "0.13", features = ["ecdh", "arithmetic"] }
+aes-gcm = "0.10"
+hkdf = "0.12"
+rand = "0.8"
+alloy = { version = "0.3.0", features = ["provider-http", "signer-local", "sol-types", "network", "consensus", "rpc-types"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
 
 [dev-dependencies]
 tempfile = "3"

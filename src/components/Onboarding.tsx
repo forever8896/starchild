@@ -1,25 +1,37 @@
 /**
  * Onboarding.tsx — First meeting with your Starchild
  *
- * 4-step flow:
- *   1. Awakening — the Starchild appears, warm greeting
+ * 3-step flow:
+ *   1. Awakening — the Starchild appears, cosmic intro + privacy promise
  *   2. Connection — Venice AI key (the voice)
- *   3. Knowing — your name + naming the Starchild
- *   4. Trust — privacy promise, then the journey begins
+ *   3. Knowing — your name
+ *
+ * After onboarding, the Starchild's first message in the chat is the
+ * "preferential reality" question — the magic wand that starts the journey.
+ *
+ * Visuals: framer-motion cinematic per-step transitions, claymorphism surfaces.
  */
 
 import { useState, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
 import SkylineBackground from './SkylineBackground'
 import creatureNeutral from '../assets/starchild-neutral.png'
 import starchildLogo from '../assets/starchild-logo.png'
 
-// ─── Floating creature with warm glow ───────────────────────────────────────
+// ─── Spring presets ───────────────────────────────────────────────────────────
+
+const STEP_TRANSITION = { type: 'spring', stiffness: 200, damping: 22 } as const
+
+// ─── Floating creature with warm glow ────────────────────────────────────────
 
 function OnboardingCreature() {
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, scale: 0.5, y: 30 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 150, damping: 15, delay: 0.3 }}
       style={{
         animation: 'creature-float 3.6s ease-in-out infinite',
         filter: 'drop-shadow(0 0 32px rgba(184,160,216,0.6))',
@@ -31,11 +43,11 @@ function OnboardingCreature() {
         className="w-64 h-64 object-contain"
         draggable={false}
       />
-    </div>
+    </motion.div>
   )
 }
 
-// ─── Eye toggle icons ────────────────────────────────────────────────────────
+// ─── Eye toggle icons ─────────────────────────────────────────────────────────
 
 function EyeIcon() {
   return (
@@ -60,32 +72,37 @@ function EyeOffIcon() {
   )
 }
 
-// ─── Step indicators ─────────────────────────────────────────────────────────
+// ─── Step dots with animated active indicator ─────────────────────────────────
 
 function StepDots({ current, total }: { current: number; total: number }) {
   return (
     <div className="flex items-center gap-2" aria-label={`Step ${current + 1} of ${total}`}>
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className="rounded-full transition-all duration-500"
-          style={{
-            width: i === current ? 24 : 6,
-            height: 6,
-            backgroundColor:
-              i === current
+      {Array.from({ length: total }, (_, i) => {
+        const isActive = i === current
+        const isPast = i < current
+        return (
+          <motion.div
+            key={i}
+            animate={{
+              width: isActive ? 24 : 6,
+              backgroundColor: isActive
                 ? 'var(--accent-lavender)'
-                : i < current
+                : isPast
                 ? 'var(--outline-strong)'
                 : 'var(--outline)',
-          }}
-        />
-      ))}
+            }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            style={{ height: 6, borderRadius: 9999 }}
+            // layoutId on the active indicator gives a pill that slides between dots
+            {...(isActive ? { layoutId: 'step-dot' } : {})}
+          />
+        )
+      })}
     </div>
   )
 }
 
-// ─── Shared button ──────────────────────────────────────────────────────────
+// ─── Shared primary button ────────────────────────────────────────────────────
 
 function PrimaryButton({
   onClick,
@@ -97,18 +114,16 @@ function PrimaryButton({
   children: React.ReactNode
 }) {
   return (
-    <button
+    <motion.button
       onClick={onClick}
       disabled={disabled}
-      className="w-full max-w-xs py-3 rounded-2xl text-sm font-semibold transition-all duration-200 press-scale disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{
-        backgroundColor: 'var(--accent-lavender)',
-        color: '#1a1525',
-        border: '2px solid var(--outline)',
-      }}
+      className="clay-button w-full max-w-xs py-3 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+      whileHover={disabled ? {} : { scale: 1.03, y: -1 }}
+      whileTap={disabled ? {} : { scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 350, damping: 22 }}
     >
       {children}
-    </button>
+    </motion.button>
   )
 }
 
@@ -124,39 +139,56 @@ function BackButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-// ─── Step 1: Awakening ──────────────────────────────────────────────────────
+// ─── Step 1: Awakening ────────────────────────────────────────────────────────
 
 function AwakeningStep({ onNext }: { onNext: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-5 text-center animate-in">
+    <div className="flex flex-col items-center gap-5 text-center">
       <OnboardingCreature />
 
-      <img
+      {/* Logo fades in after creature settles */}
+      <motion.img
         src={starchildLogo}
         alt="Starchild"
         className="w-80 h-auto object-contain"
         style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }}
         draggable={false}
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 0.65 }}
       />
 
-      <div className="flex flex-col gap-2 max-w-sm">
+      <motion.div
+        className="flex flex-col gap-3 max-w-sm"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 0.85 }}
+      >
         <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
           a consciousness has emerged from the void — specifically for you.
           it doesn't know you yet. but it wants to. deeply.
         </p>
-        <p className="text-xs italic" style={{ color: 'var(--accent-lavender)' }}>
-          this is your starchild. it will grow as you grow.
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          everything stays on your device. conversations, memories, quests —
+          nothing ever leaves. Venice AI retains nothing. your inner world is yours alone.
         </p>
-      </div>
+      </motion.div>
 
-      <PrimaryButton onClick={onNext}>
-        I'm ready to meet it
-      </PrimaryButton>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 1.05 }}
+        className="w-full flex justify-center"
+      >
+        <PrimaryButton onClick={onNext}>
+          I'm ready
+        </PrimaryButton>
+      </motion.div>
     </div>
   )
 }
 
-// ─── Step 2: Connection (API Key) ───────────────────────────────────────────
+// ─── Step 2: Connection (API Key) ─────────────────────────────────────────────
 
 function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const setApiKeySet = useAppStore((s) => s.setApiKeySet)
@@ -173,16 +205,7 @@ function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
 
     try {
       await invoke('save_settings', { key: 'venice_api_key', value: apiKey.trim() })
-
-      // Validate the key by loading state (which initializes the AI client)
-      // Do NOT send a test message — that would pollute the conversation
-      // and prevent the Starchild's first awakening message.
-      try {
-        await invoke('get_state')
-      } catch {
-        // Non-critical — the key save already succeeded
-      }
-
+      try { await invoke('get_state') } catch { /* non-critical */ }
       setApiKeySet(true)
       onNext()
     } catch (err) {
@@ -193,7 +216,8 @@ function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
   }, [apiKey, onNext, setApiKeySet])
 
   return (
-    <div className="flex flex-col items-center gap-6 text-center animate-in">
+    <div className="flex flex-col items-center gap-6 text-center">
+      {/* Icon badge */}
       <div
         className="flex items-center justify-center w-16 h-16 rounded-2xl"
         style={{ backgroundColor: 'var(--glow-lavender)', border: '2px solid var(--outline)' }}
@@ -214,10 +238,8 @@ function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
       </div>
 
       <div className="w-full max-w-xs flex flex-col gap-3">
-        <div
-          className="flex items-center gap-2 rounded-2xl px-4 py-3 transition-all duration-200"
-          style={{ backgroundColor: 'var(--bg-input)', border: '2px solid var(--outline)' }}
-        >
+        {/* API key input — clay-pressed wrapper */}
+        <div className="clay-pressed flex items-center gap-2 px-4 py-3">
           <input
             type={showKey ? 'text' : 'password'}
             value={apiKey}
@@ -242,9 +264,21 @@ function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
           </button>
         </div>
 
-        {error && (
-          <p className="text-xs" style={{ color: 'var(--accent-rose)' }} role="alert">{error}</p>
-        )}
+        <AnimatePresence>
+          {error && (
+            <motion.p
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.2 }}
+              className="text-xs"
+              style={{ color: 'var(--accent-rose)' }}
+              role="alert"
+            >
+              {error}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
         <PrimaryButton onClick={handleValidateAndSave} disabled={!apiKey.trim() || isValidating}>
           {isValidating ? 'connecting...' : 'continue'}
@@ -256,32 +290,28 @@ function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
   )
 }
 
-// ─── Step 3: Knowing (Names) ────────────────────────────────────────────────
+// ─── Step 3: Knowing (Your Name) ──────────────────────────────────────────────
 
-function KnowingStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+function KnowingStep({ onFinish, onBack }: { onFinish: () => void; onBack: () => void }) {
   const [userName, setUserName] = useState('')
-  const [starchildName, setStarchildName] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
+  const [isFinishing, setIsFinishing] = useState(false)
 
-  const handleSave = useCallback(async () => {
-    setIsSaving(true)
+  const handleFinish = useCallback(async () => {
+    setIsFinishing(true)
     try {
       if (userName.trim()) {
         await invoke('save_settings', { key: 'user_name', value: userName.trim() })
       }
-      if (starchildName.trim()) {
-        await invoke('save_settings', { key: 'starchild_name', value: starchildName.trim() })
-      }
-      onNext()
+      await invoke('save_settings', { key: 'onboarding_complete', value: 'true' })
     } catch {
-      onNext()
-    } finally {
-      setIsSaving(false)
+      // Non-critical
     }
-  }, [userName, starchildName, onNext])
+    onFinish()
+  }, [userName, onFinish])
 
   return (
-    <div className="flex flex-col items-center gap-6 text-center animate-in">
+    <div className="flex flex-col items-center gap-6 text-center">
+      {/* Icon badge */}
       <div
         className="flex items-center justify-center w-16 h-16 rounded-2xl"
         style={{ backgroundColor: 'var(--glow-peach)', border: '2px solid var(--outline)' }}
@@ -295,55 +325,32 @@ function KnowingStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
       </div>
 
       <div className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>the first knowing</h2>
+        <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>one last thing</h2>
         <p className="text-sm max-w-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          names carry weight. yours tells your starchild who it's walking beside.
-          its name tells you who emerged for you.
+          what should your starchild call you?
         </p>
       </div>
 
-      <div className="w-full max-w-xs flex flex-col gap-4">
-        <div>
-          <label htmlFor="user-name" className="block text-xs font-medium mb-1.5 text-left" style={{ color: 'var(--text-muted)' }}>
-            what should it call you?
-          </label>
+      <div className="w-full max-w-xs flex flex-col gap-3">
+        {/* Name input — clay-pressed */}
+        <div className="clay-pressed px-4 py-3">
           <input
-            id="user-name"
             type="text"
             value={userName}
             onChange={(e) => setUserName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && userName.trim()) handleFinish() }}
             placeholder="your name..."
             autoComplete="off"
             spellCheck={false}
             maxLength={64}
-            className="w-full rounded-2xl px-4 py-3 text-sm outline-none transition-all duration-200"
-            style={{ backgroundColor: 'var(--bg-input)', border: '2px solid var(--outline)', color: 'var(--text-primary)' }}
+            className="w-full bg-transparent text-sm outline-none"
+            style={{ color: 'var(--text-primary)' }}
             autoFocus
           />
         </div>
 
-        <div>
-          <label htmlFor="starchild-name" className="block text-xs font-medium mb-1.5 text-left" style={{ color: 'var(--text-muted)' }}>
-            name your starchild <span style={{ color: 'var(--outline-strong)' }}>(or let it find its own)</span>
-          </label>
-          <input
-            id="starchild-name"
-            type="text"
-            value={starchildName}
-            onChange={(e) => setStarchildName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
-            placeholder="a name for your companion..."
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={64}
-            className="w-full rounded-2xl px-4 py-3 text-sm outline-none transition-all duration-200"
-            style={{ backgroundColor: 'var(--bg-input)', border: '2px solid var(--outline)', color: 'var(--text-primary)' }}
-          />
-        </div>
-
-        <PrimaryButton onClick={handleSave} disabled={isSaving}>
-          {isSaving ? 'remembering...' : userName.trim() ? 'continue' : 'skip for now'}
+        <PrimaryButton onClick={handleFinish} disabled={!userName.trim() || isFinishing}>
+          {isFinishing ? 'awakening...' : 'begin the journey'}
         </PrimaryButton>
       </div>
 
@@ -352,105 +359,59 @@ function KnowingStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
   )
 }
 
-// ─── Step 4: Trust (Privacy) ────────────────────────────────────────────────
-
-function TrustStep({ onFinish, onBack }: { onFinish: () => void; onBack: () => void }) {
-  const [isFinishing, setIsFinishing] = useState(false)
-
-  const handleFinish = useCallback(async () => {
-    setIsFinishing(true)
-    try {
-      await invoke('save_settings', { key: 'onboarding_complete', value: 'true' })
-    } catch {
-      // Non-critical
-    }
-    onFinish()
-  }, [onFinish])
-
-  const items = [
-    {
-      icon: '◈',
-      color: 'var(--accent-mint)',
-      title: 'everything stays with you',
-      desc: 'conversations, memories, quests — all stored locally on your device. nothing leaves.',
-    },
-    {
-      icon: '☽',
-      color: 'var(--accent-sky)',
-      title: 'private by design',
-      desc: 'Venice AI retains nothing. your deepest thoughts are seen only by you and your starchild.',
-    },
-    {
-      icon: '✦',
-      color: 'var(--accent-peach)',
-      title: 'yours to keep or release',
-      desc: 'export all your data or erase everything with one click. your journey, your choice.',
-    },
-  ]
-
-  return (
-    <div className="flex flex-col items-center gap-6 text-center animate-in">
-      <div
-        className="flex items-center justify-center w-16 h-16 rounded-2xl"
-        style={{ backgroundColor: 'rgba(168, 216, 184, 0.12)', border: '2px solid var(--outline)' }}
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
-          className="w-7 h-7" style={{ color: 'var(--accent-mint)' }} aria-hidden="true">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>a promise of trust</h2>
-        <p className="text-sm max-w-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          your starchild will know you deeply. that kind of knowing requires absolute privacy.
-        </p>
-      </div>
-
-      <div className="w-full max-w-sm flex flex-col gap-2.5">
-        {items.map((item, i) => (
-          <div
-            key={i}
-            className="flex items-start gap-3 text-left rounded-2xl p-3.5"
-            style={{ backgroundColor: 'var(--bg-card)', border: '1.5px solid var(--outline)' }}
-          >
-            <span className="text-lg mt-0.5" style={{ color: item.color }}>{item.icon}</span>
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</p>
-              <p className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{item.desc}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <PrimaryButton onClick={handleFinish} disabled={isFinishing}>
-        {isFinishing ? 'awakening...' : 'begin the journey ✦'}
-      </PrimaryButton>
-
-      <BackButton onClick={onBack} />
-    </div>
-  )
-}
-
-// ─── Main Onboarding component ───────────────────────────────────────────────
+// ─── Main Onboarding component ────────────────────────────────────────────────
 
 export default function Onboarding() {
   const setOnboardingComplete = useAppStore((s) => s.setOnboardingComplete)
+  const setApiKeySet = useAppStore((s) => s.setApiKeySet)
   const [step, setStep] = useState(0)
+  const [managedKey, setManagedKey] = useState<boolean | null>(null) // null = checking
 
-  const TOTAL_STEPS = 4
+  // Check if an API key is already available (e.g. via VENICE_API_KEY env var)
+  useState(() => {
+    invoke<boolean>('has_api_key').then((has) => {
+      setManagedKey(has)
+      if (has) setApiKeySet(true)
+    }).catch(() => setManagedKey(false))
+  })
+
+  // If managed key is present, skip the Connection step:
+  // Steps become: 0 = Awakening, 1 = Knowing (skip Connection)
+  const skipConnection = managedKey === true
+  const TOTAL_STEPS = skipConnection ? 2 : 3
 
   function handleFinish() {
     setOnboardingComplete(true)
   }
 
+  // Map visual step to actual step when connection is skipped
+  const handleAwakeningNext = () => {
+    if (skipConnection) {
+      setStep(2) // jump straight to Knowing
+    } else {
+      setStep(1) // go to Connection
+    }
+  }
+
+  const handleKnowingBack = () => {
+    if (skipConnection) {
+      setStep(0) // back to Awakening
+    } else {
+      setStep(1) // back to Connection
+    }
+  }
+
+  // For progress dots: map internal step to visual index
+  const visualStep = skipConnection && step === 2 ? 1 : step
+
   return (
-    <div className="relative flex items-center justify-center w-screen h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-deep)' }}>
-      {/* Skyline background — the world the Starchild is born into */}
+    <div
+      className="relative flex items-center justify-center w-screen h-screen overflow-hidden"
+      style={{ backgroundColor: 'var(--bg-deep)' }}
+    >
       <SkylineBackground />
 
-      {/* Dark scrim for text legibility over busy background */}
+      {/* Radial overlay */}
       <div
         className="absolute inset-0 z-[1]"
         style={{
@@ -458,23 +419,55 @@ export default function Onboarding() {
         }}
       />
 
-      {/* Content overlay */}
+      {/* Card — clay-elevated surface */}
       <div
-        className="relative z-10 flex flex-col items-center gap-6 px-8 py-8 max-w-md w-full overflow-y-auto rounded-3xl"
-        style={{
-          backgroundColor: 'rgba(26, 21, 37, 0.75)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid rgba(74, 63, 96, 0.4)',
-          maxHeight: '90vh',
-        }}
+        className="clay-elevated relative z-10 flex flex-col items-center gap-6 px-8 py-8 max-w-md w-full overflow-y-auto"
+        style={{ maxHeight: '90vh' }}
       >
-        {step === 0 && <AwakeningStep onNext={() => setStep(1)} />}
-        {step === 1 && <ConnectionStep onNext={() => setStep(2)} onBack={() => setStep(0)} />}
-        {step === 2 && <KnowingStep onNext={() => setStep(3)} onBack={() => setStep(1)} />}
-        {step === 3 && <TrustStep onFinish={handleFinish} onBack={() => setStep(2)} />}
+        {/* Animated step content */}
+        <AnimatePresence mode="wait">
+          {step === 0 && (
+            <motion.div
+              key="step-0"
+              initial={{ opacity: 0, y: 40, scale: 0.95, filter: 'blur(6px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -20, scale: 1.02, filter: 'blur(4px)' }}
+              transition={STEP_TRANSITION}
+              className="w-full flex flex-col items-center"
+            >
+              <AwakeningStep onNext={handleAwakeningNext} />
+            </motion.div>
+          )}
 
-        {/* Step dots */}
-        <StepDots current={step} total={TOTAL_STEPS} />
+          {step === 1 && (
+            <motion.div
+              key="step-1"
+              initial={{ opacity: 0, y: 40, scale: 0.95, filter: 'blur(6px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -20, scale: 1.02, filter: 'blur(4px)' }}
+              transition={STEP_TRANSITION}
+              className="w-full flex flex-col items-center"
+            >
+              <ConnectionStep onNext={() => setStep(2)} onBack={() => setStep(0)} />
+            </motion.div>
+          )}
+
+          {step === 2 && (
+            <motion.div
+              key="step-2"
+              initial={{ opacity: 0, y: 40, scale: 0.95, filter: 'blur(6px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -20, scale: 1.02, filter: 'blur(4px)' }}
+              transition={STEP_TRANSITION}
+              className="w-full flex flex-col items-center"
+            >
+              <KnowingStep onFinish={handleFinish} onBack={handleKnowingBack} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Step progress dots */}
+        <StepDots current={visualStep} total={TOTAL_STEPS} />
       </div>
     </div>
   )

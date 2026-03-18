@@ -19,11 +19,12 @@
         "minHeight": 400,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true
+        "decorations": true,
+        "useHttpsScheme": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://api.venice.ai; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' https://api.venice.ai; style-src 'self' 'unsafe-inline'; media-src 'self' data:"
     },
     "trayIcon": {
       "iconPath": "icons/32x32.png",

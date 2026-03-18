@@ -353,8 +353,9 @@ async fn process_message(
     let memories: Vec<String> = memory.recall(text, 5).unwrap_or_default();
     let knowing_fragment = knowing.profile().map(|p| p.to_prompt_fragment()).unwrap_or_default();
 
-    // Build system prompt with knowing profile
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[]);
+    // Detect conversation phase and build system prompt
+    let phase = crate::ai::PhaseDetector::detect(&history);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);

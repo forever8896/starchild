@@ -230,6 +230,125 @@ const inputWrapperStyle: React.CSSProperties = {
   padding: '8px 12px',
 }
 
+// ─── Voice section ──────────────────────────────────────────────────────────
+
+const VOICE_OPTIONS = [
+  { id: 'af_heart', label: 'Heart', desc: 'Warm female (default)' },
+  { id: 'af_nova', label: 'Nova', desc: 'Bright female' },
+  { id: 'af_bella', label: 'Bella', desc: 'Soft female' },
+  { id: 'af_sky', label: 'Sky', desc: 'Clear female' },
+  { id: 'am_adam', label: 'Adam', desc: 'Warm male' },
+  { id: 'am_echo', label: 'Echo', desc: 'Deep male' },
+  { id: 'am_michael', label: 'Michael', desc: 'Steady male' },
+  { id: 'bf_emma', label: 'Emma', desc: 'British female' },
+  { id: 'bm_george', label: 'George', desc: 'British male' },
+] as const
+
+function VoiceSection() {
+  const ttsEnabled = useAppStore((s) => s.ttsEnabled)
+  const setTtsEnabled = useAppStore((s) => s.setTtsEnabled)
+  const ttsVoice = useAppStore((s) => s.ttsVoice)
+  const setTtsVoice = useAppStore((s) => s.setTtsVoice)
+  const [testPlaying, setTestPlaying] = useState(false)
+
+  async function handleTest() {
+    if (testPlaying) return
+    setTestPlaying(true)
+    try {
+      const b64 = await invoke<string>('venice_tts_speak', {
+        text: 'Hello, I am your Starchild. Together we will find your spark.',
+      })
+      const audio = new Audio(`data:audio/mp3;base64,${b64}`)
+      audio.onended = () => setTestPlaying(false)
+      audio.onerror = () => setTestPlaying(false)
+      await audio.play()
+    } catch (err) {
+      console.error('TTS test failed:', err)
+      setTestPlaying(false)
+    }
+  }
+
+  async function handleVoiceChange(voice: string) {
+    setTtsVoice(voice)
+    try {
+      await invoke('venice_tts_set_voice', { voice })
+    } catch (err) {
+      console.error('Failed to set voice:', err)
+    }
+  }
+
+  return (
+    <Section title="Voice">
+      <div className="flex flex-col gap-3">
+        {/* Auto-speak toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              Auto-speak replies
+            </span>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              Starchild speaks each reply aloud via Venice AI
+            </p>
+          </div>
+          <button
+            onClick={() => setTtsEnabled(!ttsEnabled)}
+            className="relative w-10 h-5 rounded-full transition-colors duration-200"
+            style={{ backgroundColor: ttsEnabled ? 'var(--accent-lavender)' : 'rgba(255,255,255,0.1)' }}
+            role="switch"
+            aria-checked={ttsEnabled}
+          >
+            <span
+              className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform duration-200"
+              style={{
+                backgroundColor: '#fff',
+                transform: ttsEnabled ? 'translateX(20px)' : 'translateX(0)',
+              }}
+            />
+          </button>
+        </div>
+
+        {/* Voice picker */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+            Voice
+          </span>
+          <div className="grid grid-cols-3 gap-1.5">
+            {VOICE_OPTIONS.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => handleVoiceChange(v.id)}
+                className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg text-[11px] transition-colors duration-150"
+                style={{
+                  backgroundColor: ttsVoice === v.id ? 'rgba(184, 160, 216, 0.2)' : 'transparent',
+                  border: ttsVoice === v.id ? '1px solid var(--accent-lavender)' : '1px solid var(--outline)',
+                  color: ttsVoice === v.id ? 'var(--accent-lavender)' : 'var(--text-secondary)',
+                }}
+              >
+                <span className="font-medium">{v.label}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '9px' }}>{v.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Test button */}
+        <button
+          onClick={handleTest}
+          disabled={testPlaying}
+          className="text-xs px-3 py-1.5 rounded-lg transition-colors duration-150 self-start"
+          style={{
+            backgroundColor: testPlaying ? 'rgba(184, 160, 216, 0.1)' : 'rgba(184, 160, 216, 0.15)',
+            color: 'var(--accent-lavender)',
+            border: '1px solid rgba(184, 160, 216, 0.3)',
+          }}
+        >
+          {testPlaying ? 'Playing...' : 'Test voice'}
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 // ─── Identity section ────────────────────────────────────────────────────────
 
 function IdentitySection() {
@@ -1268,6 +1387,9 @@ export default function Settings() {
             )}
           </div>
         </Section>
+
+        {/* Voice */}
+        <VoiceSection />
 
         {/* On-Chain Identity */}
         <IdentitySection />

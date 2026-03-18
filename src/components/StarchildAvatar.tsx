@@ -175,15 +175,15 @@ export default function StarchildAvatar() {
           />
         </div>
 
-        {/* Creature image */}
+        {/* Creature image — transparent PNG, no mask needed */}
         <img
           src={moodImage}
           alt={`Starchild — ${mood}`}
           className="relative z-10 object-contain transition-all duration-700"
           style={{
-            width: '80%',
-            maxWidth: '300px',
-            filter: `drop-shadow(0 0 20px ${palette.glow}) drop-shadow(0 0 40px ${palette.glow})`,
+            width: '95%',
+            maxWidth: '480px',
+            filter: `drop-shadow(0 0 30px ${palette.glow}) drop-shadow(0 0 60px ${palette.glow})`,
           }}
           draggable={false}
         />

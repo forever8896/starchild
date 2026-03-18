@@ -109,6 +109,32 @@ interface AppState {
   setSparkTestComplete: (done: boolean) => void
   sparkTestChecked: boolean
   setSparkTestChecked: (checked: boolean) => void
+
+  // Voice / TTS
+  ttsEnabled: boolean
+  setTtsEnabled: (enabled: boolean) => void
+  ttsVoice: string
+  setTtsVoice: (voice: string) => void
+  ttsPlaying: string | null  // message id currently playing
+  setTtsPlaying: (id: string | null) => void
+
+  // Journey proof (EAS attestation on Base)
+  journeyProof: {
+    userHash: string
+    journeyRoot: string
+    questCount: number
+    streak: number
+    anchored: boolean
+    lastAnchorTx: string | null
+  } | null
+  setJourneyProof: (proof: {
+    userHash: string
+    journeyRoot: string
+    questCount: number
+    streak: number
+    anchored: boolean
+    lastAnchorTx: string | null
+  } | null) => void
 }
 
 // ─── Store implementation ────────────────────────────────────────────────────
@@ -193,4 +219,16 @@ export const useAppStore = create<AppState>((set) => ({
   setSparkTestComplete: (sparkTestComplete) => set({ sparkTestComplete }),
   sparkTestChecked: false,
   setSparkTestChecked: (sparkTestChecked) => set({ sparkTestChecked }),
+
+  // Voice / TTS
+  ttsEnabled: true,
+  setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
+  ttsVoice: 'am_echo',
+  setTtsVoice: (ttsVoice) => set({ ttsVoice }),
+  ttsPlaying: null,
+  setTtsPlaying: (ttsPlaying) => set({ ttsPlaying }),
+
+  // Journey proof
+  journeyProof: null,
+  setJourneyProof: (journeyProof) => set({ journeyProof }),
 }))
