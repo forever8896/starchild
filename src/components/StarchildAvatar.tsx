@@ -17,16 +17,16 @@ import { useAppStore } from '../store'
 
 // ─── Video imports ────────────────────────────────────────────────────────────
 
+// @ts-ignore — WebM VP9 with alpha channel (transparent background)
+import videoIntro from '../assets/videos/starchild1.webm'
 // @ts-ignore
-import videoIntro from '../assets/videos/starchild1.mp4'
+import videoIdle from '../assets/videos/starchild2.webm'
 // @ts-ignore
-import videoIdle from '../assets/videos/starchild2.mp4'
+import videoCurious from '../assets/videos/starchild3.webm'
 // @ts-ignore
-import videoCurious from '../assets/videos/starchild3.mp4'
+import videoCelebrate from '../assets/videos/starchild4.webm'
 // @ts-ignore
-import videoCelebrate from '../assets/videos/starchild4.mp4'
-// @ts-ignore
-import videoCaring from '../assets/videos/starchild5.mp4'
+import videoCaring from '../assets/videos/starchild5.webm'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
