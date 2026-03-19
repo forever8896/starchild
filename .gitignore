@@ -1,7 +1,9 @@
 node_modules/
 dist/
 target/
+.next/
 *.db
 *.onnx
 .env
 .env.*
+REGISTRATION.md

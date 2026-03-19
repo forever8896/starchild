@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+:root {
+  --lavender: #b8a0d8;
+  --gold: #e8d8a8;
+  --lavender-dim: #7a5fa8;
+  --lavender-glow: rgba(184, 160, 216, 0.15);
+  --gold-glow: rgba(232, 216, 168, 0.12);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: #000;
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: #000;
+  color: #fff;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #000;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a2a5a;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--lavender-dim);
+}
+
+/* Selection */
+::selection {
+  background: rgba(184, 160, 216, 0.3);
+  color: #fff;
+}
+
+/* Glow utility — used by animated elements */
+.glow-lavender {
+  filter: drop-shadow(0 0 40px rgba(184, 160, 216, 0.35));
+}
+
+.glow-gold {
+  filter: drop-shadow(0 0 40px rgba(232, 216, 168, 0.35));
+}
