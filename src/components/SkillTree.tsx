@@ -23,11 +23,13 @@
  * All elements animate on mount — no `revealed` toggle needed.
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { type Quest } from '../store'
 import starchildLogo from '../assets/starchild-logo.png'
+// @ts-ignore
+import videoSkillTree from '../assets/videos/skilltree.mp4'
 import skilltreeBg from '../assets/skilltree-bg.png'
 
 // ─── Tree Layout Constants ──────────────────────────────────────────────────
@@ -584,6 +586,14 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
   const [isAnchoring, setIsAnchoring] = useState(false)
   const [anchorResult, setAnchorResult] = useState<string | null>(null)
 
+  // Video intro state — plays skilltree.mp4 then crossfades to SVG tree
+  const [showVideoIntro, setShowVideoIntro] = useState(true)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  const handleVideoEnd = useCallback(() => {
+    setShowVideoIntro(false)
+  }, [])
+
   // Load data
   useEffect(() => {
     let cancelled = false
@@ -670,6 +680,30 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
+      {/* ── Video intro layer — plays skilltree.mp4 then crossfades to SVG ── */}
+      <AnimatePresence>
+        {showVideoIntro && (
+          <motion.div
+            key="tree-video-intro"
+            className="absolute inset-0 z-50 flex items-center justify-center"
+            style={{ backgroundColor: '#000' }}
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.2, ease: 'easeInOut' }}
+          >
+            <video
+              ref={videoRef}
+              src={videoSkillTree}
+              autoPlay
+              muted
+              playsInline
+              onEnded={handleVideoEnd}
+              className="w-full h-full object-contain"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Dedicated skill tree background */}
       <div className="absolute inset-0" aria-hidden="true">
         <img

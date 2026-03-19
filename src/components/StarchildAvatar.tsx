@@ -1,28 +1,34 @@
 /**
- * StarchildAvatar.tsx — Animated Starchild with AI-generated mood images
+ * StarchildAvatar.tsx — Video-driven Starchild avatar
  *
- * Image selection is mood-driven:
- *   - Ecstatic / Happy  → creatureHappy
- *   - Content           → creatureNeutral
- *   - Restless / Curious → creatureCurious
- *   - Hungry / Starving → creatureCaring
+ * Videos change based on mood/state:
+ *   - Default/idle: starchild2.mp4 (breathing loop)
+ *   - Happy/Ecstatic: starchild4.mp4 (celebration)
+ *   - Curious/Restless: starchild3.mp4 (curious)
+ *   - Hungry/Starving/Caring: starchild5.mp4 (caring)
+ *   - First appearance: starchild1.mp4 (intro, plays once then switches to idle)
  *
- * Stage system (egg/hatchling/juvenile/adult) is preserved for badge
- * labels and level display only — not for image selection.
- * Mood also affects glow color and animation speed.
- * Idle animations: floating, glowing, pulsing.
+ * All videos loop except the intro (starchild1) which plays once.
+ * Transitions between videos use a crossfade.
  */
 
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../store'
 
-// ─── Image imports ──────────────────────────────────────────────────────────
+// ─── Video imports ────────────────────────────────────────────────────────────
 
-import creatureNeutral from '../assets/starchild-neutral.png'
-import creatureHappy from '../assets/starchild-happy.png'
-import creatureCurious from '../assets/starchild-curious.png'
-import creatureCaring from '../assets/starchild-caring.png'
+// @ts-ignore
+import videoIntro from '../assets/videos/starchild1.mp4'
+// @ts-ignore
+import videoIdle from '../assets/videos/starchild2.mp4'
+// @ts-ignore
+import videoCurious from '../assets/videos/starchild3.mp4'
+// @ts-ignore
+import videoCelebrate from '../assets/videos/starchild4.mp4'
+// @ts-ignore
+import videoCaring from '../assets/videos/starchild5.mp4'
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type Mood = 'Ecstatic' | 'Happy' | 'Content' | 'Restless' | 'Hungry' | 'Starving'
 type Stage = 'egg' | 'hatchling' | 'juvenile' | 'adult'
@@ -36,7 +42,7 @@ interface MoodPalette {
   animSpeed: number
 }
 
-// ─── Mood palettes ──────────────────────────────────────────────────────────
+// ─── Mood palettes ────────────────────────────────────────────────────────────
 
 const MOOD_PALETTES: Record<string, MoodPalette> = {
   Ecstatic: { primary: '#4ade80', secondary: '#86efac', glow: 'rgba(74,222,128,0.6)',  label: 'Ecstatic', bar: 'bg-green-500',   animSpeed: 0.7 },
@@ -64,27 +70,24 @@ function getStageLabel(stage: Stage): string {
   return { egg: 'Egg', hatchling: 'Hatchling', juvenile: 'Juvenile', adult: 'Adult' }[stage]
 }
 
-function getMoodImage(mood: string): string {
+function getMoodVideo(mood: string): string {
   switch (mood) {
     case 'Ecstatic':
     case 'Happy':
-      return creatureHappy
+      return videoCelebrate
     case 'Restless':
     case 'Curious':
-      return creatureCurious
+      return videoCurious
     case 'Hungry':
     case 'Starving':
-      return creatureCaring
+      return videoCaring
     case 'Content':
     default:
-      return creatureNeutral
+      return videoIdle
   }
 }
 
-// Consistent size since all mood images are the same creature
-const CREATURE_SIZE = 'h-[80%] max-h-[320px]'
-
-// ─── Stat bar with hover tooltip ─────────────────────────────────────────────
+// ─── Stat bar with hover tooltip ──────────────────────────────────────────────
 
 function StatMini({
   label,
@@ -136,7 +139,7 @@ function StatMini({
   )
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function StarchildAvatar() {
   const state = useAppStore((s) => s.starchildState)
@@ -148,44 +151,123 @@ export default function StarchildAvatar() {
   const palette = getPalette(mood)
   const stage  = getStage(level)
 
-  const isStarving = mood === 'Starving'
-  const floatDuration = `${3.6 * palette.animSpeed}s`
-  const moodImage = getMoodImage(mood)
+  const [hasPlayedIntro, setHasPlayedIntro] = useState(
+    () => localStorage.getItem('starchild_intro_played') === 'true'
+  )
+
+  // Front and back video refs for crossfade
+  const frontRef = useRef<HTMLVideoElement>(null)
+  const backRef  = useRef<HTMLVideoElement>(null)
+
+  // Which layer is currently "front" (visible)
+  const [frontIsA, setFrontIsA] = useState(true)
+  const videoARef = useRef<HTMLVideoElement>(null)
+  const videoBRef = useRef<HTMLVideoElement>(null)
+
+  // activeVideo is the src currently playing on the front layer
+  const [activeVideo, setActiveVideo] = useState<string>(
+    () => hasPlayedIntro ? videoIdle : videoIntro
+  )
+  const [frontOpacity, setFrontOpacity] = useState(1)
+
+  // Whether the front video should loop
+  const isIntro = activeVideo === videoIntro
+  const shouldLoop = !isIntro
+
+  // Switch video: load in back layer, fade front out, swap
+  const switchTo = useCallback((src: string) => {
+    const front = frontIsA ? videoARef.current : videoBRef.current
+    const back  = frontIsA ? videoBRef.current : videoARef.current
+    if (!front || !back) return
+
+    back.src = src
+    back.loop = src !== videoIntro
+    back.style.opacity = '0'
+    back.load()
+
+    const onPlaying = () => {
+      back.removeEventListener('playing', onPlaying)
+      // Fade out front
+      front.style.transition = 'opacity 0.7s ease'
+      front.style.opacity = '0'
+      back.style.transition = 'opacity 0.7s ease'
+      back.style.opacity = '1'
+      // After transition, swap roles
+      setTimeout(() => {
+        front.style.transition = ''
+        setFrontIsA(prev => !prev)
+        setActiveVideo(src)
+      }, 720)
+    }
+
+    back.addEventListener('playing', onPlaying)
+    back.play().catch(() => {})
+  }, [frontIsA])
+
+  // On mood change (only after intro)
+  useEffect(() => {
+    if (!hasPlayedIntro) return
+    const target = getMoodVideo(mood)
+    if (target !== activeVideo) {
+      switchTo(target)
+    }
+  }, [mood, hasPlayedIntro]) // intentionally omit switchTo/activeVideo to avoid loops
+
+  // Handle intro end — switch to idle and mark played
+  const handleVideoEnded = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    if (e.currentTarget.src && e.currentTarget.src.includes(videoIntro.split('/').pop()!)) {
+      setHasPlayedIntro(true)
+      localStorage.setItem('starchild_intro_played', 'true')
+      switchTo(videoIdle)
+    }
+  }, [switchTo])
+
+  // Initial mount: set up the front video
+  useEffect(() => {
+    const front = frontIsA ? videoARef.current : videoBRef.current
+    if (!front) return
+    front.src = activeVideo
+    front.loop = activeVideo !== videoIntro
+    front.style.opacity = '1'
+    front.load()
+    front.play().catch(() => {})
+  }, []) // run once on mount only
+
+  // Determine which ref is front and which is back for rendering
+  const frontVideoRef = frontIsA ? videoARef : videoBRef
+  const backVideoRef  = frontIsA ? videoBRef : videoARef
 
   return (
     <div className="relative flex flex-col items-center h-full select-none">
-      {/* Creature — the living center, takes all available space */}
+      {/* Video creature */}
       <div
-        className={`relative flex-1 flex items-center justify-center w-full ${isStarving ? 'creature-pulse' : ''}`}
-        style={{
-          animation: `creature-float ${floatDuration} ease-in-out infinite, creature-breathe ${Number(floatDuration.replace('s','')) * 1.5}s ease-in-out infinite`,
-          transition: 'filter 0.8s ease',
-        }}
+        className="relative flex-1 flex items-center justify-center w-full overflow-hidden"
         aria-label={`Starchild is feeling ${mood}`}
         role="img"
       >
-        {/* Ambient glow */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div
-            className="w-[90%] h-[90%] rounded-full blur-3xl transition-all duration-[2000ms]"
-            style={{
-              background: `radial-gradient(circle, ${palette.glow} 0%, transparent 60%)`,
-              animation: 'glow-pulse 5s ease-in-out infinite',
-            }}
-          />
-        </div>
-
-        {/* Creature image — transparent PNG, no mask needed */}
-        <img
-          src={moodImage}
-          alt={`Starchild — ${mood}`}
-          className="relative z-10 object-contain transition-all duration-700"
+        {/* Back layer (loading next video) */}
+        <video
+          ref={backVideoRef}
+          autoPlay={false}
+          muted
+          playsInline
+          className="absolute inset-0 w-full h-full object-contain z-10"
+          style={{ opacity: 0 }}
+        />
+        {/* Front layer (currently visible) */}
+        <video
+          ref={frontVideoRef}
+          autoPlay
+          muted
+          playsInline
+          loop={shouldLoop}
+          onEnded={isIntro ? handleVideoEnded : undefined}
+          className="absolute inset-0 w-full h-full object-contain z-20"
           style={{
-            width: '95%',
-            maxWidth: '480px',
-            filter: `drop-shadow(0 0 30px ${palette.glow}) drop-shadow(0 0 60px ${palette.glow})`,
+            opacity: 1,
+            maxWidth: '500px',
+            margin: '0 auto',
           }}
-          draggable={false}
         />
       </div>
 
