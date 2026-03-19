@@ -16,9 +16,9 @@ import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
-import SkylineBackground from './SkylineBackground'
-import creatureNeutral from '../assets/starchild-neutral.png'
 import starchildLogo from '../assets/starchild-logo.png'
+// @ts-ignore — WebM VP9 with alpha channel
+import videoIntro from '../assets/videos/starchild1.webm'
 
 // ─── Spring presets ───────────────────────────────────────────────────────────
 
@@ -32,16 +32,14 @@ function OnboardingCreature() {
       initial={{ opacity: 0, scale: 0.5, y: 30 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 150, damping: 15, delay: 0.3 }}
-      style={{
-        animation: 'creature-float 3.6s ease-in-out infinite',
-        filter: 'drop-shadow(0 0 32px rgba(184,160,216,0.6))',
-      }}
     >
-      <img
-        src={creatureNeutral}
-        alt="Your Starchild awakening"
-        className="w-64 h-64 object-contain"
-        draggable={false}
+      <video
+        src={videoIntro}
+        autoPlay
+        muted
+        playsInline
+        loop
+        className="w-72 h-72 object-contain"
       />
     </motion.div>
   )
@@ -409,15 +407,7 @@ export default function Onboarding() {
       className="relative flex items-center justify-center w-screen h-screen overflow-hidden"
       style={{ backgroundColor: 'var(--bg-deep)' }}
     >
-      <SkylineBackground />
-
-      {/* Radial overlay */}
-      <div
-        className="absolute inset-0 z-[1]"
-        style={{
-          background: 'radial-gradient(ellipse at center top, rgba(26,21,37,0.3) 0%, rgba(26,21,37,0.7) 100%)',
-        }}
-      />
+      {/* Pure black background — videos have transparent backgrounds */}
 
       {/* Card — clay-elevated surface */}
       <div
