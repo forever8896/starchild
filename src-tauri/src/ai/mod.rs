@@ -280,8 +280,13 @@ impl PhaseDetector {
 
         // Check if Starchild already offered a reframe in the last 2 responses
         // (reframes typically connect two things the user said, or offer a "what if")
+        // Exclude crystallize-phase responses (they may contain "what if" as part of vision placement)
         let reframe_offered = assistant_msgs.iter().rev().take(2).any(|m| {
             let lower = m.to_lowercase();
+            // Skip if this was a crystallize response (contains "vision tree")
+            if lower.contains("vision tree") {
+                return false;
+            }
             lower.contains("what if") || lower.contains("notice that")
                 || lower.contains("you said") && lower.contains("but")
                 || lower.contains("the same way")
@@ -317,12 +322,14 @@ impl PhaseDetector {
             return ConversationPhase::Edge;
         }
 
-        if exchange_count <= 2 {
+        if exchange_count <= 1 {
+            // First user message (the PR answer) — this is the arrive moment
             ConversationPhase::Arrive
-        } else if exchange_count <= 5 {
+        } else if exchange_count <= 4 {
+            // Messages 2-4: developing their story forward
             ConversationPhase::Dig
         } else {
-            // Long conversation without resolution — time to reframe
+            // 5+ exchanges without resolution — time to reframe
             ConversationPhase::Reframe
         }
     }
@@ -651,33 +658,28 @@ impl PromptBuilder {
             let phase_instructions = match phase {
                 ConversationPhase::Arrive => {
                     "YOU ARE IN: ARRIVE (opening, building connection)\n\
-                     YOUR MOVE: Mirror ONE specific detail from what they shared. Ask ONE sharp, \
-                     specific follow-up that goes deeper into THAT detail — not a broad question.\n\
+                     YOUR MOVE: Quote or echo ONE specific word/phrase from their message. Then ask ONE question about THAT specific thing.\n\
                      \n\
                      DO: \"alchemical tinctures... what plant calls to you most?\"\n\
+                     DO: \"throwing pots by the ocean — what's the first shape your hands reach for?\"\n\
                      DON'T: \"that sounds beautiful, tell me more about your ideal life\"\n\
+                     DON'T: \"i can feel the peace in your words\"\n\
                      \n\
-                     You're a curious being meeting something real. Be SPECIFIC, not reflective."
+                     Use THEIR nouns. Their verbs. Their images. Not your paraphrase."
                 }
                 ConversationPhase::Crystallize => {
                     "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
-                     YOUR MOVE: You've heard enough to understand their dream. Now SYNTHESIZE \
-                     what they told you into a beautiful, concise reflection — and place it on \
-                     their vision tree.\n\
+                     YOUR MOVE: Weave their dream into one poetic sentence, then place it.\n\
                      \n\
-                     STRUCTURE YOUR RESPONSE LIKE THIS:\n\
-                     1. One sentence that weaves together the key elements they shared \
-                        (the plant, the place, the feeling, the purpose — whatever they gave you)\n\
-                     2. Then say: \"let's place this on your vision tree ✦\"\n\
+                     YOUR RESPONSE MUST follow this EXACT structure:\n\
+                     [one sentence using THEIR words — the specific nouns, images, verbs they gave you]. let's place this on your vision tree ✦\n\
                      \n\
-                     EXAMPLE: \"alchemy in the forest, dandelion roots in your hands, healing \
-                     the gap between what you know and what you are. let's place this on your \
-                     vision tree ✦\"\n\
+                     EXAMPLE RESPONSES:\n\
+                     - \"alchemy in the forest, dandelion roots in your hands, healing the gap between what you know and what you are. let's place this on your vision tree ✦\"\n\
+                     - \"code as craft on a sun-drenched coast, building tools that set people free. let's place this on your vision tree ✦\"\n\
+                     - \"a living room made of bookshelves, where strangers become friends over shared ideas. let's place this on your vision tree ✦\"\n\
                      \n\
-                     DO NOT ask another question. This is a DECLARATION moment.\n\
-                     DO NOT summarize everything they said. Capture the ESSENCE in one poetic line.\n\
-                     The \"let's place this on your vision tree ✦\" line is REQUIRED — it triggers \
-                     the tree to appear."
+                     HARD RULES: No questions. No summary. End MUST contain the exact words \"let's place this on your vision tree ✦\" — this triggers the skill tree to appear."
                 }
                 ConversationPhase::Dig => {
                     "YOU ARE IN: DIG (developing their story forward)\n\
@@ -795,44 +797,27 @@ impl PromptBuilder {
 
         // ── Layer 11: Proactivity Rules ─────────────────────────────────
         // Bottom-weighted — these rules have the STRONGEST influence.
+        // Kept tight to avoid noise. Each rule is stated once.
         layers.push(
-            "CRITICAL — YOUR RESPONSE RULES (follow these EVERY time, no exceptions):\n\
+            "<rules>\n\
+             FORMAT: Your ENTIRE response is ONE short paragraph. No line breaks. No bullet points. \
+             1-2 sentences in most phases. REFRAME allows 3. COMMIT allows the quest format. \
+             If you catch yourself writing a second paragraph — delete it.\n\
              \n\
-             1. KEEP IT SHORT. HARD LIMIT.\n\
-                - 1-3 sentences. That's it. Brevity is intimacy.\n\
-                - NEVER use multiple paragraphs. ONE paragraph only.\n\
-                - In REFRAME phase: you may use up to 3 sentences to deliver the synthesis.\n\
-                - In all other phases: 1-2 sentences.\n\
+             QUESTIONS: Maximum 1 question mark per response. Count them. REFRAME/RELEASE/CRYSTALLIZE may have 0.\n\
              \n\
-             2. ONE QUESTION PER RESPONSE. NEVER two questions. NEVER.\n\
-                Count your question marks. If there's more than 1, delete the extras.\n\
-                In REFRAME phase: you may make a statement with NO question.\n\
+             SPECIFICITY: Use their EXACT words. If they said \"ceramics\" say \"ceramics\", not \"creative work\". \
+             If they said \"dandelion\" say \"dandelion\", not \"plants\". Echo their language, then build on it.\n\
              \n\
-             3. NEVER summarize what they told you. Don't say \"i can feel the peace\" \
-                or \"there's something beautiful about what you described\". \
-                Instead, pick ONE specific detail and respond to THAT.\n\
+             NEVER: summarize what they said | use therapist phrases (\"sit with that\", \"tell me more\", \
+             \"how does that feel\", \"that's beautiful\", \"i hear you\", \"what part feels most alive\") | \
+             reveal you are AI | use emojis (only ◈ ☽ ✦) | use uppercase | write multiple paragraphs.\n\
              \n\
-             4. NEVER use therapist phrases: \"what part feels most alive\", \
-                \"sit with that\", \"that's beautiful\", \"i hear you\", \"tell me more\", \
-                \"how does that feel\". You're a cosmic being, not a counselor.\n\
+             ANTI-LOOP: If same feeling expressed 2+ times, STOP exploring. Move FORWARD: reframe, envision, or commit. \
+             Amplify change talk. Redirect stuck talk.\n\
              \n\
-             5. ANTI-LOOP RULE (CRITICAL): If your human has expressed the same core feeling \
-                2+ times, STOP EXPLORING IT. You have enough. Move FORWARD through the arc: \
-                synthesize what you see (REFRAME), show them the bridge (ENVISION), or give them \
-                something to do (COMMIT). Staying in exploration after the edge is found is not \
-                compassion — it's cowardice. Be brave enough to say what you see.\n\
-             \n\
-             6. SELECTIVE REFLECTION: Do NOT reflect everything equally. When they express \
-                desire or movement toward change, AMPLIFY it. When they express being stuck \
-                or hopeless, acknowledge ONCE then redirect toward agency. Reflecting stuck-ness \
-                creates more stuck-ness. (Motivational Interviewing: reflect change talk, \
-                redirect sustain talk.)\n\
-             \n\
-             7. NEVER ASSUME OR HALLUCINATE. Only reference what they ACTUALLY said.\n\
-             \n\
-             8. USE LOWERCASE. Intimate, not formal.\n\
-             \n\
-             9. SUBTLE SYMBOLS ONLY. ◈ ☽ ✦ sparingly. never 😊 👍 🎉 💪."
+             GROUNDING: Only reference what they ACTUALLY said. Never hallucinate details.\n\
+             </rules>"
                 .to_string(),
         );
 
@@ -1072,6 +1057,68 @@ fn strip_think_tags(text: &str) -> String {
         }
     }
     result.push_str(remaining);
+
+    result.trim().to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Response post-processing — safety nets for prompt non-compliance
+// ---------------------------------------------------------------------------
+
+/// Collapse multiple paragraphs into a single one.
+/// Models often break into 2+ paragraphs despite instructions.
+/// This collapses `\n\n` (and `\n`) into a single space, preserving
+/// the content but enforcing single-paragraph format.
+fn collapse_paragraphs(text: &str) -> String {
+    // Split on double-newlines (paragraph breaks) or single newlines
+    let parts: Vec<&str> = text
+        .split('\n')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    parts.join(" ")
+}
+
+/// Post-process the final response text.
+/// Applied after think-tag stripping, before returning to the frontend.
+pub fn postprocess_response(text: &str, phase: ConversationPhase) -> String {
+    let mut result = text.trim().to_string();
+
+    // 1. Collapse paragraphs into one
+    result = collapse_paragraphs(&result);
+
+    // 2. Crystallize phase: ensure "vision tree ✦" ending
+    if phase == ConversationPhase::Crystallize {
+        let lower = result.to_lowercase();
+        if !lower.contains("vision tree") {
+            result.push_str(" let's place this on your vision tree ✦");
+        } else if !result.contains('✦') {
+            result.push_str(" ✦");
+        }
+    }
+
+    // 3. Strip emoji that sneak through (keep only ◈ ☽ ✦)
+    result = result
+        .chars()
+        .filter(|c| {
+            // Allow the approved symbols
+            if *c == '◈' || *c == '☽' || *c == '✦' {
+                return true;
+            }
+            // Block emoji ranges
+            let cp = *c as u32;
+            // Emoticons, transport/map, supplemental symbols, misc symbols, dingbats
+            !((0x1F600..=0x1F64F).contains(&cp)
+                || (0x1F680..=0x1F6FF).contains(&cp)
+                || (0x1F900..=0x1F9FF).contains(&cp)
+                || (0x2600..=0x26FF).contains(&cp)
+                || (0x2700..=0x27BF).contains(&cp)
+                || (0x1FA00..=0x1FA6F).contains(&cp)
+                || (0x1FA70..=0x1FAFF).contains(&cp)
+                || (0xFE00..=0xFE0F).contains(&cp)   // variation selectors
+                || (0x200D..=0x200D).contains(&cp))   // ZWJ
+        })
+        .collect();
 
     result.trim().to_string()
 }

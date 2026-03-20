@@ -590,9 +590,25 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
   const [showVideoIntro, setShowVideoIntro] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
 
-  const handleVideoEnd = useCallback(() => {
+  const dismissVideo = useCallback(() => {
     setShowVideoIntro(false)
   }, [])
+
+  // Fallback: if video fails to play or onEnded never fires, dismiss after 8s
+  useEffect(() => {
+    if (!showVideoIntro) return
+    const fallback = setTimeout(dismissVideo, 8000)
+    return () => clearTimeout(fallback)
+  }, [showVideoIntro, dismissVideo])
+
+  // Try to force-play the video (autoPlay can silently fail)
+  useEffect(() => {
+    if (!showVideoIntro || !videoRef.current) return
+    videoRef.current.play().catch(() => {
+      // autoplay blocked — skip straight to SVG tree
+      dismissVideo()
+    })
+  }, [showVideoIntro, dismissVideo])
 
   // Load data
   useEffect(() => {
@@ -685,7 +701,7 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
         {showVideoIntro && (
           <motion.div
             key="tree-video-intro"
-            className="absolute inset-0 z-50 flex items-center justify-center"
+            className="absolute inset-0 z-50"
             style={{ backgroundColor: '#000' }}
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -697,8 +713,20 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
               autoPlay
               muted
               playsInline
-              onEnded={handleVideoEnd}
-              className="w-full h-full object-contain"
+              onEnded={dismissVideo}
+              onError={dismissVideo}
+              onStalled={() => {
+                // Video got stuck — skip to SVG after 2s grace period
+                setTimeout(dismissVideo, 2000)
+              }}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
             />
           </motion.div>
         )}

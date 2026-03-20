@@ -565,7 +565,10 @@ async fn send_message_stream(
         .await;
 
     match response_text {
-        Ok(full_text) => {
+        Ok(raw_text) => {
+            // Post-process: collapse paragraphs, enforce crystallize format, strip emoji
+            let full_text = ai::postprocess_response(&raw_text, phase);
+
             // Save assistant message
             let assistant_msg_id = Uuid::new_v4().to_string();
             let created_at = chrono::Utc::now()

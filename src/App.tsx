@@ -109,18 +109,28 @@ export default function App() {
     return () => { cancelled = true }
   }, [setOnboardingComplete, setOnboardingChecked])
 
-  // Auto-reveal skill tree when vision is crystallized
+  // Reveal the skill tree when the starchild SAYS "vision tree" in a message.
+  // This ties the reveal directly to the conversation moment — the starchild
+  // says "let's place this on your vision tree ✦", the message finishes,
+  // a brief pause, then the tree appears. No disconnected background events.
   useEffect(() => {
     let unlisten: (() => void) | null = null
-    let dismissTimer: ReturnType<typeof setTimeout> | null = null
-    listen('vision-crystallized', () => {
-      setCurrentView('tree')
-      // Auto-dismiss back to chat after 7 seconds
-      dismissTimer = setTimeout(() => setCurrentView('chat'), 7000)
+    let revealTimer: ReturnType<typeof setTimeout> | null = null
+
+    listen<{ message: { content: string } }>('stream-done', (event) => {
+      const content = event.payload.message.content.toLowerCase()
+      if (content.includes('vision tree')) {
+        // The starchild just told the user about the vision tree —
+        // pause so they read it, then launch the cinematic reveal
+        revealTimer = setTimeout(() => {
+          setCurrentView('tree')
+        }, 2500)
+      }
     }).then((fn) => { unlisten = fn })
+
     return () => {
       unlisten?.()
-      if (dismissTimer) clearTimeout(dismissTimer)
+      if (revealTimer) clearTimeout(revealTimer)
     }
   }, [])
 
