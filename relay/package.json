@@ -7,11 +7,12 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "dotenv": "^17.3.1",
     "viem": "^2.21.67"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
-    "wrangler": "^3.99.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "wrangler": "^3.99.0"
   }
 }

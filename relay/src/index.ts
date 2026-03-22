@@ -30,7 +30,7 @@ const EAS_ADDRESS = '0x4200000000000000000000000000000000000021' as const
 
 // TODO: Replace with real schema UID after registering on https://base.easscan.org
 // Schema: "bytes32 userHash, bytes32 journeyRoot, uint64 questCount, uint64 currentStreak"
-const SCHEMA_UID = '0x0000000000000000000000000000000000000000000000000000000000000000' as const
+const SCHEMA_UID = '0x867ba65be1c06c2ea4aaaa5929550ff01c97cf4e525b88e5d587eb96f69c6eca' as const
 
 const BASE_RPC = 'https://mainnet.base.org'
 

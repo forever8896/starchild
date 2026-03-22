@@ -223,7 +223,7 @@ fn check_anchor_status(db: &Database, journey_root: &[u8; 32]) -> (bool, Option<
 /// Relay URL for submitting attestations.
 /// The relay holds the project wallet and signs EAS attestations on behalf of users.
 /// Users need no wallet, no ETH, no crypto knowledge.
-const RELAY_URL: &str = "https://starchild-relay.kilianvalkhof.workers.dev";
+const RELAY_URL: &str = "https://starchild-relay.starchild.workers.dev";
 
 /// Submit a journey proof to the attestation relay for on-chain anchoring.
 /// The relay signs and submits the EAS attestation on Base using the project wallet.
