@@ -387,6 +387,61 @@ async fn update_conversation_summary(
     Ok(())
 }
 
+/// LLM-based conversation phase classifier.
+/// Reads the recent conversation and returns the appropriate phase.
+async fn classify_conversation_phase(
+    client: &AiClient,
+    history: &[ai::ChatMessage],
+) -> Result<ai::ConversationPhase, String> {
+    // Build a compact conversation summary for classification
+    let convo: String = history.iter().map(|m| {
+        let role = if m.role == "user" { "Human" } else { "Starchild" };
+        format!("{role}: {}", &m.content[..m.content.len().min(200)])
+    }).collect::<Vec<_>>().join("\n");
+
+    let prompt = format!(
+        "You are a conversation phase classifier for a personal growth companion.\n\n\
+         Recent conversation:\n{convo}\n\n\
+         Based on the conversation, what should the companion do NEXT? Pick exactly ONE:\n\n\
+         - dig: The human is still exploring, sharing new details. Ask deeper questions to understand them.\n\
+         - edge: The human has revealed tension, pain, or a gap between where they are and where they want to be. Name it.\n\
+         - reframe: Enough info gathered. Connect two things they said into a new insight they haven't seen.\n\
+         - commit: The human is ready for action, asking for help, or has been talking long enough. Offer a concrete quest/task.\n\
+         - release: A quest was already offered. Close the thread warmly.\n\n\
+         IMPORTANT RULES:\n\
+         - If the human asks for help, guidance, steps, or says the goal feels distant → commit\n\
+         - If the human agrees enthusiastically or says yes → commit\n\
+         - If 5+ exchanges have happened and no quest offered yet → commit\n\
+         - If Starchild already offered a reframe (\"what if...\") → commit (don't reframe twice)\n\
+         - NEVER stay in dig for more than 3 exchanges\n\n\
+         Reply with ONLY the phase name, nothing else."
+    );
+
+    let messages = vec![
+        ai::ChatMessage::system("Reply with exactly one word: dig, edge, reframe, commit, or release."),
+        ai::ChatMessage::user(&prompt),
+    ];
+
+    let response = client.chat(messages, ai::ModelTier::Quick)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let phase_str = response.trim().to_lowercase();
+    let phase = match phase_str.as_str() {
+        "dig" => ai::ConversationPhase::Dig,
+        "edge" => ai::ConversationPhase::Edge,
+        "reframe" => ai::ConversationPhase::Reframe,
+        "commit" => ai::ConversationPhase::Commit,
+        "release" => ai::ConversationPhase::Release,
+        other => {
+            log::warn!("LLM returned unknown phase '{other}', defaulting to commit");
+            ai::ConversationPhase::Commit
+        }
+    };
+
+    Ok(phase)
+}
+
 /// Synthesize a beautiful, concise vision statement from the conversation so far.
 /// Called once after the preferential reality is captured and a few exchanges deepen it.
 /// Saves the result as `vision_statement` and emits `vision-crystallized` to the frontend.
@@ -589,7 +644,25 @@ async fn send_message_stream(
     let vision_revealed = state.db.get_setting("vision_revealed").ok().flatten().is_some();
     // Crystallize when: PR exists AND (vision not yet created OR vision created but not yet revealed)
     let crystallize_pending = has_pr && (!has_vision || (has_vision && !vision_revealed));
-    let phase = ai::PhaseDetector::detect_with_context(&history, crystallize_pending);
+
+    // Phase detection:
+    // - Pre-vision: deterministic (Arrive / Crystallize)
+    // - Post-vision: LLM-classified intent
+    let phase = if crystallize_pending {
+        ai::PhaseDetector::detect_with_context(&history, true)
+    } else if !has_pr {
+        ai::ConversationPhase::Arrive
+    } else {
+        // Post-vision: ask the LLM to classify the conversation phase
+        let phase_result = classify_conversation_phase(&ai_client, &history).await;
+        match phase_result {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("Phase classification failed, falling back to heuristic: {e}");
+                ai::PhaseDetector::detect_with_context(&history, false)
+            }
+        }
+    };
     log::info!("Conversation phase: {:?} (crystallize_pending={})", phase, crystallize_pending);
 
     // Build system prompt with knowing profile and conversation phase
@@ -678,6 +751,11 @@ async fn send_message_stream(
             if phase == ai::ConversationPhase::Crystallize {
                 let _ = state.db.set_setting("vision_revealed", "true");
                 let _ = app_handle.emit("reveal-skill-tree", ());
+            }
+
+            // After Commit phase: auto-generate quest suggestions
+            if phase == ai::ConversationPhase::Commit {
+                let _ = app_handle.emit("quest-commit", ());
             }
 
             // Background: extract memories

@@ -23,7 +23,7 @@
  * All elements animate on mount — no `revealed` toggle needed.
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { type Quest } from '../store'
@@ -586,23 +586,33 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
   const [isAnchoring, setIsAnchoring] = useState(false)
   const [anchorResult, setAnchorResult] = useState<string | null>(null)
 
-  // Video intro state — plays skilltree.webm then crossfades to SVG tree
+  // Video intro — plays once with loop to keep WebKitGTK happy, dismiss after duration
   const [showVideoIntro, setShowVideoIntro] = useState(true)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const dismissedRef = useRef(false)
+  // Cinematic SVG reveal: zoom star → pull back to full tree → auto-dismiss
+  const [revealPhase, setRevealPhase] = useState<'star' | 'tree' | 'done'>('star')
 
-  const dismissVideo = useCallback(() => {
-    if (dismissedRef.current) return
-    dismissedRef.current = true
-    setShowVideoIntro(false)
-  }, [])
-
-  // Hard fallback — video is 5s, so 6s is generous
   useEffect(() => {
     if (!showVideoIntro) return
-    const fallback = setTimeout(dismissVideo, 6000)
-    return () => clearTimeout(fallback)
-  }, [showVideoIntro, dismissVideo])
+    const timer = setTimeout(() => setShowVideoIntro(false), 5200)
+    return () => clearTimeout(timer)
+  }, [showVideoIntro])
+
+  // Reveal sequence starts after video fades out
+  useEffect(() => {
+    if (showVideoIntro) return
+    // Phase 1: star is already showing (zoomed in)
+    // Phase 2: after 2s, pull back to full tree
+    const treeTimer = setTimeout(() => setRevealPhase('tree'), 2000)
+    // Phase 3: after full reveal (2s zoom + 4s to appreciate), auto-dismiss
+    const dismissTimer = setTimeout(() => {
+      setRevealPhase('done')
+      onBack()
+    }, 10000)
+    return () => {
+      clearTimeout(treeTimer)
+      clearTimeout(dismissTimer)
+    }
+  }, [showVideoIntro, onBack])
 
   // Load data
   useEffect(() => {
@@ -690,37 +700,25 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      {/* ── Video intro layer — plays skilltree.mp4 then crossfades to SVG ── */}
-      <AnimatePresence>
-        {showVideoIntro && (
-          <motion.div
-            key="tree-video-intro"
-            className="absolute inset-0 z-50"
-            style={{ backgroundColor: '#000' }}
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1.2, ease: 'easeInOut' }}
-          >
-            <video
-              ref={videoRef}
-              src={videoSkillTree}
-              autoPlay
-              muted
-              playsInline
-              onEnded={dismissVideo}
-              onError={dismissVideo}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-              }}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Video intro — plays once then crossfades to SVG tree */}
+      <div
+        className="absolute inset-0 z-50 transition-opacity duration-1000 ease-in-out"
+        style={{
+          opacity: showVideoIntro ? 1 : 0,
+          pointerEvents: showVideoIntro ? 'auto' : 'none',
+          WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, black 40%, transparent 90%)',
+          maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, black 40%, transparent 90%)',
+        }}
+      >
+        <video
+          src={videoSkillTree}
+          autoPlay
+          muted
+          playsInline
+          loop
+          className="absolute inset-0 w-full h-full object-contain"
+        />
+      </div>
 
       {/* Dedicated skill tree background */}
       <div className="absolute inset-0" aria-hidden="true">
@@ -790,8 +788,18 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
         Your Journey
       </motion.h1>
 
-      {/* The Tree (SVG) */}
-      <div className="absolute inset-0 z-10 flex items-center justify-center p-4 pt-16">
+      {/* The Tree (SVG) — cinematic zoom reveal */}
+      <div
+        className="absolute inset-0 z-10 flex items-center justify-center p-4 pt-16"
+        style={{
+          // Zoom: start zoomed into the star (top center), pull back to full view
+          transform: revealPhase === 'star'
+            ? 'scale(3) translateY(30%)'
+            : 'scale(1) translateY(0%)',
+          transformOrigin: '50% 10%',
+          transition: 'transform 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        }}
+      >
         <svg
           viewBox={`0 0 ${VB_W} ${VB_H}`}
           className="w-full h-full max-w-2xl"

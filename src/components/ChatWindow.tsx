@@ -13,6 +13,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAppStore, type Message } from '../store'
 import StarchildAvatar from './StarchildAvatar'
 import ActiveQuest from './ActiveQuest'
+import QuestSuggestions from './QuestSuggestions'
 import starchildLogo from '../assets/starchild-logo.png'
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
@@ -251,6 +252,7 @@ export default function ChatWindow() {
   const setIsLoading      = useAppStore((s) => s.setIsLoading)
   const setStarchildState = useAppStore((s) => s.setStarchildState)
   const [ready, setReady] = useState(false)
+  const [showQuestSuggestions, setShowQuestSuggestions] = useState(false)
 
   const [input, setInput]         = useState('')
   const [error, setError]         = useState<string | null>(null)
@@ -314,7 +316,16 @@ export default function ChatWindow() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isTyping])
+  }, [messages, isTyping, showQuestSuggestions])
+
+  // Listen for quest-commit event — show quest suggestions inline
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    listen('quest-commit', () => {
+      setShowQuestSuggestions(true)
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
@@ -660,6 +671,17 @@ export default function ChatWindow() {
                 )}
               </AnimatePresence>
             </>
+          )}
+          {/* Quest suggestions — appear inline after Commit phase */}
+          {showQuestSuggestions && (
+            <motion.div
+              className="px-4 py-2"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 22 }}
+            >
+              <QuestSuggestions onQuestCreated={() => setShowQuestSuggestions(false)} />
+            </motion.div>
           )}
           <div ref={bottomRef} />
         </div>

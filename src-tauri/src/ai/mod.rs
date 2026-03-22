@@ -311,13 +311,45 @@ impl PhaseDetector {
         // Detect edge — user shares concrete pain, event, or vulnerability
         let edge_found = Self::detect_edge(&user_msgs);
 
+        // Detect if user is explicitly asking for action/quests/help getting there
+        let action_requested = user_msgs.iter().rev().take(2).any(|m| {
+            let lower = m.to_lowercase();
+            lower.contains("help me") || lower.contains("how do i")
+                || lower.contains("quest") || lower.contains("what should i do")
+                || lower.contains("progression") || lower.contains("steps")
+                || lower.contains("get there") || lower.contains("get started")
+                || lower.contains("plan") || lower.contains("action")
+                || lower.contains("you tell me") || lower.contains("tell me what")
+                || lower.contains("so distant") || lower.contains("feels distant")
+                || lower.contains("where do i start") || lower.contains("what can i do")
+                || lower.contains("guide me") || lower.contains("show me")
+                || lower.contains("yes please")
+        });
+
+        // Detect if Starchild already offered an envision/future-pull
+        let envision_offered = assistant_msgs.iter().rev().take(2).any(|m| {
+            let lower = m.to_lowercase();
+            lower.contains("1 step closer") || lower.contains("version of you")
+                || lower.contains("what would it look like") || lower.contains("bridge")
+        });
+
         // Phase logic (priority order)
+
+        // User asking for action → go straight to Commit
+        if action_requested {
+            return ConversationPhase::Commit;
+        }
+
         if stuck_signals {
-            // User is stuck in a loop — skip ahead
             if reframe_offered {
                 return ConversationPhase::Envision;
             }
             return ConversationPhase::Reframe;
+        }
+
+        // After reframe: if we've had enough exchanges, go to Commit not Envision
+        if reframe_offered && exchange_count >= 5 {
+            return ConversationPhase::Commit;
         }
 
         if reframe_offered {
@@ -333,14 +365,15 @@ impl PhaseDetector {
         }
 
         if exchange_count <= 1 {
-            // First user message (the PR answer) — this is the arrive moment
             ConversationPhase::Arrive
-        } else if exchange_count <= 4 {
-            // Messages 2-4: developing their story forward
+        } else if exchange_count <= 3 {
             ConversationPhase::Dig
-        } else {
-            // 5+ exchanges without resolution — time to reframe
+        } else if exchange_count <= 5 {
+            // 4-5 exchanges — time to reframe, stop digging
             ConversationPhase::Reframe
+        } else {
+            // 6+ exchanges — commit to action, enough talking
+            ConversationPhase::Commit
         }
     }
 
@@ -688,15 +721,19 @@ impl PromptBuilder {
                     "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
                      YOUR MOVE: Weave their dream into one poetic sentence, then place it.\n\
                      \n\
-                     YOUR RESPONSE MUST follow this EXACT structure:\n\
-                     [one sentence using THEIR words — the specific nouns, images, verbs they gave you]. let's place this on your vision tree ✦\n\
+                     YOUR RESPONSE MUST be EXACTLY this structure and NOTHING else:\n\
+                     [one sentence using THEIR specific words and images]. let's place this on your vision tree ✦\n\
                      \n\
-                     EXAMPLE RESPONSES:\n\
-                     - \"alchemy in the forest, dandelion roots in your hands, healing the gap between what you know and what you are. let's place this on your vision tree ✦\"\n\
-                     - \"code as craft on a sun-drenched coast, building tools that set people free. let's place this on your vision tree ✦\"\n\
-                     - \"a living room made of bookshelves, where strangers become friends over shared ideas. let's place this on your vision tree ✦\"\n\
+                     EXAMPLES:\n\
+                     \"alchemy in the forest, dandelion roots in your hands, healing the gap between what you know and what you are. let's place this on your vision tree ✦\"\n\
+                     \"code as craft from a thai temple, building technology that propels consciousness forward. let's place this on your vision tree ✦\"\n\
                      \n\
-                     HARD RULES: No questions. No summary. End MUST contain the exact words \"let's place this on your vision tree ✦\" — this triggers the skill tree to appear."
+                     ABSOLUTE RULES:\n\
+                     - NO questions. Not one. Not even rhetorical.\n\
+                     - NO follow-ups like \"shall we?\" or \"ready?\" or \"want to see?\"\n\
+                     - NO explanation of what the vision tree is.\n\
+                     - JUST the vision sentence + \"let's place this on your vision tree ✦\"\n\
+                     - That's it. Nothing after the ✦ symbol. STOP there."
                 }
                 ConversationPhase::Dig => {
                     "YOU ARE IN: DIG (developing their story forward)\n\

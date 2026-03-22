@@ -196,10 +196,22 @@ export default function App() {
     let revealTimer: ReturnType<typeof setTimeout> | null = null
 
     listen('reveal-skill-tree', () => {
-      // Pause so the user reads the crystallize message, then reveal
-      revealTimer = setTimeout(() => {
-        setCurrentView('tree')
-      }, 2500)
+      // Wait for TTS to finish playing the crystallize message before revealing.
+      // Check if TTS is playing — if so, wait for it to end.
+      const checkAndReveal = () => {
+        const ttsAudio = (window as any).__ttsAudio as HTMLAudioElement | undefined
+        if (ttsAudio && !ttsAudio.ended && !ttsAudio.paused) {
+          // TTS still playing — wait for it to finish, then add reading pause
+          ttsAudio.addEventListener('ended', () => {
+            revealTimer = setTimeout(() => setCurrentView('tree'), 1500)
+          }, { once: true })
+        } else {
+          // No TTS or already done — just pause for reading
+          revealTimer = setTimeout(() => setCurrentView('tree'), 3000)
+        }
+      }
+      // Small delay to let TTS start before checking
+      setTimeout(checkAndReveal, 500)
     }).then((fn) => { unlisten = fn })
 
     return () => {
