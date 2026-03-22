@@ -7,7 +7,7 @@
  * Claymorphism nav buttons (.clay-nav-button).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -15,6 +15,7 @@ import ChatWindow from './components/ChatWindow'
 import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
 import SkillTree from './components/SkillTree'
+import ErrorBoundary from './components/ErrorBoundary'
 import { useAppStore } from './store'
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -86,7 +87,8 @@ function AmbientParticles() {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'chat' | 'settings' | 'tree'>('chat')
+  const currentView = useAppStore((s) => s.currentView)
+  const setCurrentView = useAppStore((s) => s.setCurrentView)
   const onboardingComplete = useAppStore((s) => s.onboardingComplete)
   const setOnboardingComplete = useAppStore((s) => s.setOnboardingComplete)
   const onboardingChecked = useAppStore((s) => s.onboardingChecked)
@@ -109,30 +111,24 @@ export default function App() {
     return () => { cancelled = true }
   }, [setOnboardingComplete, setOnboardingChecked])
 
-  // Reveal the skill tree when the starchild SAYS "vision tree" in a message.
-  // This ties the reveal directly to the conversation moment — the starchild
-  // says "let's place this on your vision tree ✦", the message finishes,
-  // a brief pause, then the tree appears. No disconnected background events.
+  // Reveal the skill tree when the backend emits 'reveal-skill-tree'
+  // (fired after Crystallize phase completes — no fragile string matching)
   useEffect(() => {
     let unlisten: (() => void) | null = null
     let revealTimer: ReturnType<typeof setTimeout> | null = null
 
-    listen<{ message: { content: string } }>('stream-done', (event) => {
-      const content = event.payload.message.content.toLowerCase()
-      if (content.includes('vision tree')) {
-        // The starchild just told the user about the vision tree —
-        // pause so they read it, then launch the cinematic reveal
-        revealTimer = setTimeout(() => {
-          setCurrentView('tree')
-        }, 2500)
-      }
+    listen('reveal-skill-tree', () => {
+      // Pause so the user reads the crystallize message, then reveal
+      revealTimer = setTimeout(() => {
+        setCurrentView('tree')
+      }, 2500)
     }).then((fn) => { unlisten = fn })
 
     return () => {
       unlisten?.()
       if (revealTimer) clearTimeout(revealTimer)
     }
-  }, [])
+  }, [setCurrentView])
 
   // Loading — invisible hold while we check onboarding state
   if (!onboardingChecked) {
@@ -179,7 +175,7 @@ export default function App() {
       <div className="absolute top-4 right-4 z-50 flex items-center gap-2.5">
         {/* Skill Tree button */}
         <motion.button
-          onClick={() => setCurrentView('tree')}
+          onClick={() => setCurrentView(currentView === 'tree' ? 'chat' : 'tree')}
           className="clay-nav-button w-9 h-9"
           style={{ color: 'var(--accent-gold)' }}
           whileHover={{ scale: 1.05 }}
@@ -217,7 +213,7 @@ export default function App() {
             transition={{ type: 'spring', stiffness: 200, damping: 25 }}
             className="absolute inset-0"
           >
-            <SkillTree onBack={() => setCurrentView('chat')} />
+            <ErrorBoundary><SkillTree onBack={() => setCurrentView('chat')} /></ErrorBoundary>
           </motion.div>
         )}
 
@@ -230,7 +226,7 @@ export default function App() {
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             className="w-full h-full"
           >
-            <Settings />
+            <ErrorBoundary><Settings /></ErrorBoundary>
           </motion.div>
         )}
 
@@ -243,7 +239,7 @@ export default function App() {
             transition={{ duration: 0.2 }}
             className="w-full h-full"
           >
-            <ChatWindow />
+            <ErrorBoundary><ChatWindow /></ErrorBoundary>
           </motion.div>
         )}
       </AnimatePresence>

@@ -184,6 +184,11 @@ impl Database {
         Ok(messages)
     }
 
+    pub fn count_messages(&self) -> Result<i64> {
+        let conn = self.lock()?;
+        Ok(conn.query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?)
+    }
+
     // -- starchild state -----------------------------------------------------
 
     pub fn get_state(&self) -> Result<StarchildState> {
@@ -1131,7 +1136,7 @@ mod tests {
 
         // Create
         let quest = db
-            .create_quest("q1", "Morning run", Some("Run 5km"), "daily", Some("health"), 15, None)
+            .create_quest("q1", "Morning run", Some("Run 5km"), "daily", Some("body"), 15, None)
             .unwrap();
         assert_eq!(quest.title, "Morning run");
         assert_eq!(quest.status, "active");
@@ -1165,7 +1170,7 @@ mod tests {
     #[test]
     fn test_quest_categories() {
         let db = test_db();
-        let categories = ["health", "career", "learning", "relationships", "creative"];
+        let categories = ["body", "purpose", "mind", "heart", "spirit"];
         for (i, cat) in categories.iter().enumerate() {
             db.create_quest(
                 &format!("q{i}"),
@@ -1241,7 +1246,7 @@ mod tests {
         db.save_message("m1", "desktop", "user", "Hello").unwrap();
         db.save_message("m2", "desktop", "assistant", "Hi!").unwrap();
         db.save_memory("mem1", "User likes Rust", 0.8, Some("preference")).unwrap();
-        db.create_quest("q1", "Run", None, "daily", Some("health"), 10, None).unwrap();
+        db.create_quest("q1", "Run", None, "daily", Some("body"), 10, None).unwrap();
         db.save_attestation("a1", "7_day_streak", Some("0xabc"), "confirmed", None).unwrap();
         db.set_setting("theme", "dark").unwrap();
 

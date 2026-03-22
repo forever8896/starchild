@@ -29,7 +29,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { type Quest } from '../store'
 import starchildLogo from '../assets/starchild-logo.png'
 // @ts-ignore
-import videoSkillTree from '../assets/videos/skilltree.mp4'
+import videoSkillTree from '../assets/videos/skilltree.webm'
 import skilltreeBg from '../assets/skilltree-bg.png'
 
 // ─── Tree Layout Constants ──────────────────────────────────────────────────
@@ -47,11 +47,11 @@ const YOU_Y = 900
 const TRUNK_X = VB_W / 2
 
 const CATEGORIES = [
-  { key: 'health',        label: 'Body',    color: '#a8d8b8', x: 100 },
-  { key: 'career',        label: 'Purpose', color: '#a8c8e8', x: 250 },
-  { key: 'learning',      label: 'Mind',    color: '#e8d8a8', x: 400 },
-  { key: 'relationships', label: 'Heart',   color: '#e8a8b8', x: 550 },
-  { key: 'creative',      label: 'Spirit',  color: '#b8a0d8', x: 700 },
+  { key: 'body',    label: 'Body',    color: '#a8d8b8', x: 100 },
+  { key: 'purpose', label: 'Purpose', color: '#a8c8e8', x: 250 },
+  { key: 'mind',    label: 'Mind',    color: '#e8d8a8', x: 400 },
+  { key: 'heart',   label: 'Heart',   color: '#e8a8b8', x: 550 },
+  { key: 'spirit',  label: 'Spirit',  color: '#b8a0d8', x: 700 },
 ] as const
 
 // ─── SVG Helpers ────────────────────────────────────────────────────────────
@@ -586,28 +586,22 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
   const [isAnchoring, setIsAnchoring] = useState(false)
   const [anchorResult, setAnchorResult] = useState<string | null>(null)
 
-  // Video intro state — plays skilltree.mp4 then crossfades to SVG tree
+  // Video intro state — plays skilltree.webm then crossfades to SVG tree
   const [showVideoIntro, setShowVideoIntro] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const dismissedRef = useRef(false)
 
   const dismissVideo = useCallback(() => {
+    if (dismissedRef.current) return
+    dismissedRef.current = true
     setShowVideoIntro(false)
   }, [])
 
-  // Fallback: if video fails to play or onEnded never fires, dismiss after 8s
+  // Hard fallback — video is 5s, so 6s is generous
   useEffect(() => {
     if (!showVideoIntro) return
-    const fallback = setTimeout(dismissVideo, 8000)
+    const fallback = setTimeout(dismissVideo, 6000)
     return () => clearTimeout(fallback)
-  }, [showVideoIntro, dismissVideo])
-
-  // Try to force-play the video (autoPlay can silently fail)
-  useEffect(() => {
-    if (!showVideoIntro || !videoRef.current) return
-    videoRef.current.play().catch(() => {
-      // autoplay blocked — skip straight to SVG tree
-      dismissVideo()
-    })
   }, [showVideoIntro, dismissVideo])
 
   // Load data
@@ -715,10 +709,6 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
               playsInline
               onEnded={dismissVideo}
               onError={dismissVideo}
-              onStalled={() => {
-                // Video got stuck — skip to SVG after 2s grace period
-                setTimeout(dismissVideo, 2000)
-              }}
               style={{
                 position: 'absolute',
                 top: 0,

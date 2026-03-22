@@ -20,11 +20,11 @@ interface QuestSuggestion {
 }
 
 const CATEGORY_ACCENT_COLORS: Record<string, string> = {
-  health: 'var(--accent-mint)',
-  career: 'var(--accent-sky)',
-  learning: 'var(--accent-gold)',
-  relationships: 'var(--accent-rose)',
-  creative: 'var(--accent-lavender)',
+  body: 'var(--accent-mint)',
+  purpose: 'var(--accent-sky)',
+  mind: 'var(--accent-gold)',
+  heart: 'var(--accent-rose)',
+  spirit: 'var(--accent-lavender)',
 }
 
 // ─── Suggestion Card ────────────────────────────────────────────────────────

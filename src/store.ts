@@ -25,7 +25,7 @@ export interface Quest {
   title: string
   description: string | null
   quest_type: string    // 'daily' | 'weekly'
-  category: string | null // 'health' | 'career' | 'learning' | 'relationships' | 'creative'
+  category: string | null // 'body' | 'purpose' | 'mind' | 'heart' | 'spirit'
   status: string        // 'active' | 'completed'
   xp_reward: number
   streak_count: number
@@ -47,8 +47,8 @@ export interface StarchildState {
 
 interface AppState {
   // Navigation
-  activeView: 'chat' | 'quests' | 'profile' | 'settings'
-  setActiveView: (view: AppState['activeView']) => void
+  currentView: 'chat' | 'settings' | 'tree'
+  setCurrentView: (view: AppState['currentView']) => void
 
   // Chat
   messages: Message[]
@@ -104,12 +104,6 @@ interface AppState {
   hasQuests: boolean
   setHasQuests: (has: boolean) => void
 
-  // Spark Test (first-run personality quiz)
-  sparkTestComplete: boolean
-  setSparkTestComplete: (done: boolean) => void
-  sparkTestChecked: boolean
-  setSparkTestChecked: (checked: boolean) => void
-
   // Voice / TTS
   ttsEnabled: boolean
   setTtsEnabled: (enabled: boolean) => void
@@ -141,8 +135,8 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   // Navigation
-  activeView: 'chat',
-  setActiveView: (view) => set({ activeView: view }),
+  currentView: 'chat',
+  setCurrentView: (view) => set({ currentView: view }),
 
   // Chat
   messages: [],
@@ -213,12 +207,6 @@ export const useAppStore = create<AppState>((set) => ({
   // Progressive UI
   hasQuests: false,
   setHasQuests: (hasQuests) => set({ hasQuests }),
-
-  // Spark Test
-  sparkTestComplete: false,
-  setSparkTestComplete: (sparkTestComplete) => set({ sparkTestComplete }),
-  sparkTestChecked: false,
-  setSparkTestChecked: (sparkTestChecked) => set({ sparkTestChecked }),
 
   // Voice / TTS
   ttsEnabled: true,

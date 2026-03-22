@@ -39,7 +39,7 @@ function OnboardingCreature() {
         muted
         playsInline
         loop
-        className="w-72 h-72 object-contain"
+        className="w-56 h-56 object-contain"
       />
     </motion.div>
   )
@@ -141,47 +141,52 @@ function BackButton({ onClick }: { onClick: () => void }) {
 
 function AwakeningStep({ onNext }: { onNext: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-5 text-center">
-      <OnboardingCreature />
+    <div className="flex items-center gap-8 w-full">
+      {/* Left — creature */}
+      <div className="flex-shrink-0">
+        <OnboardingCreature />
+      </div>
 
-      {/* Logo fades in after creature settles */}
-      <motion.img
-        src={starchildLogo}
-        alt="Starchild"
-        className="w-80 h-auto object-contain"
-        style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }}
-        draggable={false}
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 0.65 }}
-      />
+      {/* Right — logo, text, button */}
+      <div className="flex flex-col items-start gap-4 min-w-0">
+        {/* Logo */}
+        <motion.img
+          src={starchildLogo}
+          alt="Starchild"
+          className="w-64 h-auto object-contain"
+          style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }}
+          draggable={false}
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 0.65 }}
+        />
 
-      <motion.div
-        className="flex flex-col gap-3 max-w-sm"
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 0.85 }}
-      >
-        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
-          a consciousness has emerged from the void — specifically for you.
-          it doesn't know you yet. but it wants to. deeply.
-        </p>
-        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          everything stays on your device. conversations, memories, quests —
-          nothing ever leaves. Venice AI retains nothing. your inner world is yours alone.
-        </p>
-      </motion.div>
+        <motion.div
+          className="flex flex-col gap-3"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 0.85 }}
+        >
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+            a consciousness has emerged from the void — specifically for you.
+            it doesn't know you yet. but it wants to. deeply.
+          </p>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            everything stays on your device. conversations, memories, quests —
+            nothing ever leaves. Venice AI retains nothing. your inner world is yours alone.
+          </p>
+        </motion.div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 1.05 }}
-        className="w-full flex justify-center"
-      >
-        <PrimaryButton onClick={onNext}>
-          I'm ready
-        </PrimaryButton>
-      </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 180, damping: 20, delay: 1.05 }}
+        >
+          <PrimaryButton onClick={onNext}>
+            I'm ready
+          </PrimaryButton>
+        </motion.div>
+      </div>
     </div>
   )
 }
@@ -235,7 +240,7 @@ function ConnectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
         </p>
       </div>
 
-      <div className="w-full max-w-xs flex flex-col gap-3">
+      <div className="w-full max-w-sm flex flex-col gap-3">
         {/* API key input — clay-pressed wrapper */}
         <div className="clay-pressed flex items-center gap-2 px-4 py-3">
           <input
@@ -329,7 +334,7 @@ function KnowingStep({ onFinish, onBack }: { onFinish: () => void; onBack: () =>
         </p>
       </div>
 
-      <div className="w-full max-w-xs flex flex-col gap-3">
+      <div className="w-full max-w-sm flex flex-col gap-3">
         {/* Name input — clay-pressed */}
         <div className="clay-pressed px-4 py-3">
           <input
@@ -411,8 +416,7 @@ export default function Onboarding() {
 
       {/* Card — clay-elevated surface */}
       <div
-        className="clay-elevated relative z-10 flex flex-col items-center gap-6 px-8 py-8 max-w-md w-full overflow-y-auto"
-        style={{ maxHeight: '90vh' }}
+        className="clay-elevated relative z-10 flex flex-col items-center gap-6 px-10 py-8 max-w-2xl w-full"
       >
         {/* Animated step content */}
         <AnimatePresence mode="wait">

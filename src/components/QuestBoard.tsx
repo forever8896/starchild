@@ -19,11 +19,11 @@ import questBoardBg from '../assets/quest-board-bg.png'
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  { value: 'health', label: 'Health', accent: 'var(--accent-mint)' },
-  { value: 'career', label: 'Career', accent: 'var(--accent-sky)' },
-  { value: 'learning', label: 'Learning', accent: 'var(--accent-gold)' },
-  { value: 'relationships', label: 'Relationships', accent: 'var(--accent-rose)' },
-  { value: 'creative', label: 'Creative', accent: 'var(--accent-lavender)' },
+  { value: 'body', label: 'Body', accent: 'var(--accent-mint)' },
+  { value: 'purpose', label: 'Purpose', accent: 'var(--accent-sky)' },
+  { value: 'mind', label: 'Mind', accent: 'var(--accent-gold)' },
+  { value: 'heart', label: 'Heart', accent: 'var(--accent-rose)' },
+  { value: 'spirit', label: 'Spirit', accent: 'var(--accent-lavender)' },
 ] as const
 
 const QUEST_TYPES = [
@@ -56,7 +56,7 @@ function CreateQuestForm({ onCreated, onCancel }: CreateFormProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [questType, setQuestType] = useState('daily')
-  const [category, setCategory] = useState('health')
+  const [category, setCategory] = useState('body')
   const [xpReward, setXpReward] = useState(10)
   const [submitting, setSubmitting] = useState(false)
 

@@ -325,6 +325,68 @@ pub async fn extract_memories(
 // Vision Crystallization
 // ---------------------------------------------------------------------------
 
+/// Compress older conversation messages into a running summary.
+/// Called in the background when message count exceeds the sliding window.
+async fn update_conversation_summary(
+    client: &AiClient,
+    db: &db::Database,
+    msg_count: i64,
+) -> Result<(), String> {
+    // Fetch messages outside the recent 14-message window
+    let all_msgs = db.get_messages(msg_count).map_err(|e| e.to_string())?;
+    // all_msgs is DESC order — reverse to chronological, then take the older ones
+    let chronological: Vec<_> = all_msgs.into_iter().rev().collect();
+    let older_count = chronological.len().saturating_sub(14);
+    if older_count < 10 {
+        return Ok(()); // Not enough older messages to warrant summarization
+    }
+
+    let older_msgs: Vec<_> = chronological[..older_count].iter().collect();
+
+    // Build a transcript of older messages
+    let mut transcript = String::new();
+    for m in &older_msgs {
+        let role_label = if m.role == "user" { "Human" } else { "Starchild" };
+        transcript.push_str(&format!("{}: {}\n", role_label, m.content));
+    }
+
+    // Load existing summary for continuity
+    let existing_summary = db.get_setting("conversation_summary")
+        .ok().flatten()
+        .unwrap_or_default();
+
+    let prompt = format!(
+        "Compress this conversation into a concise summary (max 300 words). \
+         Preserve: key facts about the human, their dreams/fears/values, \
+         important decisions made, quests discussed, emotional turning points. \
+         Drop: greetings, filler, repetition.\n\n\
+         {}\
+         CONVERSATION:\n{}",
+        if existing_summary.is_empty() {
+            String::new()
+        } else {
+            format!("PREVIOUS SUMMARY (update and extend, don't repeat):\n{}\n\n", existing_summary)
+        },
+        transcript,
+    );
+
+    let messages = vec![
+        ai::ChatMessage::system(
+            "You are a precise summarizer. Return ONLY the summary, no preamble."
+        ),
+        ai::ChatMessage::user(&prompt),
+    ];
+
+    let summary = client.chat(messages, ai::ModelTier::Quick)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = db.set_setting("conversation_summary", &summary);
+    let _ = db.set_setting("summary_msg_count", &msg_count.to_string());
+
+    Ok(())
+}
+
 /// Synthesize a beautiful, concise vision statement from the conversation so far.
 /// Called once after the preferential reality is captured and a few exchanges deepen it.
 /// Saves the result as `vision_statement` and emits `vision-crystallized` to the frontend.
@@ -487,6 +549,12 @@ async fn send_message_stream(
         })
         .collect();
 
+    // Load conversation summary (compressed history of older messages)
+    let conversation_summary = state.db.get_setting("conversation_summary")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
     // Fetch relevant memories and knowing profile
     let memories: Vec<String> = state
         .memory
@@ -524,11 +592,17 @@ async fn send_message_stream(
         system_prompt.push_str(&knowing_fragment);
     }
 
+    // Inject conversation summary for long-running conversations
+    if !conversation_summary.is_empty() {
+        system_prompt.push_str("\n\nCONVERSATION HISTORY SUMMARY (older messages, compressed):\n");
+        system_prompt.push_str(&conversation_summary);
+    }
+
     // Add skill tree branch balance info for quest generation
     {
         let all_quests = state.db.get_quests(None).unwrap_or_default();
         if !all_quests.is_empty() {
-            let categories = ["health", "career", "learning", "relationships", "creative"];
+            let categories = ["body", "purpose", "mind", "heart", "spirit"];
             let labels = ["Body", "Purpose", "Mind", "Heart", "Spirit"];
             let mut branch_info = String::from("\n\nSKILL TREE BRANCHES (quest balance across growth domains):\n");
             for (cat, label) in categories.iter().zip(labels.iter()) {
@@ -593,6 +667,11 @@ async fn send_message_stream(
                 starchild_state: frontend_state,
             });
 
+            // Structured event: reveal skill tree after crystallize phase
+            if phase == ai::ConversationPhase::Crystallize {
+                let _ = app_handle.emit("reveal-skill-tree", ());
+            }
+
             // Background: extract memories
             let extraction_client = ai_client.clone();
             tokio::spawn(async move {
@@ -606,6 +685,29 @@ async fn send_message_stream(
                     log::warn!("Memory extraction failed: {e}");
                 }
             });
+
+            // Background: update conversation summary when history grows long
+            {
+                let summary_db = state.db.clone();
+                let summary_client = ai_client.clone();
+                let msg_count = state.db.count_messages().unwrap_or(0);
+                let last_summarized: i64 = state.db.get_setting("summary_msg_count")
+                    .ok().flatten()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                // Re-summarize every 20 new messages beyond the 14-message window
+                if msg_count > 30 && msg_count - last_summarized >= 20 {
+                    tokio::spawn(async move {
+                        if let Err(e) = update_conversation_summary(
+                            &summary_client,
+                            &summary_db,
+                            msg_count,
+                        ).await {
+                            log::warn!("Conversation summary update failed: {e}");
+                        }
+                    });
+                }
+            }
 
             // Background: vision crystallization
             // After preferential reality is captured and a few exchanges pass,
@@ -942,124 +1044,8 @@ async fn generate_first_message(
     })
 }
 
-/// Complete the spark test — synthesize the user's traits and generate their first quest.
-#[tauri::command]
-async fn complete_spark_test(
-    traits: Vec<String>,
-    state: tauri::State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    let ai_client = {
-        let guard = state.ai_client.lock().map_err(|e| e.to_string())?;
-        guard.clone().ok_or("AI client not configured")?
-    };
-
-    let user_name = state.db.get_setting("user_name").ok().flatten();
-    let name_str = user_name.as_deref().unwrap_or("starlight");
-    let traits_str = traits.join(", ");
-
-    let prompt = format!(
-        "You are Starchild. You just completed a spark test with your human and discovered they are: {traits_str}.\n\
-         Their name is {name_str}.\n\n\
-         Do TWO things in your response:\n\n\
-         1. SYNTHESIZE who they are in 2-3 sentences. Be specific and warm. Reference the traits \
-         but don't just list them — paint a picture of who this person is. Make them feel SEEN. \
-         Use lowercase, be intimate.\n\n\
-         2. GIVE THEM THEIR FIRST QUEST. Introduce it naturally like: \
-         \"here's your first quest, {name_str}: [specific small action]. \
-         it's small, but i think it'll show you something about yourself.\"\n\
-         The quest must be: specific, doable today, connected to their traits, \
-         slightly outside comfort zone. NOT generic like 'journal' or 'meditate'.\n\n\
-         Keep the whole response under 5 sentences. End with ✦"
-    );
-
-    let messages = vec![
-        ai::ChatMessage::system(&prompt),
-        ai::ChatMessage::user(&format!("my spark test results: {traits_str}")),
-    ];
-
-    let response = ai_client
-        .chat(messages, ai::ModelTier::Deep)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Save the synthesis as a message
-    let msg_id = Uuid::new_v4().to_string();
-    state.db
-        .save_message(&msg_id, "desktop", "assistant", &response)
-        .map_err(|e| e.to_string())?;
-
-    // Extract the quest from the LLM response
-    // The response contains something like "here's your first quest, name: [quest text]"
-    let quest_id = Uuid::new_v4().to_string();
-
-    // Try to extract quest text after "quest" keyword + colon
-    let response_lower = response.to_lowercase();
-    let quest_description = if let Some(idx) = response_lower.find("quest") {
-        let after_quest = &response[idx..];
-        // Find the colon after "quest"
-        if let Some(colon_idx) = after_quest.find(':') {
-            let quest_text = after_quest[colon_idx + 1..].trim();
-            // Take until the end of the sentence (period, or end of response)
-            let end = quest_text.find(". ").map(|i| i + 1)
-                .or_else(|| quest_text.rfind('.').map(|i| i))
-                .unwrap_or(quest_text.len());
-            quest_text[..end].trim().trim_end_matches('✦').trim().to_string()
-        } else {
-            format!("First spark quest for a {}", traits_str)
-        }
-    } else {
-        format!("First spark quest for a {}", traits_str)
-    };
-
-    // Use first ~60 chars as title, rest as description
-    let (quest_title, quest_desc) = if quest_description.len() > 60 {
-        let break_at = quest_description[..60].rfind(' ').unwrap_or(60);
-        (
-            quest_description[..break_at].to_string(),
-            quest_description.clone(),
-        )
-    } else {
-        (quest_description.clone(), quest_description.clone())
-    };
-
-    let category = if traits.contains(&"creator".to_string()) {
-        "creative"
-    } else if traits.contains(&"seeker".to_string()) {
-        "learning"
-    } else if traits.contains(&"leader".to_string()) {
-        "career"
-    } else {
-        "creative"
-    };
-
-    state.db.create_quest(
-        &quest_id,
-        &quest_title,
-        Some(&quest_desc),
-        "daily",
-        Some(category),
-        15,
-        None,
-    ).map_err(|e| e.to_string())?;
-
-    // Save traits as memories
-    let memory_sys = state.memory.clone();
-    let traits_for_memory = traits.clone();
-    let name_for_memory = name_str.to_string();
-    tokio::spawn(async move {
-        let _ = memory_sys.store(&format!(
-            "{} is a {} — discovered through the spark test",
-            name_for_memory,
-            traits_for_memory.join(", ")
-        ), 0.9, Some("personality"));
-    });
-
-    Ok(serde_json::json!({
-        "synthesis": response,
-        "quest_title": quest_title,
-        "quest_id": quest_id,
-    }))
-}
+// SparkTest removed — the preferential reality question in generate_first_message
+// now serves as the sole onboarding entry point into the conversation arc.
 
 #[tauri::command]
 async fn get_state(
@@ -1248,7 +1234,7 @@ async fn suggest_quests(
          - ACTIONABLE — something they can do today or this week\n\
          - MEANINGFUL — each quest should move them toward growth, not just productivity\n\
          - DIFFERENT from their current active quests\n\n\
-         Categories: health, career, learning, relationships, creative\n\
+         Categories: body, purpose, mind, heart, spirit\n\
          Types: daily, weekly\n\n\
          Return ONLY a JSON array. Each object has:\n\
          - \"title\" (string, max 60 chars): the quest name — warm, personal, not corporate\n\
@@ -1283,7 +1269,7 @@ async fn suggest_quests(
         .into_iter()
         .filter(|s| {
             !s.title.is_empty()
-                && ["health", "career", "learning", "relationships", "creative"]
+                && ["body", "purpose", "mind", "heart", "spirit"]
                     .contains(&s.category.as_str())
                 && ["daily", "weekly"].contains(&s.quest_type.as_str())
         })
@@ -1323,7 +1309,7 @@ struct CompleteQuestResponse {
 const MILESTONE_STREAKS: &[i64] = &[7, 30, 100];
 
 const VALID_QUEST_TYPES: &[&str] = &["daily", "weekly"];
-const VALID_CATEGORIES: &[&str] = &["health", "career", "learning", "relationships", "creative"];
+const VALID_CATEGORIES: &[&str] = &["body", "purpose", "mind", "heart", "spirit"];
 
 #[tauri::command]
 async fn create_quest(
@@ -2056,6 +2042,7 @@ pub fn run() {
                         let settings = wv.settings().unwrap();
                         settings.set_enable_media_stream(true);
                         settings.set_enable_mediasource(true);
+                        settings.set_media_playback_requires_user_gesture(false);
 
                         // Auto-grant permission requests (microphone, camera, etc.)
                         wv.connect_permission_request(|_wv, request| {
@@ -2101,7 +2088,6 @@ pub fn run() {
             send_image_message,
             get_messages,
             generate_first_message,
-            complete_spark_test,
             get_state,
             get_setting,
             save_settings,
