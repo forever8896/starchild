@@ -20,9 +20,7 @@ import questBoardBg from '../assets/quest-board-bg.png'
 
 const CATEGORIES = [
   { value: 'body', label: 'Body', accent: 'var(--accent-mint)' },
-  { value: 'purpose', label: 'Purpose', accent: 'var(--accent-sky)' },
   { value: 'mind', label: 'Mind', accent: 'var(--accent-gold)' },
-  { value: 'heart', label: 'Heart', accent: 'var(--accent-rose)' },
   { value: 'spirit', label: 'Spirit', accent: 'var(--accent-lavender)' },
 ] as const
 

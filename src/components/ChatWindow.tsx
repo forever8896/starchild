@@ -13,7 +13,6 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAppStore, type Message } from '../store'
 import StarchildAvatar from './StarchildAvatar'
 import ActiveQuest from './ActiveQuest'
-import QuestSuggestions from './QuestSuggestions'
 import starchildLogo from '../assets/starchild-logo.png'
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
@@ -251,8 +250,10 @@ export default function ChatWindow() {
   const isLoading         = useAppStore((s) => s.isLoading)
   const setIsLoading      = useAppStore((s) => s.setIsLoading)
   const setStarchildState = useAppStore((s) => s.setStarchildState)
+  const setCurrentView    = useAppStore((s) => s.setCurrentView)
   const [ready, setReady] = useState(false)
-  const [showQuestSuggestions, setShowQuestSuggestions] = useState(false)
+  const [showQuestOffer, setShowQuestOffer] = useState(false)
+  const [acceptingQuest, setAcceptingQuest] = useState(false)
 
   const [input, setInput]         = useState('')
   const [error, setError]         = useState<string | null>(null)
@@ -316,13 +317,13 @@ export default function ChatWindow() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isTyping, showQuestSuggestions])
+  }, [messages, isTyping, showQuestOffer])
 
-  // Listen for quest-commit event — show quest suggestions inline
+  // Listen for quest-offered event — show accept/decline buttons
   useEffect(() => {
     let unlisten: (() => void) | null = null
-    listen('quest-commit', () => {
-      setShowQuestSuggestions(true)
+    listen('quest-offered', () => {
+      setShowQuestOffer(true)
     }).then((fn) => { unlisten = fn })
     return () => { unlisten?.() }
   }, [])
@@ -423,18 +424,41 @@ export default function ChatWindow() {
     }
   }, [input, isLoading, addMessage, updateLastMessage, replaceLastMessage, setIsLoading, setStarchildState])
 
-  // When user completes a quest, send it as a message so the Starchild celebrates
-  const handleQuestComplete = useCallback((questTitle: string) => {
-    const text = `i just completed this quest: "${questTitle}". i did it!`
+  // Quest accept: extract from conversation, save to DB, show skill tree
+  const handleAcceptQuest = useCallback(async () => {
+    setAcceptingQuest(true)
+    setShowQuestOffer(false)
+    try {
+      await invoke('accept_quest_from_conversation')
+      // Brief switch to tree view to show the new quest (no video)
+      setCurrentView('tree')
+    } catch (err) {
+      console.error('Failed to accept quest:', err)
+    } finally {
+      setAcceptingQuest(false)
+    }
+  }, [setCurrentView])
+
+  // Quest decline: focus input, let user type their objection
+  const handleDeclineQuest = useCallback(() => {
+    setShowQuestOffer(false)
+    inputRef.current?.focus()
+  }, [])
+
+  // Proof flow: user clicks "i did it" → send proof trigger to conversation
+  const handleRequestProof = useCallback((quest: { id: string; title: string; description: string | null }) => {
+    const displayText = `i did the quest: "${quest.title}"`
+    const triggerText = `[proof:${quest.id}] ${displayText}`
+    const text = triggerText
     setInput('')
     setError(null)
     setIsLoading(true)
     setIsTyping(true)
 
     const userMsg: Message = {
-      id: `quest-complete-${Date.now()}`,
+      id: `quest-proof-${Date.now()}`,
       role: 'user',
-      content: text,
+      content: displayText,
       created_at: new Date().toISOString(),
     }
     addMessage(userMsg)
@@ -489,6 +513,17 @@ export default function ChatWindow() {
       }
     })()
   }, [addMessage, updateLastMessage, replaceLastMessage, setIsLoading, setStarchildState])
+
+  // Listen for quest-completed events (proof flow completes quest in backend)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    listen<any>('quest-completed', (event) => {
+      if (event.payload?.starchild_state) {
+        setStarchildState(event.payload.starchild_state)
+      }
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [setStarchildState])
 
   const handleMicToggle = useCallback(async () => {
     if (isRecording && micStreamRef.current) {
@@ -636,7 +671,7 @@ export default function ChatWindow() {
       {/* ── Chat panel (right) ─────────────────────────────────────────── */}
       <div className="relative z-20 flex-1 flex flex-col min-w-0">
         {/* Active quest card */}
-        {ready && <ActiveQuest onComplete={handleQuestComplete} />}
+        {ready && <ActiveQuest onRequestProof={handleRequestProof} />}
 
         {/* Message list */}
         <div
@@ -672,17 +707,38 @@ export default function ChatWindow() {
               </AnimatePresence>
             </>
           )}
-          {/* Quest suggestions — appear inline after Commit phase */}
-          {showQuestSuggestions && (
-            <motion.div
-              className="px-4 py-2"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: 'spring', stiffness: 200, damping: 22 }}
-            >
-              <QuestSuggestions onQuestCreated={() => setShowQuestSuggestions(false)} />
-            </motion.div>
-          )}
+          {/* Quest offer — accept or decline */}
+          <AnimatePresence>
+            {showQuestOffer && (
+              <motion.div
+                className="flex items-center justify-start gap-2 px-4 py-2"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+              >
+                <motion.button
+                  onClick={handleAcceptQuest}
+                  disabled={acceptingQuest}
+                  className="clay-button px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                  style={{ backgroundColor: 'rgba(168, 216, 184, 0.85)', color: '#1a1525' }}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                >
+                  {acceptingQuest ? 'placing on tree...' : 'accept quest ✦'}
+                </motion.button>
+                <motion.button
+                  onClick={handleDeclineQuest}
+                  className="px-4 py-2 text-xs font-medium rounded-xl"
+                  style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-card)', border: '1px solid var(--outline)' }}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                >
+                  decline & clarify
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div ref={bottomRef} />
         </div>
 

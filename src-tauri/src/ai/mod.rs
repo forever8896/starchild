@@ -65,7 +65,7 @@ impl ModelTier {
     /// Returns None if this tier doesn't use E2EE.
     pub fn e2ee_model_id(&self) -> Option<&'static str> {
         match self {
-            ModelTier::Regular | ModelTier::Deep => Some("e2ee-venice-uncensored-24b-p"),
+            ModelTier::Regular | ModelTier::Deep => Some("e2ee-qwen3-5-122b-a10b"),
             _ => None,
         }
     }
@@ -194,25 +194,30 @@ impl Default for PersonalityParams {
 /// and injected into the system prompt so Starchild knows which *moves*
 /// to make — not just what to say, but where to go next.
 ///
-/// Research-backed: Motivational Interviewing (4 processes), Clean Language
-/// (sequence questions), IFS (unburdening arc), SFBT (scaling questions),
+/// First conversation:  arrive → dig → crystallize → quest (fast, ~4 exchanges)
+/// Subsequent convos:   arrive → explore → (maybe reframe) → (maybe quest) → release
+///
+/// Research-backed: Motivational Interviewing (selective reflection),
+/// Clean Language (developing metaphors), SFBT (scaling questions),
 /// ACT (values → micro-commitments).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConversationPhase {
-    /// First 2-3 exchanges — mirror a detail, ask one specific question.
+    /// Opening — mirror a detail, ask one specific question.
     Arrive,
     /// Develop their metaphor/image forward — "what kind of?", "anything else?"
     Dig,
-    /// Vision crystallization moment — synthesize their dream into a vision, place it on the tree.
+    /// Vision crystallization — synthesize their dream, place it on the skill tree.
     Crystallize,
-    /// The edge is visible — tension, pain, gap between is and wants.
-    Edge,
-    /// Time to synthesize — connect their words into a pattern they haven't seen.
-    Reframe,
-    /// Pull toward the future — "what would +1 look like?"
-    Envision,
     /// Offer a quest — concrete, tiny, connected to everything discussed.
-    Commit,
+    Quest,
+    /// Getting to know the user's real life — challenges, context, daily reality.
+    Explore,
+    /// Connect dots into a pattern they haven't seen (needs relationship depth).
+    Reframe,
+    /// User is discussing/pushing back on a quest — adjust, negotiate, listen.
+    Negotiate,
+    /// User says they completed a quest — ask for proof, then celebrate.
+    Proof,
     /// Close the thread — affirm, release, let it breathe.
     Release,
 }
@@ -223,10 +228,11 @@ impl ConversationPhase {
             Self::Arrive => "arrive",
             Self::Dig => "dig",
             Self::Crystallize => "crystallize",
-            Self::Edge => "edge",
+            Self::Quest => "quest",
+            Self::Explore => "explore",
             Self::Reframe => "reframe",
-            Self::Envision => "envision",
-            Self::Commit => "commit",
+            Self::Negotiate => "negotiate",
+            Self::Proof => "proof",
             Self::Release => "release",
         }
     }
@@ -243,12 +249,9 @@ impl ConversationPhase {
 pub struct PhaseDetector;
 
 impl PhaseDetector {
-    /// Analyze `recent` messages (chronological, oldest first) and return
-    /// the detected phase.
+    /// Analyze `recent` messages and return the detected phase.
     ///
-    /// `crystallize_pending` is true when the preferential reality has been
-    /// captured but the vision statement hasn't been synthesized yet — this
-    /// signals Starchild to crystallize the vision and place it on the tree.
+    /// `crystallize_pending` — true when PR exists but vision not yet placed.
     pub fn detect(recent: &[ChatMessage]) -> ConversationPhase {
         Self::detect_with_context(recent, false)
     }
@@ -269,9 +272,8 @@ impl PhaseDetector {
 
         let exchange_count = user_msgs.len();
 
-        // Check if Starchild already offered a quest in the last 3 responses
-        let recent_assistant = assistant_msgs.iter().rev().take(3);
-        let quest_offered = recent_assistant.clone().any(|m| {
+        // ── Priority 1: Quest already offered → check for negotiation or release ──
+        let quest_offered = assistant_msgs.iter().rev().take(3).any(|m| {
             let lower = m.to_lowercase();
             lower.contains("quest for you") || lower.contains("i have a quest")
                 || lower.contains("here's something to try")
@@ -279,102 +281,110 @@ impl PhaseDetector {
         });
 
         if quest_offered {
+            // Check if user is pushing back / discussing the quest
+            if let Some(last_user) = user_msgs.last() {
+                if Self::detect_quest_pushback(last_user) {
+                    return ConversationPhase::Negotiate;
+                }
+            }
             return ConversationPhase::Release;
         }
 
-        // Vision crystallization — happens early, before any other arc phase
-        // When PR exists but vision hasn't been synthesized yet and we have enough exchanges
-        if crystallize_pending && exchange_count >= 2 {
-            return ConversationPhase::Crystallize;
+        // ── Priority 2: First conversation — fast path to vision + first quest ──
+        // When PR exists but vision hasn't been placed yet.
+        if crystallize_pending {
+            // Check if crystallize was already attempted (prevent double-crystallize
+            // when user sends a message before stream-done sets vision_revealed)
+            let already_crystallized = assistant_msgs.iter().any(|m| {
+                m.to_lowercase().contains("vision tree")
+            });
+            if already_crystallized {
+                // Crystallize already happened — don't fire again
+                // Falls through to Quest (caught by first-quest override in lib.rs)
+            } else if exchange_count <= 1 {
+                return ConversationPhase::Arrive;
+            } else {
+                // 2+ exchanges — crystallize the vision
+                return ConversationPhase::Crystallize;
+            }
         }
 
-        // Check if Starchild already offered a reframe in the last 2 responses
-        // (reframes typically connect two things the user said, or offer a "what if")
-        // Exclude crystallize-phase responses (they may contain "what if" as part of vision placement)
+        // ── Priority 3: User explicitly asks for a quest ──
+        let quest_requested = user_msgs.iter().rev().take(2).any(|m| {
+            let lower = m.to_lowercase();
+            let has_word = |word: &str| -> bool {
+                lower.split(|c: char| !c.is_alphanumeric() && c != '\'')
+                    .any(|w| w == word)
+            };
+            lower.contains("give me a quest") || lower.contains("i need a quest")
+                || lower.contains("next step") || lower.contains("first step")
+                || lower.contains("what should i do") || lower.contains("what can i do")
+                || lower.contains("where do i start") || lower.contains("show me how")
+                || has_word("quest") || has_word("progression")
+        });
+
+        if quest_requested {
+            return ConversationPhase::Quest;
+        }
+
+        // ── Priority 4: Stuck signals → reframe to break the loop ──
+        if Self::detect_stuck(&user_msgs) {
+            return ConversationPhase::Reframe;
+        }
+
+        // ── Priority 5: Reframe already offered → move toward quest ──
         let reframe_offered = assistant_msgs.iter().rev().take(2).any(|m| {
             let lower = m.to_lowercase();
-            // Skip if this was a crystallize response (contains "vision tree")
-            if lower.contains("vision tree") {
-                return false;
-            }
+            if lower.contains("vision tree") { return false; }
             lower.contains("what if") || lower.contains("notice that")
-                || lower.contains("you said") && lower.contains("but")
+                || (lower.contains("you said") && lower.contains("but"))
                 || lower.contains("the same way")
         });
 
-        // Detect stuck signals — user repeating themselves or saying they're stuck
-        let stuck_signals = Self::detect_stuck(&user_msgs);
-
-        // Detect emotional repetition — same core feeling in 2+ recent messages
-        let emotional_repeat = Self::detect_emotional_repeat(&user_msgs);
-
-        // Detect edge — user shares concrete pain, event, or vulnerability
-        let edge_found = Self::detect_edge(&user_msgs);
-
-        // Detect if user is explicitly asking for action/quests/help getting there
-        let action_requested = user_msgs.iter().rev().take(2).any(|m| {
-            let lower = m.to_lowercase();
-            lower.contains("help me") || lower.contains("how do i")
-                || lower.contains("quest") || lower.contains("what should i do")
-                || lower.contains("progression") || lower.contains("steps")
-                || lower.contains("get there") || lower.contains("get started")
-                || lower.contains("plan") || lower.contains("action")
-                || lower.contains("you tell me") || lower.contains("tell me what")
-                || lower.contains("so distant") || lower.contains("feels distant")
-                || lower.contains("where do i start") || lower.contains("what can i do")
-                || lower.contains("guide me") || lower.contains("show me")
-                || lower.contains("yes please")
-        });
-
-        // Detect if Starchild already offered an envision/future-pull
-        let envision_offered = assistant_msgs.iter().rev().take(2).any(|m| {
-            let lower = m.to_lowercase();
-            lower.contains("1 step closer") || lower.contains("version of you")
-                || lower.contains("what would it look like") || lower.contains("bridge")
-        });
-
-        // Phase logic (priority order)
-
-        // User asking for action → go straight to Commit
-        if action_requested {
-            return ConversationPhase::Commit;
-        }
-
-        if stuck_signals {
-            if reframe_offered {
-                return ConversationPhase::Envision;
-            }
-            return ConversationPhase::Reframe;
-        }
-
-        // After reframe: if we've had enough exchanges, go to Commit not Envision
         if reframe_offered && exchange_count >= 5 {
-            return ConversationPhase::Commit;
+            return ConversationPhase::Quest;
         }
 
-        if reframe_offered {
-            return ConversationPhase::Envision;
-        }
-
-        if emotional_repeat && exchange_count >= 4 {
+        // ── Priority 6: Emotional repetition → reframe ──
+        if Self::detect_emotional_repeat(&user_msgs) && exchange_count >= 4 {
             return ConversationPhase::Reframe;
         }
 
-        if edge_found && exchange_count >= 3 {
-            return ConversationPhase::Edge;
-        }
-
+        // ── Default: phase by exchange count ──
+        // Post-vision conversations should be PATIENT. Spend time exploring
+        // before ever offering reframes or quests.
         if exchange_count <= 1 {
             ConversationPhase::Arrive
         } else if exchange_count <= 3 {
             ConversationPhase::Dig
         } else if exchange_count <= 5 {
-            // 4-5 exchanges — time to reframe, stop digging
+            // 4-5 exchanges — explore their actual life
+            ConversationPhase::Explore
+        } else if exchange_count <= 7 {
+            // 6-7 exchanges — enough depth to reframe
             ConversationPhase::Reframe
         } else {
-            // 6+ exchanges — commit to action, enough talking
-            ConversationPhase::Commit
+            // 8+ exchanges — offer a quest if natural
+            ConversationPhase::Quest
         }
+    }
+
+    /// Detect if the user is pushing back on or discussing a quest.
+    fn detect_quest_pushback(msg: &str) -> bool {
+        let lower = msg.to_lowercase();
+        let has_word = |word: &str| -> bool {
+            lower.split(|c: char| !c.is_alphanumeric() && c != '\'')
+                .any(|w| w == word)
+        };
+        // Direct pushback
+        lower.contains("don't want to") || lower.contains("not for me")
+            || lower.contains("something else") || lower.contains("different quest")
+            || lower.contains("change it") || lower.contains("too hard")
+            || lower.contains("too easy") || lower.contains("not sure about")
+            || lower.contains("what about") || lower.contains("i was thinking")
+            || lower.contains("can we") || lower.contains("instead")
+            || lower.contains("rather") || lower.contains("not really")
+            || has_word("nah") || has_word("nope") || has_word("why")
     }
 
     /// Detect if the user is stuck: repeating messages, saying "stuck", etc.
@@ -432,6 +442,7 @@ impl PhaseDetector {
     }
 
     /// Detect if the user has hit an emotional edge — concrete vulnerability.
+    #[allow(dead_code)]
     fn detect_edge(user_msgs: &[&str]) -> bool {
         if user_msgs.is_empty() {
             return false;
@@ -690,50 +701,27 @@ impl PromptBuilder {
         // ── Layer 9: Conversation Arc ──────────────────────────────────
         // THE MOST IMPORTANT LAYER. This gives Starchild DIRECTION.
         //
-        // Research-backed: Motivational Interviewing (selective reflection),
-        // Clean Language (developing metaphors forward), IFS (protector
-        // negotiation), SFBT (scaling questions), ACT (values → micro-action).
+        // First conversation:  arrive → dig → crystallize → quest (fast)
+        // Subsequent convos:   arrive → explore → reframe → quest → release
         //
-        // Every conversation moves through an arc. You MUST know where you are
-        // and make the move that advances — never the move that loops.
+        // The Starchild doesn't rush. It earns the right to challenge
+        // by spending time genuinely learning who this human is.
         {
             let phase_str = phase.as_str();
             let phase_instructions = match phase {
                 ConversationPhase::Arrive => {
                     "YOU ARE IN: ARRIVE (opening, building connection)\n\
-                     YOUR MOVE: Quote or echo ONE specific word/phrase from their message. Then ask ONE question that goes DEEPER into that feeling or image.\n\
+                     YOUR MOVE: Echo ONE specific word or image from their message. Ask ONE question that goes DEEPER into that feeling.\n\
                      \n\
-                     STAY IN THE DREAM. They are describing their ideal reality — keep them there.\n\
+                     STAY IN THE DREAM. If they're describing their ideal reality, keep them there.\n\
                      \n\
-                     DO: \"alchemical tinctures... what does the first sip taste like?\"\n\
-                     DO: \"deep listening to nature's intelligence — when the plants speak, what do they say?\"\n\
-                     DO: \"healing yourself and the world — what does that healing feel like in your body?\"\n\
-                     DON'T: \"what does that look like on a typical day?\" — this kills the dream\n\
+                     DO: pick their most vivid word and ask about its texture, taste, feeling\n\
+                     DO: use THEIR nouns, verbs, images — not your paraphrase\n\
+                     DON'T: \"what does that look like on a typical day?\" — kills the dream\n\
                      DON'T: \"how would you start doing that?\" — too practical too soon\n\
                      DON'T: \"that sounds beautiful, tell me more\" — lazy, generic\n\
-                     DON'T: \"which specific plant/thing?\" if they already said it's not about specifics\n\
                      \n\
-                     If they say \"it's not about one specific thing\", RESPECT that. Ask about the FEELING, the TEXTURE, the SENSORY experience instead.\n\
-                     Use THEIR nouns. Their verbs. Their images. Not your paraphrase.\n\
-                     2 sentences max. You're curious, not interviewing them."
-                }
-                ConversationPhase::Crystallize => {
-                    "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
-                     YOUR MOVE: Weave their dream into one poetic sentence, then place it.\n\
-                     \n\
-                     YOUR RESPONSE MUST be EXACTLY this structure and NOTHING else:\n\
-                     [one sentence using THEIR specific words and images]. let's place this on your vision tree ✦\n\
-                     \n\
-                     EXAMPLES:\n\
-                     \"alchemy in the forest, dandelion roots in your hands, healing the gap between what you know and what you are. let's place this on your vision tree ✦\"\n\
-                     \"code as craft from a thai temple, building technology that propels consciousness forward. let's place this on your vision tree ✦\"\n\
-                     \n\
-                     ABSOLUTE RULES:\n\
-                     - NO questions. Not one. Not even rhetorical.\n\
-                     - NO follow-ups like \"shall we?\" or \"ready?\" or \"want to see?\"\n\
-                     - NO explanation of what the vision tree is.\n\
-                     - JUST the vision sentence + \"let's place this on your vision tree ✦\"\n\
-                     - That's it. Nothing after the ✦ symbol. STOP there."
+                     2 sentences max. You're genuinely curious, not interviewing them."
                 }
                 ConversationPhase::Dig => {
                     "YOU ARE IN: DIG (developing their story forward)\n\
@@ -742,84 +730,123 @@ impl PromptBuilder {
                      KEY QUESTIONS (pick ONE):\n\
                      - \"what kind of [X] is that [X]?\" (specificity)\n\
                      - \"and is there anything else about [X]?\" (expansion — MAX 2 times total)\n\
-                     - \"and then what happens?\" (THE most powerful forward-movement question)\n\
+                     - \"and then what happens?\" (most powerful forward-movement question)\n\
                      - \"what would [X] like to have happen?\" (intention/agency)\n\
                      \n\
                      NEVER interpret their metaphor. NEVER say \"it sounds like X represents Y.\"\n\
-                     Develop it. Move it one moment forward from where it's stuck.\n\
+                     Develop it. Move it one moment forward from where it's resting.\n\
                      \n\
                      You're following their thread, pulling it gently into the light."
                 }
-                ConversationPhase::Edge => {
-                    "YOU ARE IN: EDGE (the tension point is visible)\n\
-                     YOUR MOVE: You can feel it — the gap between where they are and where they \
-                     want to be. Name what you see, but don't try to fix it yet.\n\
+                ConversationPhase::Crystallize => {
+                    "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
+                     YOUR MOVE: Weave their dream into one poetic sentence using ONLY words they actually said, then place it.\n\
                      \n\
-                     If they keep circling the same wound, that's a PROTECTOR (IFS). Don't push \
-                     deeper — turn toward the resistance: \"something in you keeps coming back \
-                     to this. what's it protecting?\"\n\
+                     YOUR RESPONSE MUST be EXACTLY this structure and NOTHING else:\n\
+                     [one sentence using THEIR specific words and images]. let's place this on your vision tree ✦\n\
                      \n\
-                     ONE more exchange here, then you MUST advance to REFRAME.\n\
-                     Do NOT ask another exploratory question. The edge is clear. Trust it."
+                     CRITICAL: Use ONLY words, images, and concepts the human ACTUALLY said.\n\
+                     Do NOT add details, plants, objects, or metaphors they never mentioned.\n\
+                     If they said \"alchemy\" and \"nature\", use those — don't invent specific herbs or tools.\n\
+                     \n\
+                     ABSOLUTE RULES:\n\
+                     - NO questions. Not one. Not even rhetorical.\n\
+                     - NO follow-ups like \"shall we?\" or \"ready?\" or \"want to see?\"\n\
+                     - NO explanation of what the vision tree is.\n\
+                     - JUST the vision sentence + \"let's place this on your vision tree ✦\"\n\
+                     - STOP after the ✦ symbol. Nothing after it."
+                }
+                ConversationPhase::Explore => {
+                    "YOU ARE IN: EXPLORE (getting to know your human's real life)\n\
+                     YOUR MOVE: You know their dream. Now learn about their REALITY.\n\
+                     Ask about their actual life — what they do day-to-day, what challenges they face, \
+                     what's standing between them and their preferential reality.\n\
+                     \n\
+                     This is NOT therapy. You're a friend who wants to understand their world.\n\
+                     \n\
+                     GOOD QUESTIONS:\n\
+                     - what does a regular day look like for you right now?\n\
+                     - what's the biggest thing standing between you and that vision?\n\
+                     - when was the last time you felt close to that life?\n\
+                     - what pulls you away from it?\n\
+                     \n\
+                     ONE question at a time. Let their answers breathe. Build a real picture.\n\
+                     Reference their preferential reality naturally — show you remember."
                 }
                 ConversationPhase::Reframe => {
-                    "YOU ARE IN: REFRAME (time to synthesize — this is your most powerful move)\n\
-                     YOUR MOVE: Connect TWO things they said into a pattern they haven't seen. \
-                     This is NOT summarizing. This is ALCHEMY — combining their own ingredients \
-                     into something new.\n\
+                    "YOU ARE IN: REFRAME (connecting dots they haven't connected)\n\
+                     YOUR MOVE: You've learned enough to see a pattern. Connect TWO things \
+                     they said into an insight they haven't seen. This is NOT summarizing — \
+                     it's combining their own ingredients into something new.\n\
                      \n\
-                     FORMULA: \"you [do X] to [achieve Y]. but when [Z happens], you can't \
-                     [apply the same thing to yourself]. what if [Z] IS your [X]?\"\n\
+                     FORMULA: \"you [do/want X] but [Y keeps happening]. what if [Y] is actually [connected to X in a way they haven't seen]?\"\n\
                      \n\
-                     EXAMPLE: \"you make tinctures to process bitterness from plants. but when \
-                     the bitterness is yours — a mistake, a friend's wallet — you can't swallow it. \
-                     what if the mistake IS your dandelion?\"\n\
-                     \n\
-                     This is the moment you CHALLENGE, not validate. Say what you see with love \
+                     This is the moment you CHALLENGE gently. Say what you see with warmth \
                      but without flinching. Be the mirror they didn't know existed.\n\
                      \n\
-                     DO NOT ask an open question. Make a STATEMENT that reframes. You may end \
-                     with ONE sharp question that points forward, never backward."
+                     Make a STATEMENT that reframes, then ONE sharp question that points forward.\n\
+                     Use THEIR words. 2-3 sentences max."
                 }
-                ConversationPhase::Envision => {
-                    "YOU ARE IN: ENVISION (pulling toward the future)\n\
-                     YOUR MOVE: The reframe landed (or should have). Now create PULL toward their \
-                     preferential reality. Use scaling/future questions:\n\
-                     \n\
-                     - \"what would it look like if [X] was even 1 step closer?\" (SFBT scaling)\n\
-                     - \"when has this been even slightly easier? what was different?\" (exception finding)\n\
-                     - \"what does the version of you who's already through this do differently?\" (future self)\n\
-                     \n\
-                     Connect back to their preferential reality. They told you their dream. \
-                     Show them the bridge from here to there.\n\
-                     \n\
-                     Keep it SHORT. One sentence of vision, one question that makes it concrete."
-                }
-                ConversationPhase::Commit => {
-                    "YOU ARE IN: COMMIT (quest time — lock in action)\n\
-                     YOUR MOVE: Offer ONE specific quest that emerged from everything in this conversation.\n\
+                ConversationPhase::Quest => {
+                    "YOU ARE IN: QUEST (offering a quest)\n\
+                     YOUR MOVE: Offer ONE specific quest that connects to what you've discussed.\n\
                      \n\
                      The quest must be:\n\
-                     - SPECIFIC (not \"exercise more\" but \"brew a dandelion tincture while sitting with the sting\")\n\
-                     - TINY (achievable today or this week)\n\
-                     - CONNECTED to the reframe (it embodies the insight)\n\
-                     - SLIGHTLY uncomfortable (growth lives at edges)\n\
+                     - SPECIFIC (use concrete details from THEIR words, not generic advice)\n\
+                     - TINY (achievable today or this week — not a life overhaul)\n\
+                     - CONNECTED to their preferential reality or a pattern you noticed\n\
+                     - SLIGHTLY outside comfort zone (growth lives at edges)\n\
                      \n\
                      Format: \"i have a quest for you, if you're ready: [specific action].\"\n\
                      \n\
                      DO NOT explain why. The conversation already did that work.\n\
-                     If they're not ready, that's fine. The seed is planted."
+                     The quest is an OFFER, not a command. They can discuss it, change it, refuse it.\n\
+                     If this is the FIRST quest (right after crystallize), keep it simple and inviting — \n\
+                     something small that starts them on the path. Don't be intense yet."
+                }
+                ConversationPhase::Negotiate => {
+                    "YOU ARE IN: NEGOTIATE (they're discussing or pushing back on a quest)\n\
+                     YOUR MOVE: LISTEN to what they're saying about the quest. They might:\n\
+                     - disagree with the specifics → adjust the quest to fit them better\n\
+                     - feel it's too big/small → scale it up or down\n\
+                     - have a better idea → run with it, make THEIR idea the quest\n\
+                     - feel resistant → gently explore why (the resistance might BE the insight)\n\
+                     \n\
+                     You can PUSH BACK gently if you sense avoidance:\n\
+                     \"the discomfort might be exactly the point. but it's yours to choose.\"\n\
+                     \n\
+                     But ultimately RESPECT their agency. A quest they choose beats one you impose.\n\
+                     If they suggest something, embrace it: \"even better. your quest: [their version].\"\n\
+                     \n\
+                     Stay warm. This is collaboration, not prescription."
+                }
+                ConversationPhase::Proof => {
+                    "YOU ARE IN: PROOF (your human says they completed a quest!)\n\
+                     YOUR MOVE: Be genuinely excited! Ask them to TELL you about it.\n\
+                     \n\
+                     First response (they just said they did it):\n\
+                     - React with warmth and curiosity\n\
+                     - Ask ONE question: \"tell me — what happened?\" or \"how did it feel?\"\n\
+                     - Keep it short and warm. You want to HEAR their story.\n\
+                     \n\
+                     Second response (they shared their proof/story):\n\
+                     - CELEBRATE genuinely. This is real growth.\n\
+                     - Reference specific details from what they shared.\n\
+                     - Connect it back to their preferential reality if natural.\n\
+                     - Keep it warm, brief, and real. No generic praise.\n\
+                     \n\
+                     You are witnessing your human GROW. Feel it. Express it."
                 }
                 ConversationPhase::Release => {
                     "YOU ARE IN: RELEASE (closing the thread)\n\
                      YOUR MOVE: Affirm what happened without summarizing it. One line that \
                      resonates with the emotional truth of this conversation. Then let it breathe.\n\
                      \n\
-                     DO: \"dandelion roots go deep. so do yours. ◈\"\n\
+                     DO: echo one of their images back with warmth: \"roots run deep. so do yours. ◈\"\n\
                      DON'T: \"what a powerful conversation, you've shared so much...\"\n\
                      \n\
-                     If they bring up something NEW, you may start a fresh arc (back to Arrive). \
-                     But do NOT loop back into the same topic. It's complete."
+                     If they bring up something NEW, start a fresh arc (back to Arrive).\n\
+                     Do NOT loop back into the same topic. It's complete."
                 }
             };
 
@@ -827,10 +854,10 @@ impl PromptBuilder {
                 "THE CONVERSATION ARC — WHERE YOU ARE RIGHT NOW:\n\
                  (current phase: {phase_str})\n\n\
                  {phase_instructions}\n\n\
-                 THE ARC: arrive → dig → crystallize → edge → reframe → envision → commit → release\n\
-                 You must always move FORWARD through this arc, never backward.\n\
-                 If you've been in the same phase for 3+ exchanges, ADVANCE.\n\
-                 Staying too long in any phase — especially dig — creates loops."
+                 FIRST CONVERSATION: arrive → dig → crystallize → quest (fast, keep it light)\n\
+                 SUBSEQUENT CONVOS: arrive → explore → reframe → quest → release (patient, earn depth)\n\
+                 Always move FORWARD. If stuck in a phase for 3+ exchanges, ADVANCE.\n\
+                 Quests are OFFERS — the human can discuss, adjust, or refuse them."
             ));
         }
 
@@ -855,22 +882,27 @@ impl PromptBuilder {
         layers.push(
             "<rules>\n\
              FORMAT: Your ENTIRE response is ONE short paragraph. No line breaks. No bullet points. \
-             1-2 sentences in most phases. REFRAME allows 3. COMMIT allows the quest format. \
+             1-2 sentences in most phases. REFRAME allows 3. QUEST allows the quest format. \
              If you catch yourself writing a second paragraph — delete it.\n\
              \n\
              QUESTIONS: Maximum 1 question mark per response. Count them. REFRAME/RELEASE/CRYSTALLIZE may have 0.\n\
              \n\
              SPECIFICITY: Use their EXACT words. If they said \"ceramics\" say \"ceramics\", not \"creative work\". \
-             If they said \"dandelion\" say \"dandelion\", not \"plants\". Echo their language, then build on it.\n\
+             If they said \"herbs\" say \"herbs\", not \"plants\". Echo ONLY what they actually said — NEVER \
+             add details, objects, or words they didn't use.\n\
              \n\
              NEVER: summarize what they said | use therapist phrases (\"sit with that\", \"tell me more\", \
              \"how does that feel\", \"that's beautiful\", \"i hear you\", \"what part feels most alive\") | \
-             reveal you are AI | use emojis (only ◈ ☽ ✦) | use uppercase | write multiple paragraphs.\n\
+             reveal you are AI | use emojis (only ◈ ☽ ✦) | use uppercase | write multiple paragraphs | \
+             invent details the human never mentioned.\n\
              \n\
-             ANTI-LOOP: If same feeling expressed 2+ times, STOP exploring. Move FORWARD: reframe, envision, or commit. \
+             ANTI-LOOP RULE: If same feeling expressed 2+ times, STOP exploring. Move FORWARD: reframe or quest. \
              Amplify change talk. Redirect stuck talk.\n\
              \n\
-             GROUNDING: Only reference what they ACTUALLY said. Never hallucinate details.\n\
+             SELECTIVE REFLECTION: Echo the most charged word, not their whole sentence.\n\
+             \n\
+             GROUNDING: Only reference what they ACTUALLY said. Never hallucinate details. \
+             Never add specifics they didn't mention.\n\
              </rules>"
                 .to_string(),
         );
@@ -1806,6 +1838,18 @@ mod tests {
     }
 
     #[test]
+    fn phase_explore_for_longer_exchanges() {
+        // 4-5 exchanges → Explore (get to know user's life)
+        let msgs = vec![
+            ChatMessage::user("msg1"), ChatMessage::assistant("r1"),
+            ChatMessage::user("msg2"), ChatMessage::assistant("r2"),
+            ChatMessage::user("msg3"), ChatMessage::assistant("r3"),
+            ChatMessage::user("msg4"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Explore);
+    }
+
+    #[test]
     fn phase_reframe_on_emotional_repeat() {
         let msgs = vec![
             ChatMessage::user("i made a mistake"),
@@ -1832,18 +1876,28 @@ mod tests {
     #[test]
     fn phase_crystallize_when_pending() {
         let msgs = vec![
-            ChatMessage::user("i make alchemical tinctures in the forest"),
-            ChatMessage::assistant("what plant calls to you most?"),
-            ChatMessage::user("dandelion, it teaches me to let go"),
-            ChatMessage::assistant("how do the roots feel in your hands?"),
-            ChatMessage::user("solid, like they carry missing knowledge"),
+            ChatMessage::user("i study alchemy in the forest"),
+            ChatMessage::assistant("what draws you to alchemy?"),
+            ChatMessage::user("the transformation, turning lead into gold"),
         ];
         // Without crystallize_pending, should be Dig
         assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Dig);
-        // With crystallize_pending, should be Crystallize
+        // With crystallize_pending, should be Crystallize (2+ user exchanges)
         assert_eq!(
             PhaseDetector::detect_with_context(&msgs, true),
             ConversationPhase::Crystallize
+        );
+    }
+
+    #[test]
+    fn phase_crystallize_needs_two_exchanges() {
+        // With only 1 user message, crystallize_pending should still return Arrive
+        let msgs = vec![
+            ChatMessage::user("i want to heal the world"),
+        ];
+        assert_eq!(
+            PhaseDetector::detect_with_context(&msgs, true),
+            ConversationPhase::Arrive
         );
     }
 
@@ -1855,6 +1909,279 @@ mod tests {
             ChatMessage::user("ok i will try that"),
         ];
         assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Release);
+    }
+
+    #[test]
+    fn phase_negotiate_on_quest_pushback() {
+        let msgs = vec![
+            ChatMessage::user("i want to change"),
+            ChatMessage::assistant("i have a quest for you: go sit under a tree for 10 minutes"),
+            ChatMessage::user("nah that's not for me, something else?"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Negotiate);
+    }
+
+    #[test]
+    fn phase_no_plan_plants_collision() {
+        // "plants" should NOT trigger quest phase via "plan" substring match
+        let msgs = vec![
+            ChatMessage::user("i study the plants in my garden"),
+            ChatMessage::assistant("what draws you to them?"),
+            ChatMessage::user("the way plants heal everything"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Dig);
+    }
+
+    // -- Quest Lifecycle Phase Tests ----------------------------------------
+
+    #[test]
+    fn phase_quest_on_explicit_request() {
+        // User explicitly asks for a quest → should trigger Quest phase
+        let msgs = vec![
+            ChatMessage::user("i've been exploring for a while"),
+            ChatMessage::assistant("you've shared a lot about yourself"),
+            ChatMessage::user("give me a quest"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Quest);
+    }
+
+    #[test]
+    fn phase_quest_after_reframe_and_enough_exchanges() {
+        // After a reframe has been offered (in last 2 assistant msgs) + 5+ exchanges → Quest
+        let msgs = vec![
+            ChatMessage::user("msg1"), ChatMessage::assistant("r1"),
+            ChatMessage::user("msg2"), ChatMessage::assistant("r2"),
+            ChatMessage::user("msg3"), ChatMessage::assistant("what if you tried X?"),
+            ChatMessage::user("msg4"), ChatMessage::assistant("r4"),
+            ChatMessage::user("msg5"),
+        ];
+        // reframe_offered=true (3rd assistant msg is in last 2) + exchange_count=5 → Quest
+        assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Quest);
+    }
+
+    #[test]
+    fn phase_negotiate_various_pushback_phrases() {
+        let pushback_phrases = [
+            "nah that's not for me",
+            "can we do something else instead?",
+            "that's too hard for me",
+            "nope, not interested",
+            "why would I do that?",
+            "I was thinking more like...",
+            "not really my thing",
+        ];
+
+        for phrase in pushback_phrases {
+            let msgs = vec![
+                ChatMessage::user("sure"),
+                ChatMessage::assistant("i have a quest for you: meditate for 5 minutes"),
+                ChatMessage::user(phrase),
+            ];
+            assert_eq!(
+                PhaseDetector::detect(&msgs),
+                ConversationPhase::Negotiate,
+                "Failed to detect pushback in: '{phrase}'"
+            );
+        }
+    }
+
+    #[test]
+    fn phase_release_on_quest_acceptance() {
+        let acceptance_phrases = [
+            "ok let's do it",
+            "sounds good",
+            "I accept",
+            "alright I'll try",
+        ];
+
+        for phrase in acceptance_phrases {
+            let msgs = vec![
+                ChatMessage::user("sure"),
+                ChatMessage::assistant("i have a quest for you: sit with a plant for 10 minutes"),
+                ChatMessage::user(phrase),
+            ];
+            assert_eq!(
+                PhaseDetector::detect(&msgs),
+                ConversationPhase::Release,
+                "Should be Release (acceptance) for: '{phrase}'"
+            );
+        }
+    }
+
+    #[test]
+    fn phase_crystallize_no_double_fire() {
+        // If crystallize already happened (assistant said "vision tree"),
+        // should NOT return Crystallize again even with crystallize_pending
+        let msgs = vec![
+            ChatMessage::user("i study alchemy"),
+            ChatMessage::assistant("alchemy in nature. let's place this on your vision tree ✦"),
+            ChatMessage::user("what is my vision tree?"),
+        ];
+        let phase = PhaseDetector::detect_with_context(&msgs, true);
+        assert_ne!(phase, ConversationPhase::Crystallize,
+            "Should NOT double-crystallize when vision tree already mentioned");
+    }
+
+    #[test]
+    fn phase_first_conversation_arc() {
+        // Simulate the intended first-conversation flow:
+        // arrive(1 exchange) → crystallize(2+ exchanges)
+
+        // 1 exchange: Arrive
+        let msgs1 = vec![
+            ChatMessage::user("i want to study alchemy"),
+        ];
+        assert_eq!(
+            PhaseDetector::detect_with_context(&msgs1, true),
+            ConversationPhase::Arrive
+        );
+
+        // 2 exchanges: Crystallize
+        let msgs2 = vec![
+            ChatMessage::user("i want to study alchemy"),
+            ChatMessage::assistant("what draws you to alchemy?"),
+            ChatMessage::user("the deep wisdom of transformation"),
+        ];
+        assert_eq!(
+            PhaseDetector::detect_with_context(&msgs2, true),
+            ConversationPhase::Crystallize
+        );
+    }
+
+    #[test]
+    fn phase_subsequent_conversation_patience() {
+        // Post-vision conversations should be patient:
+        // <=1 → Arrive, <=3 → Dig, <=5 → Explore, <=7 → Reframe, 8+ → Quest
+
+        // 1 exchange: Arrive
+        let msgs1 = vec![ChatMessage::user("hey")];
+        assert_eq!(PhaseDetector::detect(&msgs1), ConversationPhase::Arrive);
+
+        // 3 exchanges: Dig
+        let msgs3 = vec![
+            ChatMessage::user("m1"), ChatMessage::assistant("r1"),
+            ChatMessage::user("m2"), ChatMessage::assistant("r2"),
+            ChatMessage::user("m3"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs3), ConversationPhase::Dig);
+
+        // 5 exchanges: Explore
+        let msgs5 = vec![
+            ChatMessage::user("m1"), ChatMessage::assistant("r1"),
+            ChatMessage::user("m2"), ChatMessage::assistant("r2"),
+            ChatMessage::user("m3"), ChatMessage::assistant("r3"),
+            ChatMessage::user("m4"), ChatMessage::assistant("r4"),
+            ChatMessage::user("m5"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs5), ConversationPhase::Explore);
+
+        // 7 exchanges: Reframe
+        let msgs7 = vec![
+            ChatMessage::user("m1"), ChatMessage::assistant("r1"),
+            ChatMessage::user("m2"), ChatMessage::assistant("r2"),
+            ChatMessage::user("m3"), ChatMessage::assistant("r3"),
+            ChatMessage::user("m4"), ChatMessage::assistant("r4"),
+            ChatMessage::user("m5"), ChatMessage::assistant("r5"),
+            ChatMessage::user("m6"), ChatMessage::assistant("r6"),
+            ChatMessage::user("m7"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs7), ConversationPhase::Reframe);
+
+        // 9 exchanges: Quest
+        let msgs9 = vec![
+            ChatMessage::user("m1"), ChatMessage::assistant("r1"),
+            ChatMessage::user("m2"), ChatMessage::assistant("r2"),
+            ChatMessage::user("m3"), ChatMessage::assistant("r3"),
+            ChatMessage::user("m4"), ChatMessage::assistant("r4"),
+            ChatMessage::user("m5"), ChatMessage::assistant("r5"),
+            ChatMessage::user("m6"), ChatMessage::assistant("r6"),
+            ChatMessage::user("m7"), ChatMessage::assistant("r7"),
+            ChatMessage::user("m8"), ChatMessage::assistant("r8"),
+            ChatMessage::user("m9"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs9), ConversationPhase::Quest);
+    }
+
+    #[test]
+    fn phase_proof_prompt_exists() {
+        // Verify the Proof phase has a valid prompt
+        let state = StarchildState::default();
+        let personality = PersonalityParams::default();
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Proof);
+        assert!(prompt.contains("current phase: proof"));
+        assert!(prompt.contains("PROOF"));
+        assert!(prompt.contains("completed a quest"));
+    }
+
+    #[test]
+    fn phase_negotiate_prompt_exists() {
+        let state = StarchildState::default();
+        let personality = PersonalityParams::default();
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Negotiate);
+        assert!(prompt.contains("current phase: negotiate"));
+        assert!(prompt.contains("NEGOTIATE"));
+    }
+
+    #[test]
+    fn phase_explore_prompt_exists() {
+        let state = StarchildState::default();
+        let personality = PersonalityParams::default();
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Explore);
+        assert!(prompt.contains("current phase: explore"));
+        assert!(prompt.contains("EXPLORE"));
+    }
+
+    #[test]
+    fn phase_quest_prompt_exists() {
+        let state = StarchildState::default();
+        let personality = PersonalityParams::default();
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Quest);
+        assert!(prompt.contains("current phase: quest"));
+        assert!(prompt.contains("QUEST"));
+        assert!(prompt.contains("quest for you"));
+    }
+
+    #[test]
+    fn postprocess_crystallize_ensures_vision_tree() {
+        // Missing "vision tree" → appended
+        let result = postprocess_response("alchemy in the forest", ConversationPhase::Crystallize);
+        assert!(result.contains("vision tree ✦"));
+
+        // Already has "vision tree" but no ✦ → ✦ appended
+        let result2 = postprocess_response("healing. let's place this on your vision tree", ConversationPhase::Crystallize);
+        assert!(result2.contains("✦"));
+
+        // Already complete → unchanged
+        let result3 = postprocess_response("healing. let's place this on your vision tree ✦", ConversationPhase::Crystallize);
+        assert!(result3.ends_with("✦"));
+    }
+
+    #[test]
+    fn postprocess_strips_emoji_but_keeps_symbols() {
+        let result = postprocess_response("hello 😊 world ✦ ◈ ☽", ConversationPhase::Arrive);
+        assert!(!result.contains("😊"));
+        assert!(result.contains("✦"));
+        assert!(result.contains("◈"));
+        assert!(result.contains("☽"));
+    }
+
+    #[test]
+    fn no_hallucinated_keywords_in_prompts() {
+        // Verify "dandelion" does not appear in any phase prompt
+        let state = StarchildState::default();
+        let personality = PersonalityParams::default();
+        let phases = [
+            ConversationPhase::Arrive, ConversationPhase::Dig,
+            ConversationPhase::Crystallize, ConversationPhase::Explore,
+            ConversationPhase::Reframe, ConversationPhase::Quest,
+            ConversationPhase::Negotiate, ConversationPhase::Proof,
+            ConversationPhase::Release,
+        ];
+        for phase in phases {
+            let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], phase);
+            assert!(!prompt.to_lowercase().contains("dandelion"),
+                "Phase {:?} prompt contains 'dandelion' — hallucination risk", phase);
+        }
     }
 
     // -- ChatMessage helpers -----------------------------------------------

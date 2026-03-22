@@ -89,7 +89,7 @@ export default function Onboarding() {
     musicStarted.current = true
     const audio = new Audio(meditationSrc)
     audio.loop = true
-    audio.volume = 0.35
+    audio.volume = 0.18
     audio.play().catch(() => {})
     // Store globally so it persists across component unmounts
     ;(window as any).__bgMusic = audio

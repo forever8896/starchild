@@ -26,6 +26,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { type Quest } from '../store'
 import starchildLogo from '../assets/starchild-logo.png'
 // @ts-ignore
@@ -47,11 +48,9 @@ const YOU_Y = 900
 const TRUNK_X = VB_W / 2
 
 const CATEGORIES = [
-  { key: 'body',    label: 'Body',    color: '#a8d8b8', x: 100 },
-  { key: 'purpose', label: 'Purpose', color: '#a8c8e8', x: 250 },
-  { key: 'mind',    label: 'Mind',    color: '#e8d8a8', x: 400 },
-  { key: 'heart',   label: 'Heart',   color: '#e8a8b8', x: 550 },
-  { key: 'spirit',  label: 'Spirit',  color: '#b8a0d8', x: 700 },
+  { key: 'body',   label: 'Body',   color: '#a8d8b8', x: 200 },
+  { key: 'mind',   label: 'Mind',   color: '#e8d8a8', x: 400 },
+  { key: 'spirit', label: 'Spirit', color: '#b8a0d8', x: 600 },
 ] as const
 
 // ─── SVG Helpers ────────────────────────────────────────────────────────────
@@ -125,12 +124,27 @@ function AnimatedPath({
 
 // ─── Quest Node ─────────────────────────────────────────────────────────────
 
+// Generate particle positions for celebration burst
+function celebrationParticles(cx: number, cy: number) {
+  const particles = []
+  for (let i = 0; i < 8; i++) {
+    const angle = (Math.PI * 2 * i) / 8 + (Math.random() - 0.5) * 0.3
+    const dist = 30 + Math.random() * 25
+    particles.push({
+      tx: cx + Math.cos(angle) * dist,
+      ty: cy + Math.sin(angle) * dist,
+    })
+  }
+  return particles
+}
+
 function QuestNode({
   cx,
   cy,
   quest,
   color,
   delay,
+  celebrating,
   onClick,
 }: {
   cx: number
@@ -138,6 +152,7 @@ function QuestNode({
   quest?: Quest
   color: string
   delay: number
+  celebrating?: boolean
   onClick?: () => void
 }) {
   const status = quest?.status ?? 'locked'
@@ -156,8 +171,38 @@ function QuestNode({
       style={{ cursor: quest ? 'pointer' : 'default', transformOrigin: `${cx}px ${cy}px` }}
       onClick={onClick}
     >
+      {/* Celebration burst — particles + glow */}
+      {celebrating && (
+        <>
+          {/* Expanding glow ring */}
+          <motion.circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth={3}
+            initial={{ scale: 1, opacity: 0.9 }}
+            animate={{ scale: 3.5, opacity: 0 }}
+            transition={{ duration: 1, ease: 'easeOut' }}
+            style={{ transformOrigin: `${cx}px ${cy}px` }}
+          />
+          {/* Particles flying outward */}
+          {celebrationParticles(cx, cy).map((p, i) => (
+            <motion.circle
+              key={`particle-${i}`}
+              r={2.5}
+              fill={color}
+              initial={{ cx, cy, opacity: 1 }}
+              animate={{ cx: p.tx, cy: p.ty, opacity: 0 }}
+              transition={{ duration: 0.8, delay: i * 0.03, ease: 'easeOut' }}
+            />
+          ))}
+        </>
+      )}
+
       {/* Outer glow ring for active quests — continuous breathe */}
-      {isActive && (
+      {isActive && !celebrating && (
         <motion.circle
           cx={cx}
           cy={cy}
@@ -171,31 +216,37 @@ function QuestNode({
         />
       )}
 
-      {/* Node circle */}
-      <circle
+      {/* Node circle — pulse on celebration */}
+      <motion.circle
         cx={cx}
         cy={cy}
         r={r}
-        fill={isCompleted ? color : 'transparent'}
+        fill={isCompleted || celebrating ? color : 'transparent'}
         stroke={color}
-        strokeWidth={isCompleted ? 0 : 1.5}
-        opacity={quest ? (isCompleted ? 1 : isActive ? 0.9 : 0.35) : 0.15}
+        strokeWidth={isCompleted || celebrating ? 0 : 1.5}
+        opacity={quest ? (isCompleted || celebrating ? 1 : isActive ? 0.9 : 0.35) : 0.15}
+        animate={celebrating ? { scale: [1, 1.5, 1] } : {}}
+        transition={celebrating ? { duration: 0.6, ease: 'easeOut' } : {}}
+        style={{ transformOrigin: `${cx}px ${cy}px` }}
       />
 
       {/* Completed checkmark */}
-      {isCompleted && (
-        <path
+      {(isCompleted || celebrating) && (
+        <motion.path
           d={`M${cx - 5},${cy} L${cx - 1},${cy + 4} L${cx + 6},${cy - 4}`}
           fill="none"
           stroke="#1a1525"
           strokeWidth={2.5}
           strokeLinecap="round"
           strokeLinejoin="round"
+          initial={celebrating ? { opacity: 0, pathLength: 0 } : {}}
+          animate={celebrating ? { opacity: 1, pathLength: 1 } : {}}
+          transition={celebrating ? { duration: 0.4, delay: 0.3 } : {}}
         />
       )}
 
       {/* Inner dot for active */}
-      {isActive && (
+      {isActive && !celebrating && (
         <motion.circle
           cx={cx}
           cy={cy}
@@ -578,16 +629,18 @@ interface JourneyProof {
   last_anchor_tx: string | null
 }
 
-export default function SkillTree({ onBack }: { onBack: () => void }) {
+export default function SkillTree({ onBack, showIntro = false }: { onBack: () => void; showIntro?: boolean }) {
   const [quests, setQuests] = useState<Quest[]>([])
   const [preferentialReality, setPreferentialReality] = useState('')
   const [selectedQuest, setSelectedQuest] = useState<{ quest: Quest; color: string } | null>(null)
   const [journeyProof, setJourneyProof] = useState<JourneyProof | null>(null)
   const [isAnchoring, setIsAnchoring] = useState(false)
   const [anchorResult, setAnchorResult] = useState<string | null>(null)
+  const [celebratingQuestId, setCelebratingQuestId] = useState<string | null>(null)
+  const [celebrationXp, setCelebrationXp] = useState<number | null>(null)
 
-  // Video intro — plays once with loop to keep WebKitGTK happy, dismiss after duration
-  const [showVideoIntro, setShowVideoIntro] = useState(true)
+  // Video intro — only plays on first-ever reveal (Crystallize), not on manual nav or quest accept
+  const [showVideoIntro, setShowVideoIntro] = useState(showIntro)
   // Cinematic SVG reveal: zoom star → pull back to full tree → auto-dismiss
   const [revealPhase, setRevealPhase] = useState<'star' | 'tree' | 'done'>('star')
 
@@ -600,19 +653,20 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
   // Reveal sequence starts after video fades out
   useEffect(() => {
     if (showVideoIntro) return
-    // Phase 1: star is already showing (zoomed in)
-    // Phase 2: after 2s, pull back to full tree
-    const treeTimer = setTimeout(() => setRevealPhase('tree'), 2000)
-    // Phase 3: after full reveal (2s zoom + 4s to appreciate), auto-dismiss
-    const dismissTimer = setTimeout(() => {
+
+    if (showIntro) {
+      // Cinematic first reveal: zoom star → pull back → auto-dismiss
+      const treeTimer = setTimeout(() => setRevealPhase('tree'), 2000)
+      const dismissTimer = setTimeout(() => {
+        setRevealPhase('done')
+        onBack()
+      }, 10000)
+      return () => { clearTimeout(treeTimer); clearTimeout(dismissTimer) }
+    } else {
+      // Manual navigation or quest acceptance: show full tree immediately, no auto-dismiss
       setRevealPhase('done')
-      onBack()
-    }, 10000)
-    return () => {
-      clearTimeout(treeTimer)
-      clearTimeout(dismissTimer)
     }
-  }, [showVideoIntro, onBack])
+  }, [showVideoIntro, showIntro, onBack])
 
   // Load data
   useEffect(() => {
@@ -652,7 +706,18 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
     }
 
     load()
-    return () => { cancelled = true }
+    // Reload when quests change (accepted from conversation or completed)
+    let ul1: (() => void) | null = null
+    let ul2: (() => void) | null = null
+    listen('quest-accepted', () => { load() }).then((fn) => { ul1 = fn })
+    listen<{ quest_id: string; xp_reward?: number }>('quest-celebration', (event) => {
+      load()
+      // Trigger celebration animation
+      setCelebratingQuestId(event.payload.quest_id)
+      if (event.payload.xp_reward) setCelebrationXp(event.payload.xp_reward)
+      setTimeout(() => { setCelebratingQuestId(null); setCelebrationXp(null) }, 3000)
+    }).then((fn) => { ul2 = fn })
+    return () => { cancelled = true; ul1?.(); ul2?.() }
   }, [])
 
   const handleAnchorJourney = async () => {
@@ -935,7 +1000,8 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
           {/* ── Phase 5: Quest Nodes ──────────────────────────────────── */}
           {CATEGORIES.map((cat, catIdx) => {
             const catQuests = questsByCategory[cat.key] || []
-            const tiers = [QUEST_T1_Y, QUEST_T2_Y, QUEST_T3_Y]
+            // Fill from bottom (near "You") upward toward vision
+            const tiers = [QUEST_T3_Y, QUEST_T2_Y, QUEST_T1_Y]
 
             return (
               <g key={`qnodes-${cat.key}`}>
@@ -947,6 +1013,7 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
                     quest={catQuests[tierIdx]}
                     color={cat.color}
                     delay={2.5 + catIdx * 0.1 + tierIdx * 0.12}
+                    celebrating={catQuests[tierIdx]?.id === celebratingQuestId}
                     onClick={
                       catQuests[tierIdx]
                         ? () => setSelectedQuest({ quest: catQuests[tierIdx], color: cat.color })
@@ -1060,6 +1127,42 @@ export default function SkillTree({ onBack }: { onBack: () => void }) {
             color={selectedQuest.color}
             onClose={() => setSelectedQuest(null)}
           />
+        )}
+
+        {/* XP gain celebration overlay */}
+        {celebrationXp && (
+          <motion.div
+            key="xp-celebration"
+            className="fixed inset-0 flex items-center justify-center pointer-events-none z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="text-center"
+              initial={{ scale: 0.5, y: 20 }}
+              animate={{ scale: 1, y: -40 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+            >
+              <motion.p
+                className="text-4xl font-bold"
+                style={{ color: 'var(--accent-mint)', textShadow: '0 0 30px rgba(168,216,184,0.5)' }}
+                animate={{ opacity: [1, 1, 0] }}
+                transition={{ duration: 2.5, times: [0, 0.6, 1] }}
+              >
+                +{celebrationXp} XP
+              </motion.p>
+              <motion.p
+                className="text-sm font-medium mt-1"
+                style={{ color: 'var(--accent-lavender)' }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 1, 0] }}
+                transition={{ duration: 2.5, times: [0, 0.3, 1] }}
+              >
+                quest complete ✦
+              </motion.p>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

@@ -21,9 +21,7 @@ interface QuestSuggestion {
 
 const CATEGORY_ACCENT_COLORS: Record<string, string> = {
   body: 'var(--accent-mint)',
-  purpose: 'var(--accent-sky)',
   mind: 'var(--accent-gold)',
-  heart: 'var(--accent-rose)',
   spirit: 'var(--accent-lavender)',
 }
 

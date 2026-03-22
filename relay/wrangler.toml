@@ -1,0 +1,7 @@
+name = "starchild-relay"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Secret: ATTESTER_PRIVATE_KEY (set via `npx wrangler secret put ATTESTER_PRIVATE_KEY`)
+# This is the project wallet that pays gas for EAS attestations on Base.
+# Fund it with a small amount of ETH on Base (~0.01 ETH handles thousands of attestations).

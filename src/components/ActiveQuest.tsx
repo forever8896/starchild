@@ -11,17 +11,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useAppStore, type Quest } from '../store'
 
 export default function ActiveQuest({
-  onComplete,
+  onRequestProof,
 }: {
-  onComplete: (questTitle: string) => void
+  onRequestProof: (quest: Quest) => void
 }) {
   const [quests, setQuests] = useState<Quest[]>([])
   const [expanded, setExpanded] = useState(false)
-  const [completing, setCompleting] = useState(false)
-  const setStarchildState = useAppStore((s) => s.setStarchildState)
 
   // Load active quests
   useEffect(() => {
@@ -37,31 +36,13 @@ export default function ActiveQuest({
     load()
     // Reload every 30s in case quests change
     const interval = setInterval(load, 30_000)
-    return () => { cancelled = true; clearInterval(interval) }
+    // Reload when quests are accepted or completed
+    let ul1: (() => void) | null = null
+    let ul2: (() => void) | null = null
+    listen('quest-accepted', () => { load() }).then((fn) => { ul1 = fn })
+    listen('quest-completed', () => { load() }).then((fn) => { ul2 = fn })
+    return () => { cancelled = true; clearInterval(interval); ul1?.(); ul2?.() }
   }, [])
-
-  const handleComplete = useCallback(async (quest: Quest) => {
-    setCompleting(true)
-    try {
-      const result = await invoke<{
-        quest: Quest
-        starchild_state: { hunger: number; mood: string; energy: number; bond: number; xp: number; level: number }
-        levelled_up: boolean
-        milestones: string[]
-      }>('complete_quest', { id: quest.id })
-
-      setStarchildState(result.starchild_state)
-      setQuests((prev) => prev.filter((q) => q.id !== quest.id))
-      setExpanded(false)
-
-      // Notify the chat so the Starchild can celebrate — include description so it knows the actual task
-      onComplete(quest.description || quest.title)
-    } catch (err) {
-      console.error('Failed to complete quest:', err)
-    } finally {
-      setCompleting(false)
-    }
-  }, [onComplete, setStarchildState])
 
   if (quests.length === 0) return null
 
@@ -134,10 +115,10 @@ export default function ActiveQuest({
                 <motion.button
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleComplete(quest)
+                    setExpanded(false)
+                    onRequestProof(quest)
                   }}
-                  disabled={completing}
-                  className="clay-button w-full py-2.5 text-sm font-semibold disabled:opacity-50"
+                  className="clay-button w-full py-2.5 text-sm font-semibold"
                   style={{
                     background: 'rgba(168, 216, 184, 0.85)',
                     color: '#1a1525',
@@ -146,7 +127,7 @@ export default function ActiveQuest({
                   whileTap={{ scale: 0.97 }}
                   transition={{ type: 'spring', stiffness: 380, damping: 22 }}
                 >
-                  {completing ? 'completing...' : 'i did it ✦'}
+                  i did it ✦
                 </motion.button>
               </div>
             </motion.div>

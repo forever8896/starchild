@@ -415,4 +415,70 @@ mod tests {
         assert_eq!(deserialized.mood, state.mood);
         assert_eq!(deserialized.level, state.level);
     }
+
+    // -- Quest Completion Impact on Game State --------------------------------
+
+    #[test]
+    fn test_quest_completion_feeds_and_awards_xp() {
+        let mut state = StarchildState::new();
+        let initial_hunger = state.hunger;
+        let initial_bond = state.bond;
+        let initial_xp = state.xp;
+
+        // Simulate quest completion: xp_reward = 30
+        let xp_reward = 30_i64;
+        let levelled_up = state.add_xp(xp_reward);
+        state.feed(xp_reward as f64 / 10.0);
+
+        assert_eq!(state.xp, initial_xp + xp_reward);
+        assert!(!levelled_up); // 30 XP < 100 needed for level 2
+        assert!((state.hunger - (initial_hunger + 3.0)).abs() < 0.01); // +3.0 hunger (30/10)
+        assert!((state.bond - (initial_bond + 0.1)).abs() < 0.01); // +0.1 bond from feed
+    }
+
+    #[test]
+    fn test_quest_completion_can_level_up() {
+        let mut state = StarchildState::new();
+        assert_eq!(state.level, 1);
+
+        // Complete quests worth 100+ XP total → should level up
+        let levelled = state.add_xp(100);
+        assert!(levelled);
+        assert_eq!(state.level, 2);
+        assert_eq!(state.xp, 0); // residual after level-up
+    }
+
+    #[test]
+    fn test_hunger_decay_over_time_affects_mood() {
+        let mut state = StarchildState::new();
+        assert_eq!(state.hunger, 50.0); // starts at 50 (Content)
+        assert_eq!(state.mood, Mood::Content);
+
+        // Simulate 10 hours of decay: 10 * 2.0 = 20 points
+        state.hunger = (state.hunger - 20.0).clamp(0.0, 100.0);
+        state.update_mood();
+
+        assert_eq!(state.hunger, 30.0);
+        assert_eq!(state.mood, Mood::Hungry); // 20-34 → Hungry
+
+        // Feed via quest completion: +5 hunger
+        state.feed(5.0);
+        assert_eq!(state.hunger, 35.0);
+        assert_eq!(state.mood, Mood::Restless); // 35-49 → Restless
+    }
+
+    #[test]
+    fn test_conversation_only_affects_bond() {
+        let mut state = StarchildState::new();
+        let initial_hunger = state.hunger;
+        let initial_xp = state.xp;
+        // Simulate 5 messages: bond += 0.05 each
+        for _ in 0..5 {
+            state.bond = (state.bond + 0.05).clamp(0.0, 100.0);
+        }
+
+        assert_eq!(state.hunger, initial_hunger); // unchanged
+        assert_eq!(state.xp, initial_xp); // unchanged
+        assert!((state.bond - 0.25).abs() < 0.01); // 5 * 0.05 = 0.25
+    }
 }

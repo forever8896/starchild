@@ -220,124 +220,56 @@ fn check_anchor_status(db: &Database, journey_root: &[u8; 32]) -> (bool, Option<
 // EAS on-chain attestation
 // ---------------------------------------------------------------------------
 
-/// Check if the attester key is configured (env var STARCHILD_ATTESTER_KEY).
-pub fn attester_key_available() -> bool {
-    std::env::var("STARCHILD_ATTESTER_KEY")
-        .ok()
-        .filter(|k| !k.is_empty() && k.starts_with("0x") || k.len() == 64)
-        .is_some()
-}
+/// Relay URL for submitting attestations.
+/// The relay holds the project wallet and signs EAS attestations on behalf of users.
+/// Users need no wallet, no ETH, no crypto knowledge.
+const RELAY_URL: &str = "https://starchild-relay.kilianvalkhof.workers.dev";
 
-/// Anchor the journey proof on-chain via EAS on Base.
-/// Returns the transaction hash as a hex string.
-pub async fn anchor_journey_onchain(
-    user_hash: [u8; 32],
-    journey_root: [u8; 32],
+/// Submit a journey proof to the attestation relay for on-chain anchoring.
+/// The relay signs and submits the EAS attestation on Base using the project wallet.
+/// Returns the transaction hash.
+pub async fn submit_to_relay(
+    http_client: &reqwest::Client,
+    user_hash: &str,
+    journey_root: &str,
     quest_count: u64,
     streak: u64,
 ) -> Result<String, String> {
-    use alloy::primitives::{Address, Bytes, FixedBytes, U256};
-    use alloy::providers::{Provider, ProviderBuilder};
-    use alloy::sol_types::SolCall;
+    let relay_url = std::env::var("STARCHILD_RELAY_URL")
+        .unwrap_or_else(|_| RELAY_URL.to_string());
 
-    let attester_key_hex = std::env::var("STARCHILD_ATTESTER_KEY")
-        .map_err(|_| "STARCHILD_ATTESTER_KEY env var not set -- on-chain anchoring disabled".to_string())?;
+    let body = serde_json::json!({
+        "user_hash": user_hash,
+        "journey_root": journey_root,
+        "quest_count": quest_count,
+        "streak": streak,
+    });
 
-    let attester_key_hex = attester_key_hex.strip_prefix("0x").unwrap_or(&attester_key_hex);
+    log::info!("Submitting attestation to relay: {relay_url}/attest");
 
-    // Parse the private key
-    let key_bytes: [u8; 32] = hex::decode(attester_key_hex)
-        .map_err(|e| format!("Invalid attester key: {e}"))?
-        .try_into()
-        .map_err(|_| "Attester key must be 32 bytes".to_string())?;
+    let response = http_client
+        .post(format!("{relay_url}/attest"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|e| format!("Relay request failed: {e}"))?;
 
-    let signer = alloy::signers::local::PrivateKeySigner::from_bytes(
-        &FixedBytes::from(key_bytes),
-    )
-    .map_err(|e| format!("Failed to create signer: {e}"))?;
-
-    let signer_address = signer.address();
-    log::info!("Attester address: {}", signer_address);
-
-    // Build provider with signer
-    let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
-        .wallet(alloy::network::EthereumWallet::from(signer))
-        .on_http(BASE_RPC.parse().map_err(|e| format!("Invalid RPC URL: {e}"))?);
-
-    // Encode the attestation data: (bytes32 userHash, bytes32 journeyRoot, uint64 questCount, uint64 currentStreak)
-    // Use standard ABI encoding for the inner data
-    let encoded_data = alloy::sol_types::SolValue::abi_encode(&(
-        FixedBytes::<32>::from(user_hash),
-        FixedBytes::<32>::from(journey_root),
-        quest_count,
-        streak,
-    ));
-
-    // Schema UID
-    let schema_uid_bytes: [u8; 32] = hex::decode(SCHEMA_UID.strip_prefix("0x").unwrap_or(SCHEMA_UID))
-        .map_err(|e| format!("Invalid schema UID: {e}"))?
-        .try_into()
-        .map_err(|_| "Schema UID must be 32 bytes".to_string())?;
-
-    // Encode the EAS `attest` function call
-    // function attest(AttestationRequest calldata request) external payable returns (bytes32)
-    // struct AttestationRequest { bytes32 schema; AttestationRequestData data; }
-    // struct AttestationRequestData {
-    //   address recipient; uint64 expirationTime; bool revocable;
-    //   bytes32 refUID; bytes data; uint256 value;
-    // }
-    alloy::sol! {
-        struct AttestationRequestData {
-            address recipient;
-            uint64 expirationTime;
-            bool revocable;
-            bytes32 refUID;
-            bytes data;
-            uint256 value;
-        }
-
-        struct AttestationRequest {
-            bytes32 schema;
-            AttestationRequestData data;
-        }
-
-        function attest(AttestationRequest request) external payable returns (bytes32);
+    if !response.status().is_success() {
+        let error_body = response.text().await.unwrap_or_default();
+        return Err(format!("Relay error: {error_body}"));
     }
 
-    let request = AttestationRequest {
-        schema: FixedBytes::<32>::from(schema_uid_bytes),
-        data: AttestationRequestData {
-            recipient: Address::ZERO, // no specific recipient
-            expirationTime: 0,        // no expiration
-            revocable: false,
-            refUID: FixedBytes::<32>::ZERO,
-            data: Bytes::from(encoded_data),
-            value: U256::ZERO,
-        },
-    };
+    #[derive(serde::Deserialize)]
+    struct RelayResponse {
+        tx_hash: String,
+    }
 
-    let calldata = attestCall::new((request,)).abi_encode();
+    let result: RelayResponse = response.json().await
+        .map_err(|e| format!("Failed to parse relay response: {e}"))?;
 
-    let eas_address: Address = EAS_CONTRACT
-        .parse()
-        .map_err(|e| format!("Invalid EAS address: {e}"))?;
-
-    // Build and send the transaction
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .to(eas_address)
-        .input(Bytes::from(calldata).into());
-
-    let pending = provider
-        .send_transaction(tx)
-        .await
-        .map_err(|e| format!("Failed to send attestation tx: {e}"))?;
-
-    let tx_hash = format!("{}", pending.tx_hash());
-    log::info!("Attestation tx sent: {}", tx_hash);
-
-    // Return the hash immediately. The caller updates the DB.
-    Ok(tx_hash)
+    log::info!("Attestation tx submitted via relay: {}", result.tx_hash);
+    Ok(result.tx_hash)
 }
 
 // ---------------------------------------------------------------------------

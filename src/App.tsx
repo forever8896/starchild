@@ -7,7 +7,7 @@
  * Claymorphism nav buttons (.clay-nav-button).
  */
 
-import { useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -101,7 +101,7 @@ function MusicToggle() {
       ;(window as any).__bgMusic = audio
     }
     if (bgMusicMuted) {
-      audio.volume = 0.35
+      audio.volume = 0.18
       audio.play().catch(() => {})
     } else {
       audio.pause()
@@ -189,28 +189,27 @@ export default function App() {
     }
   }, [onboardingComplete, startBgMusic])
 
+  // Track whether this is the FIRST skill tree reveal (from Crystallize — shows video intro)
+  const [isFirstTreeReveal, setIsFirstTreeReveal] = useState(false)
+
   // Reveal the skill tree when the backend emits 'reveal-skill-tree'
-  // (fired after Crystallize phase completes — no fragile string matching)
+  // (fired after Crystallize phase completes — video intro plays only this time)
   useEffect(() => {
     let unlisten: (() => void) | null = null
     let revealTimer: ReturnType<typeof setTimeout> | null = null
 
     listen('reveal-skill-tree', () => {
-      // Wait for TTS to finish playing the crystallize message before revealing.
-      // Check if TTS is playing — if so, wait for it to end.
+      setIsFirstTreeReveal(true) // this is the cinematic first reveal
       const checkAndReveal = () => {
         const ttsAudio = (window as any).__ttsAudio as HTMLAudioElement | undefined
         if (ttsAudio && !ttsAudio.ended && !ttsAudio.paused) {
-          // TTS still playing — wait for it to finish, then add reading pause
           ttsAudio.addEventListener('ended', () => {
             revealTimer = setTimeout(() => setCurrentView('tree'), 1500)
           }, { once: true })
         } else {
-          // No TTS or already done — just pause for reading
           revealTimer = setTimeout(() => setCurrentView('tree'), 3000)
         }
       }
-      // Small delay to let TTS start before checking
       setTimeout(checkAndReveal, 500)
     }).then((fn) => { unlisten = fn })
 
@@ -218,6 +217,18 @@ export default function App() {
       unlisten?.()
       if (revealTimer) clearTimeout(revealTimer)
     }
+  }, [setCurrentView])
+
+  // Auto-switch to tree view on quest celebration (brief, no video)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    listen('quest-celebration', () => {
+      setIsFirstTreeReveal(false)
+      setCurrentView('tree')
+      // Auto-return to chat after 4s
+      setTimeout(() => setCurrentView('chat'), 4000)
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
   }, [setCurrentView])
 
   // Loading — invisible hold while we check onboarding state
@@ -275,7 +286,10 @@ export default function App() {
 
         {/* Skill Tree button */}
         <motion.button
-          onClick={() => setCurrentView(currentView === 'tree' ? 'chat' : 'tree')}
+          onClick={() => {
+            setIsFirstTreeReveal(false) // manual nav → no video intro
+            setCurrentView(currentView === 'tree' ? 'chat' : 'tree')
+          }}
           className="clay-nav-button w-9 h-9"
           style={{ color: 'var(--accent-gold)' }}
           whileHover={{ scale: 1.05 }}
@@ -313,7 +327,7 @@ export default function App() {
             transition={{ duration: 0.5, ease: 'easeInOut' }}
             className="absolute inset-0"
           >
-            <ErrorBoundary><SkillTree onBack={() => setCurrentView('chat')} /></ErrorBoundary>
+            <ErrorBoundary><SkillTree onBack={() => { setIsFirstTreeReveal(false); setCurrentView('chat') }} showIntro={isFirstTreeReveal} /></ErrorBoundary>
           </motion.div>
         )}
 

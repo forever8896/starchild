@@ -322,6 +322,117 @@ pub async fn extract_memories(
 }
 
 // ---------------------------------------------------------------------------
+// Quest Extraction from Conversation
+// ---------------------------------------------------------------------------
+
+/// Extract a quest from the conversation when the user accepts one.
+/// Called in the background after the Release phase (quest offered + user accepted).
+async fn extract_quest_from_conversation(
+    client: &AiClient,
+    db: &db::Database,
+    history: &[ai::ChatMessage],
+) -> Result<db::Quest, String> {
+    // Find the most recent assistant message that contains a quest offer
+    let quest_msg = history.iter().rev()
+        .filter(|m| m.role == "assistant")
+        .find(|m| {
+            let lower = m.content.to_lowercase();
+            lower.contains("quest for you") || lower.contains("i have a quest")
+                || lower.contains("here's something to try")
+        })
+        .map(|m| m.content.as_str())
+        .unwrap_or("");
+
+    if quest_msg.is_empty() {
+        return Err("No quest offer found in conversation".to_string());
+    }
+
+    // Build recent context for the LLM
+    let recent_context: String = history.iter().rev().take(6)
+        .map(|m| format!("{}: {}", m.role, &m.content[..m.content.len().min(200)]))
+        .collect::<Vec<_>>()
+        .into_iter().rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = format!(
+        "Extract the quest from this conversation. The Starchild offered a quest and the human accepted.\n\n\
+         Recent conversation:\n{recent_context}\n\n\
+         Extract ONLY the specific quest/task that was offered. Return a JSON object:\n\
+         {{\n\
+           \"title\": \"short quest title, max 60 chars, warm tone\",\n\
+           \"description\": \"1-2 sentence description of what to do\",\n\
+           \"category\": \"one of: body, mind, spirit\",\n\
+           \"quest_type\": \"daily or weekly\",\n\
+           \"xp_reward\": 10-50 based on difficulty\n\
+         }}\n\n\
+         Category guide:\n\
+         - body: physical activity, health, movement, nature, embodiment\n\
+         - mind: learning, reading, studying, thinking, creating, building\n\
+         - spirit: meditation, reflection, inner work, connection, relationships, alchemy, presence\n\n\
+         If no clear quest was offered, return exactly: null\n\
+         Return ONLY valid JSON, no markdown fences, no explanation."
+    );
+
+    let messages = vec![
+        ai::ChatMessage::system("Extract quest details from conversation. Return ONLY valid JSON."),
+        ai::ChatMessage::user(&prompt),
+    ];
+
+    let response = client
+        .chat(messages, ai::ModelTier::Quick)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let trimmed = response.trim();
+    if trimmed == "null" || trimmed.is_empty() {
+        return Err("No quest found to extract".to_string());
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ExtractedQuest {
+        title: String,
+        description: String,
+        category: String,
+        quest_type: String,
+        xp_reward: i64,
+    }
+
+    let extracted: ExtractedQuest = serde_json::from_str(trimmed)
+        .map_err(|e| format!("Failed to parse quest JSON: {e}"))?;
+
+    // Validate
+    let valid_categories = ["body", "mind", "spirit"];
+    let category = if valid_categories.contains(&extracted.category.as_str()) {
+        &extracted.category
+    } else {
+        "spirit" // default
+    };
+    let quest_type = if extracted.quest_type == "weekly" { "weekly" } else { "daily" };
+    let xp_reward = extracted.xp_reward.clamp(5, 50);
+
+    // Guard against duplicates
+    let existing = db.get_quests(Some("active")).unwrap_or_default();
+    if existing.iter().any(|q| q.title.to_lowercase() == extracted.title.to_lowercase()) {
+        return Err("Quest with same title already exists".to_string());
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let quest = db.create_quest(
+        &id,
+        &extracted.title,
+        Some(&extracted.description),
+        quest_type,
+        Some(category),
+        xp_reward,
+        None, // no due_at
+    ).map_err(|e| e.to_string())?;
+
+    log::info!("Quest extracted from conversation: {} [{}]", quest.title, category);
+    Ok(quest)
+}
+
+// ---------------------------------------------------------------------------
 // Vision Crystallization
 // ---------------------------------------------------------------------------
 
@@ -399,26 +510,29 @@ async fn classify_conversation_phase(
         format!("{role}: {}", &m.content[..m.content.len().min(200)])
     }).collect::<Vec<_>>().join("\n");
 
+    let exchange_count = history.iter().filter(|m| m.role == "user").count();
+
     let prompt = format!(
         "You are a conversation phase classifier for a personal growth companion.\n\n\
-         Recent conversation:\n{convo}\n\n\
+         Recent conversation ({exchange_count} user messages so far):\n{convo}\n\n\
          Based on the conversation, what should the companion do NEXT? Pick exactly ONE:\n\n\
-         - dig: The human is still exploring, sharing new details. Ask deeper questions to understand them.\n\
-         - edge: The human has revealed tension, pain, or a gap between where they are and where they want to be. Name it.\n\
-         - reframe: Enough info gathered. Connect two things they said into a new insight they haven't seen.\n\
-         - commit: The human is ready for action, asking for help, or has been talking long enough. Offer a concrete quest/task.\n\
-         - release: A quest was already offered. Close the thread warmly.\n\n\
+         - explore: Learn more about the human's real life, challenges, daily reality. Build the relationship.\n\
+         - dig: The human is still exploring a specific topic. Develop their metaphor/image forward.\n\
+         - reframe: Enough info gathered (6+ exchanges). Connect two things they said into a new insight.\n\
+         - quest: The human is ready for action, explicitly asks for a quest, or a reframe has landed. Offer a concrete quest.\n\
+         - negotiate: A quest was offered and the human is discussing, adjusting, or pushing back on it.\n\
+         - release: A quest was accepted. Close the thread warmly.\n\n\
          IMPORTANT RULES:\n\
-         - If the human asks for help, guidance, steps, or says the goal feels distant → commit\n\
-         - If the human agrees enthusiastically or says yes → commit\n\
-         - If 5+ exchanges have happened and no quest offered yet → commit\n\
-         - If Starchild already offered a reframe (\"what if...\") → commit (don't reframe twice)\n\
-         - NEVER stay in dig for more than 3 exchanges\n\n\
+         - Default to EXPLORE if fewer than 5 exchanges — the companion should be PATIENT and learn first\n\
+         - Only use REFRAME after 6+ exchanges when the companion knows enough to connect real dots\n\
+         - Only use QUEST when the human explicitly asks OR after a reframe has landed\n\
+         - If the human pushes back on a quest (\"nah\", \"something else\", \"why?\") → negotiate\n\
+         - NEVER rush to quest. Earning trust through exploration is more important than giving advice.\n\n\
          Reply with ONLY the phase name, nothing else."
     );
 
     let messages = vec![
-        ai::ChatMessage::system("Reply with exactly one word: dig, edge, reframe, commit, or release."),
+        ai::ChatMessage::system("Reply with exactly one word: explore, dig, reframe, quest, negotiate, or release."),
         ai::ChatMessage::user(&prompt),
     ];
 
@@ -428,14 +542,15 @@ async fn classify_conversation_phase(
 
     let phase_str = response.trim().to_lowercase();
     let phase = match phase_str.as_str() {
+        "explore" => ai::ConversationPhase::Explore,
         "dig" => ai::ConversationPhase::Dig,
-        "edge" => ai::ConversationPhase::Edge,
         "reframe" => ai::ConversationPhase::Reframe,
-        "commit" => ai::ConversationPhase::Commit,
+        "quest" => ai::ConversationPhase::Quest,
+        "negotiate" => ai::ConversationPhase::Negotiate,
         "release" => ai::ConversationPhase::Release,
         other => {
-            log::warn!("LLM returned unknown phase '{other}', defaulting to commit");
-            ai::ConversationPhase::Commit
+            log::warn!("LLM returned unknown phase '{other}', defaulting to explore");
+            ai::ConversationPhase::Explore
         }
     };
 
@@ -478,16 +593,12 @@ async fn crystallize_vision(
          Rules:\n\
          - Write in SECOND PERSON (\"you\" not \"I\")\n\
          - Distill the DEEPER PURPOSE — WHY do they want this, not just WHAT they described\n\
-         - Use THEIR specific words and images, not abstract synonyms\n\
-         - If they said \"dandelion\" and \"alchemy\", USE those words — don't replace them with \"cosmic harmony\" or \"sacred wisdom\"\n\
-         - Weave together ALL their answers into one coherent vision\n\
+         - Use ONLY words and images the human ACTUALLY said — never add details they didn't mention\n\
+         - If they said \"alchemy\", say \"alchemy\" — don't replace with \"cosmic harmony\" or \"sacred wisdom\"\n\
+         - If they did NOT mention a specific plant, tool, or object — do NOT invent one\n\
          - BANNED WORDS: cosmic, harmony, sacred, tapestry, embody, journey, essence, universe, resonate, manifest, transcend, paradigm\n\
          - Be concrete and grounded. Write like a poet, not a fortune cookie.\n\
-         - Return ONLY the vision statement, nothing else. No quotes, no explanation.\n\n\
-         Examples of good vision statements:\n\
-         - \"brewing dandelion tinctures that turn bitterness into healing, your friends around the fire, the land teaching you its secrets\"\n\
-         - \"building tools of liberation on a sun-drenched coast, code as craft, community as home\"\n\
-         - \"painting the stories no one tells, in a studio above the sea, with time that belongs only to you\""
+         - Return ONLY the vision statement, nothing else. No quotes, no explanation."
     );
 
     let messages = vec![
@@ -638,6 +749,22 @@ async fn send_message_stream(
         })
         .collect();
 
+    // ── Proof-of-completion detection ──
+    // Check if user is in a proof flow (triggered by [proof:QUEST_ID] prefix)
+    let proof_trigger = message.starts_with("[proof:");
+    let pending_proof = state.db.get_setting("pending_proof_quest_id").ok().flatten()
+        .filter(|s| !s.is_empty());
+
+    if proof_trigger {
+        // Extract quest ID from [proof:QUEST_ID] prefix
+        if let Some(quest_id) = message.strip_prefix("[proof:")
+            .and_then(|s| s.split(']').next())
+        {
+            let _ = state.db.set_setting("pending_proof_quest_id", quest_id);
+            log::info!("Proof flow started for quest: {quest_id}");
+        }
+    }
+
     // Detect conversation phase from recent history
     let has_pr = state.db.get_setting("preferential_reality").ok().flatten().is_some();
     let has_vision = state.db.get_setting("vision_statement").ok().flatten().is_some();
@@ -645,21 +772,75 @@ async fn send_message_stream(
     // Crystallize when: PR exists AND (vision not yet created OR vision created but not yet revealed)
     let crystallize_pending = has_pr && (!has_vision || (has_vision && !vision_revealed));
 
+    // Build phase-detection history that INCLUDES the current user message.
+    // `history` excludes it (chat_stream_auto will add it for the API call),
+    // but the phase detector needs the full picture to count exchanges correctly.
+    let mut phase_history = history.clone();
+    phase_history.push(ai::ChatMessage {
+        role: "user".to_string(),
+        content: message.clone(),
+    });
+
     // Phase detection:
+    // - Proof flow takes absolute priority
     // - Pre-vision: deterministic (Arrive / Crystallize)
-    // - Post-vision: LLM-classified intent
-    let phase = if crystallize_pending {
-        ai::PhaseDetector::detect_with_context(&history, true)
+    // - Post-vision: heuristic overrides first, then LLM classifier
+    let phase = if proof_trigger || pending_proof.is_some() {
+        ai::ConversationPhase::Proof
+    } else if crystallize_pending {
+        ai::PhaseDetector::detect_with_context(&phase_history, true)
     } else if !has_pr {
         ai::ConversationPhase::Arrive
     } else {
-        // Post-vision: ask the LLM to classify the conversation phase
-        let phase_result = classify_conversation_phase(&ai_client, &history).await;
-        match phase_result {
-            Ok(p) => p,
-            Err(e) => {
-                log::warn!("Phase classification failed, falling back to heuristic: {e}");
-                ai::PhaseDetector::detect_with_context(&history, false)
+        // ── Heuristic overrides (run BEFORE LLM classifier) ──
+
+        // 1. First quest: if vision is placed but no quest has ever been offered, offer one
+        let any_quest_offered = phase_history.iter()
+            .filter(|m| m.role == "assistant")
+            .any(|m| {
+                let lower = m.content.to_lowercase();
+                lower.contains("quest for you") || lower.contains("i have a quest")
+            });
+        let has_active_quests = !active_quest_titles.is_empty();
+
+        if has_vision && !any_quest_offered && !has_active_quests {
+            // Vision is on the tree but no quest yet → offer first quest
+            ai::ConversationPhase::Quest
+        }
+        // 2. User explicitly asking for action → Quest (don't let LLM ignore this)
+        else if {
+            let lower_msg = message.to_lowercase();
+            lower_msg.contains("how do i") || lower_msg.contains("how to do")
+                || lower_msg.contains("how can i") || lower_msg.contains("what should i do")
+                || lower_msg.contains("give me a quest") || lower_msg.contains("what can i do")
+                || lower_msg.contains("where do i start")
+        } {
+            ai::ConversationPhase::Quest
+        }
+        // 3. Reframe offered 2+ times → advance to Quest (prevent reframe loops)
+        else if {
+            let reframe_count = phase_history.iter()
+                .filter(|m| m.role == "assistant")
+                .filter(|m| {
+                    let lower = m.content.to_lowercase();
+                    !lower.contains("vision tree") &&
+                    (lower.contains("what if") || lower.contains("notice that")
+                        || (lower.contains("you said") && lower.contains("but")))
+                })
+                .count();
+            reframe_count >= 2
+        } {
+            ai::ConversationPhase::Quest
+        }
+        else {
+            // Fall through to LLM classifier
+            let phase_result = classify_conversation_phase(&ai_client, &phase_history).await;
+            match phase_result {
+                Ok(p) => p,
+                Err(e) => {
+                    log::warn!("Phase classification failed, falling back to heuristic: {e}");
+                    ai::PhaseDetector::detect_with_context(&phase_history, false)
+                }
             }
         }
     };
@@ -682,8 +863,8 @@ async fn send_message_stream(
     {
         let all_quests = state.db.get_quests(None).unwrap_or_default();
         if !all_quests.is_empty() {
-            let categories = ["body", "purpose", "mind", "heart", "spirit"];
-            let labels = ["Body", "Purpose", "Mind", "Heart", "Spirit"];
+            let categories = ["body", "mind", "spirit"];
+            let labels = ["Body", "Mind", "Spirit"];
             let mut branch_info = String::from("\n\nSKILL TREE BRANCHES (quest balance across growth domains):\n");
             for (cat, label) in categories.iter().zip(labels.iter()) {
                 let total = all_quests.iter().filter(|q| q.category.as_deref() == Some(cat)).count();
@@ -702,7 +883,7 @@ async fn send_message_stream(
         }
     }
 
-    // Clone what we need for the streaming callback
+    // Clone what we need for the streaming callback and post-response handlers
     let handle = app_handle.clone();
     let db = state.db.clone();
     let memory_sys = state.memory.clone();
@@ -753,9 +934,38 @@ async fn send_message_stream(
                 let _ = app_handle.emit("reveal-skill-tree", ());
             }
 
-            // After Commit phase: auto-generate quest suggestions
-            if phase == ai::ConversationPhase::Commit {
-                let _ = app_handle.emit("quest-commit", ());
+            // Proof phase: complete the quest after user shared their proof
+            // Turn 1: user sends [proof:ID] trigger → Starchild asks "tell me about it"
+            // Turn 2: user shares their story → Starchild celebrates → quest completed
+            if phase == ai::ConversationPhase::Proof && !proof_trigger {
+                // This is Turn 2 — user shared proof, Starchild celebrated
+                if let Some(quest_id) = pending_proof.as_deref() {
+                    let _ = state.db.set_setting("pending_proof_quest_id", "");
+                    match state.db.complete_quest(quest_id) {
+                        Ok(quest) => {
+                            // Award XP and feed Starchild
+                            {
+                                let mut game = state.game_state.lock().map_err(|e| e.to_string())?;
+                                let _levelled_up = game.add_xp(quest.xp_reward);
+                                game.feed(quest.xp_reward as f64 / 10.0);
+                                let _ = persist_state(&state.db, &game);
+                            }
+                            let _ = app_handle.emit("quest-completed", &quest);
+                            let _ = app_handle.emit("quest-celebration", serde_json::json!({
+                                "quest_id": quest.id,
+                                "category": quest.category,
+                                "xp_reward": quest.xp_reward,
+                            }));
+                            log::info!("Quest completed via proof: {} (+{} XP)", quest.title, quest.xp_reward);
+                        }
+                        Err(e) => log::warn!("Failed to complete quest {quest_id}: {e}"),
+                    }
+                }
+            }
+
+            // Quest phase: emit event so frontend can show accept/decline buttons
+            if phase == ai::ConversationPhase::Quest {
+                let _ = app_handle.emit("quest-offered", ());
             }
 
             // Background: extract memories
@@ -1320,7 +1530,7 @@ async fn suggest_quests(
          - ACTIONABLE — something they can do today or this week\n\
          - MEANINGFUL — each quest should move them toward growth, not just productivity\n\
          - DIFFERENT from their current active quests\n\n\
-         Categories: body, purpose, mind, heart, spirit\n\
+         Categories: body, mind, spirit\n\
          Types: daily, weekly\n\n\
          Return ONLY a JSON array. Each object has:\n\
          - \"title\" (string, max 60 chars): the quest name — warm, personal, not corporate\n\
@@ -1355,7 +1565,7 @@ async fn suggest_quests(
         .into_iter()
         .filter(|s| {
             !s.title.is_empty()
-                && ["body", "purpose", "mind", "heart", "spirit"]
+                && ["body", "mind", "spirit"]
                     .contains(&s.category.as_str())
                 && ["daily", "weekly"].contains(&s.quest_type.as_str())
         })
@@ -1395,7 +1605,7 @@ struct CompleteQuestResponse {
 const MILESTONE_STREAKS: &[i64] = &[7, 30, 100];
 
 const VALID_QUEST_TYPES: &[&str] = &["daily", "weekly"];
-const VALID_CATEGORIES: &[&str] = &["body", "purpose", "mind", "heart", "spirit"];
+const VALID_CATEGORIES: &[&str] = &["body", "mind", "spirit"];
 
 #[tauri::command]
 async fn create_quest(
@@ -1479,6 +1689,32 @@ async fn complete_quest(
         levelled_up,
         milestones,
     })
+}
+
+/// Accept a quest from the conversation — extract it via LLM and save to DB.
+/// Called when user clicks "Accept Quest" button in chat.
+#[tauri::command]
+async fn accept_quest_from_conversation(
+    state: tauri::State<'_, AppState>,
+) -> Result<db::Quest, String> {
+    let ai_client = {
+        let guard = state.ai_client.lock().map_err(|e| e.to_string())?;
+        guard.clone().ok_or("AI client not configured")?
+    };
+
+    let recent_msgs = state.db.get_messages(14).map_err(|e| e.to_string())?;
+    let history: Vec<ai::ChatMessage> = recent_msgs
+        .iter()
+        .rev()
+        .filter(|m| m.role == "user" || m.role == "assistant")
+        .take(10)
+        .map(|m| ai::ChatMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        })
+        .collect();
+
+    extract_quest_from_conversation(&ai_client, &state.db, &history).await
 }
 
 #[tauri::command]
@@ -1820,25 +2056,8 @@ async fn get_journey_proof(
 async fn anchor_journey_onchain(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    if !attestation::attester_key_available() {
-        return Err("On-chain anchoring is not available -- STARCHILD_ATTESTER_KEY not set".to_string());
-    }
-
     // Compute current proof
     let proof = attestation::compute_journey_proof(&state.db)?;
-
-    // Decode hashes back to bytes
-    let user_hash_hex = proof.user_hash.strip_prefix("0x").unwrap_or(&proof.user_hash);
-    let journey_root_hex = proof.journey_root.strip_prefix("0x").unwrap_or(&proof.journey_root);
-
-    let user_hash: [u8; 32] = hex::decode(user_hash_hex)
-        .map_err(|e| format!("Invalid user hash: {e}"))?
-        .try_into()
-        .map_err(|_| "User hash must be 32 bytes".to_string())?;
-    let journey_root: [u8; 32] = hex::decode(journey_root_hex)
-        .map_err(|e| format!("Invalid journey root: {e}"))?
-        .try_into()
-        .map_err(|_| "Journey root must be 32 bytes".to_string())?;
 
     // Save as pending
     let attestation_id = Uuid::new_v4().to_string();
@@ -1856,16 +2075,26 @@ async fn anchor_journey_onchain(
         Some(&metadata.to_string()),
     ).map_err(|e| e.to_string())?;
 
-    // Send the transaction
-    let tx_hash = attestation::anchor_journey_onchain(
-        user_hash,
-        journey_root,
+    // Submit via relay (relay holds the project wallet, pays gas)
+    let http_client = reqwest::Client::new();
+    let tx_hash = attestation::submit_to_relay(
+        &http_client,
+        &proof.user_hash,
+        &proof.journey_root,
         proof.quest_count,
         proof.streak,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        // Update attestation to error
+        let _ = state.db.save_attestation(
+            &attestation_id, "journey_anchor", None, "error",
+            Some(&metadata.to_string()),
+        );
+        e
+    })?;
 
-    // Update with tx hash (mark as confirmed for now — in production we'd wait for receipt)
+    // Update with tx hash — confirmed (relay already waited for receipt)
     state.db.save_attestation(
         &attestation_id,
         "journey_anchor",
@@ -2185,6 +2414,7 @@ pub fn run() {
             get_quests,
             complete_quest,
             delete_quest,
+            accept_quest_from_conversation,
             save_attestation,
             get_attestations,
             get_verification_info,

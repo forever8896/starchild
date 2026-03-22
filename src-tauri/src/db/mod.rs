@@ -1170,7 +1170,7 @@ mod tests {
     #[test]
     fn test_quest_categories() {
         let db = test_db();
-        let categories = ["body", "purpose", "mind", "heart", "spirit"];
+        let categories = ["body", "mind", "spirit"];
         for (i, cat) in categories.iter().enumerate() {
             db.create_quest(
                 &format!("q{i}"),
@@ -1184,7 +1184,79 @@ mod tests {
             .unwrap();
         }
         let quests = db.get_quests(None).unwrap();
-        assert_eq!(quests.len(), 5);
+        assert_eq!(quests.len(), 3);
+    }
+
+    #[test]
+    fn test_quest_lifecycle_full() {
+        // Simulate: create quest → complete → verify streak → create another → complete
+        let db = test_db();
+
+        // Create a spirit quest (from conversation extraction)
+        let q1 = db.create_quest("q1", "Sit with a plant", Some("Choose a plant and listen"), "daily", Some("spirit"), 20, None).unwrap();
+        assert_eq!(q1.status, "active");
+        assert_eq!(q1.category, Some("spirit".to_string()));
+
+        // Verify it appears in active list
+        let active = db.get_quests(Some("active")).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].title, "Sit with a plant");
+
+        // Complete the quest
+        let completed = db.complete_quest("q1").unwrap();
+        assert_eq!(completed.status, "completed");
+        assert_eq!(completed.streak_count, 1);
+        assert!(completed.completed_at.is_some());
+
+        // Active list should be empty, completed list should have 1
+        assert_eq!(db.get_quests(Some("active")).unwrap().len(), 0);
+        assert_eq!(db.get_quests(Some("completed")).unwrap().len(), 1);
+
+        // Create and complete a second quest — streak continues
+        let q2 = db.create_quest("q2", "Morning walk", None, "daily", Some("body"), 15, None).unwrap();
+        let completed2 = db.complete_quest("q2").unwrap();
+        assert_eq!(completed2.streak_count, 1); // each quest has independent streak
+
+        // All quests (both completed)
+        let all = db.get_quests(None).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_quest_duplicate_prevention() {
+        // Verify we can check for existing quests by title (used in extraction)
+        let db = test_db();
+        db.create_quest("q1", "Sit with a plant", None, "daily", Some("spirit"), 20, None).unwrap();
+
+        // Check if a quest with same title exists
+        let existing = db.get_quests(Some("active")).unwrap();
+        let has_duplicate = existing.iter().any(|q| q.title.to_lowercase() == "sit with a plant");
+        assert!(has_duplicate);
+
+        // Different title should not match
+        let has_different = existing.iter().any(|q| q.title.to_lowercase() == "morning walk");
+        assert!(!has_different);
+    }
+
+    #[test]
+    fn test_pending_proof_setting_lifecycle() {
+        // Simulate the proof flow via DB settings
+        let db = test_db();
+
+        // Initially no pending proof
+        let pending = db.get_setting("pending_proof_quest_id").unwrap();
+        assert!(pending.is_none());
+
+        // Set pending proof (user clicked "i did it")
+        db.set_setting("pending_proof_quest_id", "q1").unwrap();
+        let pending = db.get_setting("pending_proof_quest_id").unwrap();
+        assert_eq!(pending, Some("q1".to_string()));
+
+        // Clear it (proof completed)
+        db.set_setting("pending_proof_quest_id", "").unwrap();
+        let pending = db.get_setting("pending_proof_quest_id").unwrap()
+            .filter(|s| !s.is_empty());
+        assert!(pending.is_none());
     }
 
     #[test]

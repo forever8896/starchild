@@ -355,12 +355,6 @@ export default function UserProfile() {
                 icon="🍖"
               />
               <StatBar
-                label="Energy"
-                value={starchildState?.energy ?? 0}
-                fillColor="var(--accent-gold)"
-                icon="⚡"
-              />
-              <StatBar
                 label="Bond"
                 value={starchildState?.bond ?? 0}
                 fillColor="var(--accent-rose)"

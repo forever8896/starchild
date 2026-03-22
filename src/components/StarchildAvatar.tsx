@@ -13,6 +13,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../store'
 
 // ─── Video imports ────────────────────────────────────────────────────────────
@@ -212,6 +213,20 @@ export default function StarchildAvatar() {
       switchTo(target)
     }
   }, [mood, hasPlayedIntro]) // intentionally omit switchTo/activeVideo to avoid loops
+
+  // Play celebration video on quest completion, then return to mood video
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    listen('quest-celebration', () => {
+      switchTo(videoCelebrate)
+      // Return to mood video after 4s
+      setTimeout(() => {
+        const target = getMoodVideo(mood)
+        switchTo(target)
+      }, 4000)
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [mood]) // intentionally omit switchTo to avoid re-registering
 
   // Handle intro end — switch to idle and mark played
   const handleVideoEnded = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {

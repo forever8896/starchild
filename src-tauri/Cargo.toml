@@ -38,7 +38,7 @@ p256 = { version = "0.13", features = ["ecdh", "arithmetic"] }
 aes-gcm = "0.10"
 hkdf = "0.12"
 rand = "0.8"
-alloy = { version = "0.3.0", features = ["provider-http", "signer-local", "sol-types", "network", "consensus", "rpc-types"] }
+# alloy removed — EAS attestations now submitted via relay service (relay/)
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
