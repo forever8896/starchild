@@ -244,6 +244,10 @@ export default function StarchildAvatar() {
         className="relative flex-1 flex items-center justify-center w-full overflow-hidden"
         aria-label={`Starchild is feeling ${mood}`}
         role="img"
+        style={{
+          WebkitMaskImage: 'radial-gradient(ellipse 48% 45% at 50% 48%, black 20%, transparent 75%)',
+          maskImage: 'radial-gradient(ellipse 48% 45% at 50% 48%, black 20%, transparent 75%)',
+        }}
       >
         {/* Back layer (loading next video) */}
         <video

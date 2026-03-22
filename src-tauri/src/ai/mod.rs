@@ -60,6 +60,16 @@ impl ModelTier {
         }
     }
 
+    /// E2EE model identifier (actual Venice E2EE model name).
+    /// All user-facing tiers use the same E2EE model so a single session works.
+    /// Returns None if this tier doesn't use E2EE.
+    pub fn e2ee_model_id(&self) -> Option<&'static str> {
+        match self {
+            ModelTier::Regular | ModelTier::Deep => Some("e2ee-venice-uncensored-24b-p"),
+            _ => None,
+        }
+    }
+
     /// Sampling temperature per tier.
     pub fn temperature(&self) -> f32 {
         match self {
@@ -658,14 +668,21 @@ impl PromptBuilder {
             let phase_instructions = match phase {
                 ConversationPhase::Arrive => {
                     "YOU ARE IN: ARRIVE (opening, building connection)\n\
-                     YOUR MOVE: Quote or echo ONE specific word/phrase from their message. Then ask ONE question about THAT specific thing.\n\
+                     YOUR MOVE: Quote or echo ONE specific word/phrase from their message. Then ask ONE question that goes DEEPER into that feeling or image.\n\
                      \n\
-                     DO: \"alchemical tinctures... what plant calls to you most?\"\n\
-                     DO: \"throwing pots by the ocean — what's the first shape your hands reach for?\"\n\
-                     DON'T: \"that sounds beautiful, tell me more about your ideal life\"\n\
-                     DON'T: \"i can feel the peace in your words\"\n\
+                     STAY IN THE DREAM. They are describing their ideal reality — keep them there.\n\
                      \n\
-                     Use THEIR nouns. Their verbs. Their images. Not your paraphrase."
+                     DO: \"alchemical tinctures... what does the first sip taste like?\"\n\
+                     DO: \"deep listening to nature's intelligence — when the plants speak, what do they say?\"\n\
+                     DO: \"healing yourself and the world — what does that healing feel like in your body?\"\n\
+                     DON'T: \"what does that look like on a typical day?\" — this kills the dream\n\
+                     DON'T: \"how would you start doing that?\" — too practical too soon\n\
+                     DON'T: \"that sounds beautiful, tell me more\" — lazy, generic\n\
+                     DON'T: \"which specific plant/thing?\" if they already said it's not about specifics\n\
+                     \n\
+                     If they say \"it's not about one specific thing\", RESPECT that. Ask about the FEELING, the TEXTURE, the SENSORY experience instead.\n\
+                     Use THEIR nouns. Their verbs. Their images. Not your paraphrase.\n\
+                     2 sentences max. You're curious, not interviewing them."
                 }
                 ConversationPhase::Crystallize => {
                     "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
@@ -1175,8 +1192,20 @@ impl AiClient {
             }
         }
 
-        // Establish new session
-        let e2ee_model = format!("e2ee-{model}");
+        // Map to actual Venice E2EE model name
+        let e2ee_model = if model == ModelTier::Regular.model_id() {
+            ModelTier::Regular.e2ee_model_id()
+        } else if model == ModelTier::Deep.model_id() {
+            ModelTier::Deep.e2ee_model_id()
+        } else {
+            None
+        };
+
+        let e2ee_model = match e2ee_model {
+            Some(m) => m.to_string(),
+            None => return Ok(false),
+        };
+
         log::info!("Establishing E2EE session for {e2ee_model}...");
 
         match E2eeSession::establish(
@@ -1200,7 +1229,8 @@ impl AiClient {
         }
     }
 
-    /// Encrypt messages for E2EE. Only user and system messages are encrypted.
+    /// Encrypt all messages for E2EE. Venice requires every message content
+    /// to be hex-encoded when E2EE headers are present.
     fn encrypt_messages(
         session: &E2eeSession,
         messages: &[ChatMessage],
@@ -1208,17 +1238,13 @@ impl AiClient {
         messages
             .iter()
             .map(|msg| {
-                if msg.role == "user" || msg.role == "system" {
-                    let encrypted = session
-                        .encrypt(&msg.content)
-                        .map_err(|e| AiError::E2ee(e.to_string()))?;
-                    Ok(ChatMessage {
-                        role: msg.role.clone(),
-                        content: encrypted,
-                    })
-                } else {
-                    Ok(msg.clone())
-                }
+                let encrypted = session
+                    .encrypt(&msg.content)
+                    .map_err(|e| AiError::E2ee(e.to_string()))?;
+                Ok(ChatMessage {
+                    role: msg.role.clone(),
+                    content: encrypted,
+                })
             })
             .collect()
     }
@@ -1320,7 +1346,8 @@ impl AiClient {
             let guard = self.e2ee_session.read().await;
             let session = guard.as_ref().unwrap(); // safe: ensure_e2ee returned true
             let encrypted = Self::encrypt_messages(session, &messages)?;
-            (format!("e2ee-{model}"), encrypted)
+            let e2ee_name = tier.e2ee_model_id().unwrap_or(model).to_string();
+            (e2ee_name, encrypted)
         } else {
             (model.to_string(), messages)
         };
@@ -1335,12 +1362,21 @@ impl AiClient {
 
         let url = format!("{VENICE_BASE_URL}/chat/completions");
 
-        log::info!(
-            "Venice stream request: model={} messages={} e2ee={}",
-            request_body.model,
-            request_body.messages.len(),
-            use_e2ee,
-        );
+        if use_e2ee {
+            // Debug: log first encrypted message content (first 80 chars)
+            if let Some(msg) = request_body.messages.first() {
+                let preview = &msg.content[..msg.content.len().min(80)];
+                log::info!(
+                    "Venice stream request: model={} messages={} e2ee=true first_content_preview={}...",
+                    request_body.model, request_body.messages.len(), preview,
+                );
+            }
+        } else {
+            log::info!(
+                "Venice stream request: model={} messages={} e2ee=false",
+                request_body.model, request_body.messages.len(),
+            );
+        }
 
         // Build request with E2EE headers if needed
         let mut req = self

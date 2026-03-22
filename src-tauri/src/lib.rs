@@ -422,12 +422,15 @@ async fn crystallize_vision(
          they're growing toward.\n\n\
          Rules:\n\
          - Write in SECOND PERSON (\"you\" not \"I\")\n\
-         - Be POETIC but SPECIFIC — reference the concrete details they shared\n\
-         - Capture the ESSENCE, not a summary\n\
-         - No generic inspirational fluff. This must feel like THEIR vision, not anyone else's.\n\
+         - Distill the DEEPER PURPOSE — WHY do they want this, not just WHAT they described\n\
+         - Use THEIR specific words and images, not abstract synonyms\n\
+         - If they said \"dandelion\" and \"alchemy\", USE those words — don't replace them with \"cosmic harmony\" or \"sacred wisdom\"\n\
+         - Weave together ALL their answers into one coherent vision\n\
+         - BANNED WORDS: cosmic, harmony, sacred, tapestry, embody, journey, essence, universe, resonate, manifest, transcend, paradigm\n\
+         - Be concrete and grounded. Write like a poet, not a fortune cookie.\n\
          - Return ONLY the vision statement, nothing else. No quotes, no explanation.\n\n\
          Examples of good vision statements:\n\
-         - \"healing the world through plant alchemy, rooted in forest silence, surrounded by chosen kin\"\n\
+         - \"brewing dandelion tinctures that turn bitterness into healing, your friends around the fire, the land teaching you its secrets\"\n\
          - \"building tools of liberation on a sun-drenched coast, code as craft, community as home\"\n\
          - \"painting the stories no one tells, in a studio above the sea, with time that belongs only to you\""
     );
@@ -447,6 +450,8 @@ async fn crystallize_vision(
     if !vision.is_empty() && vision.len() < 200 {
         let _ = db.set_setting("vision_statement", &vision);
         let _ = app_handle.emit("vision-crystallized", ());
+        // Don't reveal the tree here — let the Crystallize phase response happen first.
+        // The tree reveal fires after the stream-done of the Crystallize response.
         log::info!("Vision crystallized: {vision}");
     }
 
@@ -581,7 +586,9 @@ async fn send_message_stream(
     // Detect conversation phase from recent history
     let has_pr = state.db.get_setting("preferential_reality").ok().flatten().is_some();
     let has_vision = state.db.get_setting("vision_statement").ok().flatten().is_some();
-    let crystallize_pending = has_pr && !has_vision;
+    let vision_revealed = state.db.get_setting("vision_revealed").ok().flatten().is_some();
+    // Crystallize when: PR exists AND (vision not yet created OR vision created but not yet revealed)
+    let crystallize_pending = has_pr && (!has_vision || (has_vision && !vision_revealed));
     let phase = ai::PhaseDetector::detect_with_context(&history, crystallize_pending);
     log::info!("Conversation phase: {:?} (crystallize_pending={})", phase, crystallize_pending);
 
@@ -669,6 +676,7 @@ async fn send_message_stream(
 
             // Structured event: reveal skill tree after crystallize phase
             if phase == ai::ConversationPhase::Crystallize {
+                let _ = state.db.set_setting("vision_revealed", "true");
                 let _ = app_handle.emit("reveal-skill-tree", ());
             }
 

@@ -34,6 +34,7 @@ dotenvy = "0.15.7"
 sha2 = "0.10.9"
 hex = "0.4.3"
 k256 = { version = "0.13", features = ["ecdh", "arithmetic"] }
+p256 = { version = "0.13", features = ["ecdh", "arithmetic"] }
 aes-gcm = "0.10"
 hkdf = "0.12"
 rand = "0.8"

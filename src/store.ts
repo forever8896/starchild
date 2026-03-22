@@ -112,6 +112,10 @@ interface AppState {
   ttsPlaying: string | null  // message id currently playing
   setTtsPlaying: (id: string | null) => void
 
+  // Background music
+  bgMusicMuted: boolean
+  setBgMusicMuted: (muted: boolean) => void
+
   // Journey proof (EAS attestation on Base)
   journeyProof: {
     userHash: string
@@ -215,6 +219,9 @@ export const useAppStore = create<AppState>((set) => ({
   setTtsVoice: (ttsVoice) => set({ ttsVoice }),
   ttsPlaying: null,
   setTtsPlaying: (ttsPlaying) => set({ ttsPlaying }),
+
+  bgMusicMuted: false,
+  setBgMusicMuted: (bgMusicMuted) => set({ bgMusicMuted }),
 
   // Journey proof
   journeyProof: null,

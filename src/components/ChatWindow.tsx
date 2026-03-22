@@ -12,7 +12,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAppStore, type Message } from '../store'
 import StarchildAvatar from './StarchildAvatar'
-import SkylineBackground from './SkylineBackground'
 import ActiveQuest from './ActiveQuest'
 import starchildLogo from '../assets/starchild-logo.png'
 
@@ -48,14 +47,20 @@ function PlayButton({ message }: { message: Message }) {
   async function handlePlay() {
     if (isPlaying) {
       setTtsPlaying(null)
+      // Stop any playing TTS audio
+      if ((window as any).__ttsAudio) {
+        ;(window as any).__ttsAudio.pause()
+        ;(window as any).__ttsAudio = null
+      }
       return
     }
     try {
       setTtsPlaying(message.id)
       const b64 = await invoke<string>('venice_tts_speak', { text: message.content })
       const audio = new Audio(`data:audio/mp3;base64,${b64}`)
-      audio.onended = () => setTtsPlaying(null)
-      audio.onerror = () => setTtsPlaying(null)
+      ;(window as any).__ttsAudio = audio
+      audio.onended = () => { setTtsPlaying(null); (window as any).__ttsAudio = null }
+      audio.onerror = (e) => { console.error('TTS audio error:', e); setTtsPlaying(null); (window as any).__ttsAudio = null }
       await audio.play()
     } catch (err) {
       console.error('TTS failed:', err)
@@ -79,8 +84,70 @@ function PlayButton({ message }: { message: Message }) {
   )
 }
 
+// ─── Character-by-character reveal synced to TTS audio ──────────────────────
+// Reads directly from window.__ttsAudio.currentTime/duration on each frame.
+// No events, no race conditions — just follows the actual audio playback.
+
+function useCharReveal(content: string, isAssistant: boolean, messageId: string) {
+  const isFirstMessage = messageId.startsWith('first-')
+  const shouldReveal = isAssistant && isFirstMessage
+  const [chars, setChars] = useState(shouldReveal ? 0 : content.length)
+  const doneRef = useRef(!shouldReveal)
+  const rafRef = useRef<number | null>(null)
+  const audioDetectedRef = useRef(false)
+
+  useEffect(() => {
+    if (doneRef.current) return
+
+    function tick() {
+      const audio = (window as any).__ttsAudio as HTMLAudioElement | undefined
+
+      if (audio && audio.duration && audio.duration > 0 && !audio.paused) {
+        // Audio is playing — sync chars to playback position
+        audioDetectedRef.current = true
+        const progress = Math.min(audio.currentTime / audio.duration, 1)
+        setChars(Math.floor(progress * content.length))
+        if (progress >= 1) {
+          doneRef.current = true
+          setChars(content.length)
+          return
+        }
+      } else if (audioDetectedRef.current && (!audio || audio.ended)) {
+        // Audio was playing but now finished or removed
+        doneRef.current = true
+        setChars(content.length)
+        return
+      }
+      // Keep polling — audio might not have started yet
+      rafRef.current = requestAnimationFrame(tick)
+    }
+
+    rafRef.current = requestAnimationFrame(tick)
+
+    // Fallback: if no audio has EVER been detected within 15s, show everything
+    // (Venice API can take 5-8s to generate audio for long messages)
+    const fallback = setTimeout(() => {
+      if (!doneRef.current && !audioDetectedRef.current) {
+        doneRef.current = true
+        setChars(content.length)
+        if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      }
+    }, 15000)
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      clearTimeout(fallback)
+    }
+  }, [])
+
+  if (doneRef.current) return content
+  return content.slice(0, chars)
+}
+
 function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id: string) => void }) {
   const isUser = message.role === 'user'
+  const isAssistant = message.role === 'assistant'
+  const displayContent = useCharReveal(message.content, isAssistant, message.id)
 
   const timeStr = (() => {
     try {
@@ -105,7 +172,7 @@ function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id:
             style={{ padding: '10px 16px' }}
           >
             <span className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
-              {message.content}
+              {displayContent}
             </span>
           </motion.div>
           <div className={`absolute top-1 flex gap-1 ${isUser ? '-left-12' : '-right-12'}`}>
@@ -154,15 +221,21 @@ function MicIcon() {
 }
 
 // ─── Auto-play TTS helper ────────────────────────────────────────────────────
+// Returns the audio duration in seconds (or 0 if TTS disabled/failed)
 
 async function autoPlayTts(text: string) {
   try {
     if (!useAppStore.getState().ttsEnabled) return
     const b64 = await invoke<string>('venice_tts_speak', { text })
     const audio = new Audio(`data:audio/mp3;base64,${b64}`)
+    // Store globally so useCharReveal can read currentTime/duration
+    ;(window as any).__ttsAudio = audio
+    audio.onended = () => { (window as any).__ttsAudio = null }
+    audio.onerror = () => { (window as any).__ttsAudio = null }
     await audio.play()
   } catch (err) {
     console.error('Auto-play TTS failed:', err)
+    ;(window as any).__ttsAudio = null
   }
 }
 
@@ -209,12 +282,15 @@ export default function ChatWindow() {
         setMessages(msgs)
 
         // If no messages yet, generate the first message (the magic wand question)
+        // Use 'first-' prefix so MessageBubble triggers word-by-word reveal
         if (msgs.length === 0) {
           setIsTyping(true)
           try {
             const firstMsg = await invoke<Message>('generate_first_message')
             if (!cancelled) {
-              addMessage(firstMsg)
+              const revealMsg = { ...firstMsg, id: `first-${firstMsg.id}` }
+              addMessage(revealMsg)
+              // Start TTS simultaneously — voice plays while words reveal
               autoPlayTts(firstMsg.content)
             }
           } catch (err) {
@@ -512,8 +588,13 @@ export default function ChatWindow() {
 
   return (
     <div className="relative flex h-full w-full">
-      {/* ── Full-screen skyline background (behind everything) ─────────── */}
-      <SkylineBackground />
+      {/* ── Solid dark background ─────────────────────────────────────── */}
+      <div
+        className="absolute inset-0 z-0"
+        style={{
+          background: 'radial-gradient(ellipse at 40% 50%, rgba(34,29,46,0.6) 0%, #0c0a14 70%)',
+        }}
+      />
 
       {/* ── Logo top-left ────────────────────────────────────────────────── */}
       <div className="absolute top-3 left-4 z-40">

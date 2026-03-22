@@ -7,10 +7,12 @@
  * Claymorphism nav buttons (.clay-nav-button).
  */
 
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+// @ts-ignore
+import meditationSrc from './assets/meditation.webm'
 import ChatWindow from './components/ChatWindow'
 import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
@@ -86,6 +88,52 @@ function AmbientParticles() {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
+function MusicToggle() {
+  const bgMusicMuted = useAppStore((s) => s.bgMusicMuted)
+  const setBgMusicMuted = useAppStore((s) => s.setBgMusicMuted)
+
+  const handleToggle = () => {
+    let audio = (window as any).__bgMusic as HTMLAudioElement | undefined
+    if (!audio) {
+      // Create if it doesn't exist yet
+      audio = new Audio(meditationSrc)
+      audio.loop = true
+      ;(window as any).__bgMusic = audio
+    }
+    if (bgMusicMuted) {
+      audio.volume = 0.35
+      audio.play().catch(() => {})
+    } else {
+      audio.pause()
+    }
+    setBgMusicMuted(!bgMusicMuted)
+  }
+
+  return (
+    <motion.button
+      onClick={handleToggle}
+      className="clay-nav-button w-9 h-9"
+      style={{ color: bgMusicMuted ? 'var(--text-muted)' : 'var(--accent-lavender)' }}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      aria-label={bgMusicMuted ? 'Unmute music' : 'Mute music'}
+      title={bgMusicMuted ? 'Unmute music' : 'Mute music'}
+
+    >
+      {/* Music note icon — distinct from speaker/TTS controls */}
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
+        className="w-[18px] h-[18px]" aria-hidden="true"
+        style={{ opacity: bgMusicMuted ? 0.5 : 1 }}
+      >
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+    </motion.button>
+  )
+}
+
 export default function App() {
   const currentView = useAppStore((s) => s.currentView)
   const setCurrentView = useAppStore((s) => s.setCurrentView)
@@ -111,6 +159,36 @@ export default function App() {
     return () => { cancelled = true }
   }, [setOnboardingComplete, setOnboardingChecked])
 
+  // Start background music on first user interaction (for returning users)
+  const startBgMusic = useCallback(() => {
+    if ((window as any).__bgMusic) return
+    const bgMuted = useAppStore.getState().bgMusicMuted
+    const audio = new Audio(meditationSrc)
+    audio.loop = true
+    audio.volume = bgMuted ? 0 : 0.35
+    if (bgMuted) {
+      // Create but don't play — ready for unmute
+      ;(window as any).__bgMusic = audio
+    } else {
+      audio.play().catch(() => {})
+      ;(window as any).__bgMusic = audio
+    }
+    // Only need first interaction
+    document.removeEventListener('click', startBgMusic)
+    document.removeEventListener('keydown', startBgMusic)
+  }, [])
+
+  useEffect(() => {
+    if (!onboardingComplete) return
+    // For returning users: start music on first click/keypress
+    document.addEventListener('click', startBgMusic, { once: true })
+    document.addEventListener('keydown', startBgMusic, { once: true })
+    return () => {
+      document.removeEventListener('click', startBgMusic)
+      document.removeEventListener('keydown', startBgMusic)
+    }
+  }, [onboardingComplete, startBgMusic])
+
   // Reveal the skill tree when the backend emits 'reveal-skill-tree'
   // (fired after Crystallize phase completes — no fragile string matching)
   useEffect(() => {
@@ -135,25 +213,32 @@ export default function App() {
     return <div className="w-screen h-screen" style={{ backgroundColor: 'var(--bg-deep)' }} />
   }
 
-  // First-run onboarding
+  // First-run onboarding — wraps both onboarding and main app in AnimatePresence
+  // so the transition from onboarding → chat is a cinematic crossfade
   if (!onboardingComplete) {
     return (
-      <motion.div
-        key="onboarding"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4 }}
-        className="w-screen h-screen"
-      >
-        <Onboarding />
-      </motion.div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key="onboarding"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 1.05, filter: 'blur(12px)' }}
+          transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
+          className="w-screen h-screen"
+        >
+          <Onboarding />
+        </motion.div>
+      </AnimatePresence>
     )
   }
 
   return (
-    <div
+    <motion.div
       className="relative w-screen h-screen overflow-hidden noise-overlay"
       style={{ backgroundColor: 'var(--bg-deep)' }}
+      initial={{ opacity: 0, scale: 0.95, filter: 'blur(8px)' }}
+      animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+      transition={{ duration: 1.0, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
       {/* Ambient particles — only visible behind chat view */}
       <AnimatePresence>
@@ -173,6 +258,9 @@ export default function App() {
 
       {/* Top-right nav buttons */}
       <div className="absolute top-4 right-4 z-50 flex items-center gap-2.5">
+        {/* Music toggle */}
+        <MusicToggle />
+
         {/* Skill Tree button */}
         <motion.button
           onClick={() => setCurrentView(currentView === 'tree' ? 'chat' : 'tree')}
@@ -207,10 +295,10 @@ export default function App() {
         {currentView === 'tree' && (
           <motion.div
             key="tree"
-            initial={{ opacity: 0, scale: 0.9, filter: 'blur(8px)' }}
-            animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-            exit={{ opacity: 0, scale: 1.1, filter: 'blur(4px)' }}
-            transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5, ease: 'easeInOut' }}
             className="absolute inset-0"
           >
             <ErrorBoundary><SkillTree onBack={() => setCurrentView('chat')} /></ErrorBoundary>
@@ -243,6 +331,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   )
 }

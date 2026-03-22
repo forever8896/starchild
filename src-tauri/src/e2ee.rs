@@ -16,7 +16,6 @@
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use hkdf::Hkdf;
 use k256::{
-    ecdh::EphemeralSecret,
     elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint},
     EncodedPoint, PublicKey, SecretKey,
 };
@@ -50,14 +49,20 @@ pub type Result<T> = std::result::Result<T, E2eeError>;
 // Attestation response
 // ---------------------------------------------------------------------------
 
+/// Venice TEE attestation response — supports both legacy and current field names.
 #[derive(Debug, serde::Deserialize)]
 pub struct AttestationResponse {
-    pub verified: bool,
-    pub nonce: String,
+    /// The model's public key for E2EE (secp256k1, uncompressed, 130 hex chars).
+    pub signing_public_key: Option<String>,
+    /// Legacy field name for the same key.
+    pub signing_key: Option<String>,
+    /// Whether the attestation was verified by Venice.
+    pub verified: Option<bool>,
+    /// Nonce echo — may appear as `nonce` or `request_nonce`.
+    pub nonce: Option<String>,
+    pub request_nonce: Option<String>,
+    /// Model identifier echo.
     pub model: Option<String>,
-    pub signing_key: String,
-    #[allow(dead_code)]
-    pub tee_provider: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -115,16 +120,31 @@ impl E2eeSession {
 
         let attestation: AttestationResponse = resp.json().await?;
 
-        // 4. Verify
-        if !attestation.verified {
-            return Err(E2eeError::Attestation("attestation not verified".into()));
-        }
-        if attestation.nonce != nonce_hex {
-            return Err(E2eeError::Attestation("nonce mismatch".into()));
+        // 4. Verify nonce matches (check both field names)
+        let resp_nonce = attestation.nonce.as_deref()
+            .or(attestation.request_nonce.as_deref())
+            .unwrap_or("");
+        if resp_nonce != nonce_hex {
+            return Err(E2eeError::Attestation(format!(
+                "nonce mismatch: expected {nonce_hex}, got {resp_nonce}"
+            )));
         }
 
-        // 5. Parse model's public key
-        let model_pub_hex = attestation.signing_key.clone();
+        // 5. Verify attestation (if field present)
+        if attestation.verified == Some(false) {
+            return Err(E2eeError::Attestation("attestation not verified".into()));
+        }
+
+        // 6. Extract model's public key (secp256k1, uncompressed, 130 hex chars starting with 04)
+        let mut model_pub_hex = attestation.signing_key
+            .or(attestation.signing_public_key)
+            .ok_or_else(|| E2eeError::Attestation("no signing_key or signing_public_key in attestation".into()))?;
+
+        // Normalize: if 128 chars (no 04 prefix), prepend it
+        if model_pub_hex.len() == 128 && !model_pub_hex.starts_with("04") {
+            model_pub_hex = format!("04{model_pub_hex}");
+        }
+
         let model_pub_bytes = hex::decode(&model_pub_hex)?;
         let model_encoded = EncodedPoint::from_bytes(&model_pub_bytes)
             .map_err(|e| E2eeError::Crypto(format!("invalid model pubkey encoding: {e}")))?;
@@ -151,7 +171,7 @@ impl E2eeSession {
     /// Returns hex-encoded: `[ephemeral_pub(65)] [nonce(12)] [ciphertext+tag]`
     pub fn encrypt(&self, plaintext: &str) -> Result<String> {
         // Fresh ephemeral key for this specific message
-        let ephemeral_secret = EphemeralSecret::random(&mut rand::thread_rng());
+        let ephemeral_secret = k256::ecdh::EphemeralSecret::random(&mut rand::thread_rng());
         let ephemeral_pub = PublicKey::from(ephemeral_secret.public_key());
         let ephemeral_pub_bytes = ephemeral_pub.to_encoded_point(false);
 
@@ -225,7 +245,7 @@ impl E2eeSession {
 
 /// Perform ECDH using an EphemeralSecret and a PublicKey → 32-byte x-coordinate.
 fn ecdh_shared_secret(
-    ephemeral: &EphemeralSecret,
+    ephemeral: &k256::ecdh::EphemeralSecret,
     their_pub: &PublicKey,
 ) -> Result<[u8; 32]> {
     let shared = ephemeral.diffie_hellman(their_pub);
