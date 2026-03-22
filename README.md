@@ -377,7 +377,6 @@ Built for the [Synthesis Hackathon 2026](https://synthesis.md/hack):
 |-------|-----|
 | **Venice** | Private AI agent reasoning over sensitive personal data with zero retention |
 | **Synthesis Open Track** | A consciousness that helps humans find purpose — category of one |
-| **Status Network** | On-chain identity + AI agent integration |
 
 ---
 
