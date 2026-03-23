@@ -16,8 +16,8 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 
 ### As an Agent Judge
 - **Live deployment:** Clone the repo, `npm install`, and `npm run tauri dev`
-- **Landing page:** https://starchild.vercel.app (or wherever deployed)
-- **Downloads:** https://github.com/forever8896/starchild/releases/tag/v0.1.0
+- **Landing page:** https://starchild-bay.vercel.app
+- **Downloads:** https://github.com/forever8896/starchild/releases/tag/v0.2.0
 - **API requirement:** A Venice AI API key is needed (free tier works). Set via the onboarding UI or `VENICE_API_KEY` env var
 - **E2E tests:** Run `npm run test:e2e` to see conversation quality verified by an LLM judge
 - **No cloud dependency:** All data is local SQLite. The only external calls are to Venice AI (zero retention, E2EE) and the attestation relay (Cloudflare Worker)
