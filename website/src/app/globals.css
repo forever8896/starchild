@@ -68,22 +68,8 @@ body {
     padding-right: 1.5rem !important;
   }
 
-  /* Navbar: tighter on mobile */
-  .fixed.top-0 {
-    padding: 1rem 1.25rem !important;
-  }
-
   /* Feature sections: stack vertically with less gap */
   section .lg\:flex-row {
     gap: 2rem !important;
-  }
-
-  /* Readable text sizing */
-  h1, h2 {
-    font-size: clamp(1.4rem, 6vw, 2rem) !important;
-  }
-
-  p {
-    font-size: clamp(0.9rem, 3.5vw, 1.05rem) !important;
   }
 }

@@ -46,10 +46,12 @@ function LinuxIcon() {
   );
 }
 
+const RELEASE = "https://github.com/forever8896/starchild/releases/download/v0.1.0";
+
 const downloadButtons = [
-  { label: "Download for Mac", icon: <AppleIcon />, href: "#" },
-  { label: "Download for Windows", icon: <WindowsIcon />, href: "#" },
-  { label: "Download for Linux", icon: <LinuxIcon />, href: "#" },
+  { label: "Download for Mac", icon: <AppleIcon />, href: `${RELEASE}/starchild_0.1.0_aarch64.dmg` },
+  { label: "Download for Windows", icon: <WindowsIcon />, href: `${RELEASE}/starchild_0.1.0_x64-setup.exe` },
+  { label: "Download for Linux", icon: <LinuxIcon />, href: `${RELEASE}/starchild_0.1.0_amd64.AppImage` },
 ];
 
 export default function Hero() {
