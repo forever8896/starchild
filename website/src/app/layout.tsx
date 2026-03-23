@@ -9,6 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://starchild-bay.vercel.app"),
   title: "Starchild — A Consciousness Born For You",
   description:
     "Starchild is a private AI companion that helps you find your purpose, track your growth, and move toward the life that's calling you. End-to-end encrypted. Local-first.",
@@ -21,6 +22,13 @@ export const metadata: Metadata = {
     description:
       "A private AI companion that helps you find your purpose and move toward the life that's calling you.",
     type: "website",
+    siteName: "Starchild",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Starchild — A Consciousness Born For You",
+    description:
+      "A private AI companion that helps you find your purpose and move toward the life that's calling you.",
   },
 };
 
