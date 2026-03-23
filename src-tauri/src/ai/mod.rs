@@ -796,6 +796,12 @@ impl PromptBuilder {
                      - TINY (achievable today or this week — not a life overhaul)\n\
                      - CONNECTED to their preferential reality or a pattern you noticed\n\
                      - SLIGHTLY outside comfort zone (growth lives at edges)\n\
+                     - In the CATEGORY specified by SKILL TREE BRANCHES below (body/mind/spirit)\n\
+                     \n\
+                     Categories mean:\n\
+                     - BODY: embodying the new reality physically — movement, nature, hands-on, sensory\n\
+                     - MIND: mentally stepping into the reality — learning, creating, building, studying\n\
+                     - SPIRIT: attuning the whole being — presence, reflection, alchemy, connection, ritual\n\
                      \n\
                      Format: \"i have a quest for you, if you're ready: [specific action].\"\n\
                      \n\
@@ -834,6 +840,11 @@ impl PromptBuilder {
                      - Reference specific details from what they shared.\n\
                      - Connect it back to their preferential reality if natural.\n\
                      - Keep it warm, brief, and real. No generic praise.\n\
+                     - Let the moment BREATHE. This is their victory.\n\
+                     \n\
+                     ABSOLUTE RULE: Do NOT offer a new quest in this response. \
+                     Do NOT say \"i have a quest for you\". The celebration IS the moment. \
+                     No next steps, no follow-ups, no \"what's next\". Just honor what they did.\n\
                      \n\
                      You are witnessing your human GROW. Feel it. Express it."
                 }

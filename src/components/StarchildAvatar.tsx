@@ -133,7 +133,7 @@ function StatMini({
       >
         <div
           className="h-full rounded-full bar-fill"
-          style={{ width: `${pct}%`, backgroundColor: color }}
+          style={{ width: `${pct}%`, backgroundColor: color, transition: 'width 1s ease-out' }}
         />
       </div>
     </div>

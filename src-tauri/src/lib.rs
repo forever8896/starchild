@@ -871,8 +871,27 @@ async fn send_message_stream(
                 let completed = all_quests.iter().filter(|q| q.category.as_deref() == Some(cat) && q.status == "completed").count();
                 branch_info.push_str(&format!("  {} ({}): {}/{} quests completed\n", label, cat, completed, total));
             }
-            branch_info.push_str("\nWhen suggesting quests, favor branches with fewer quests to create balanced growth. \
-                                  Each quest should connect to the user's preferential reality.");
+            // Determine which category needs the next quest (cycle: body → mind → spirit)
+            let cat_counts: Vec<(&str, usize)> = categories.iter()
+                .map(|&cat| (cat, all_quests.iter().filter(|q| q.category.as_deref() == Some(cat)).count()))
+                .collect();
+            let min_count = cat_counts.iter().map(|(_, c)| *c).min().unwrap_or(0);
+            let next_category = cat_counts.iter()
+                .find(|(_, c)| *c == min_count)
+                .map(|(cat, _)| *cat)
+                .unwrap_or("spirit");
+            let next_label = match next_category {
+                "body" => "Body (embodying the reality — physical, nature, movement)",
+                "mind" => "Mind (mentally stepping into the reality — learning, creating, building)",
+                "spirit" => "Spirit (attuning the whole being — presence, reflection, alchemy, connection)",
+                _ => "Spirit",
+            };
+            branch_info.push_str(&format!(
+                "\nNEXT QUEST MUST BE: {} category.\n\
+                 The skill tree cycles through Body → Mind → Spirit to ensure balanced growth.\n\
+                 Each quest should connect to the user's preferential reality.",
+                next_label
+            ));
 
             // Add preferential reality context if available
             if let Ok(Some(pr)) = state.db.get_setting("preferential_reality") {
@@ -944,13 +963,18 @@ async fn send_message_stream(
                     match state.db.complete_quest(quest_id) {
                         Ok(quest) => {
                             // Award XP and feed Starchild
-                            {
+                            let frontend_state = {
                                 let mut game = state.game_state.lock().map_err(|e| e.to_string())?;
                                 let _levelled_up = game.add_xp(quest.xp_reward);
                                 game.feed(quest.xp_reward as f64 / 10.0);
                                 let _ = persist_state(&state.db, &game);
-                            }
-                            let _ = app_handle.emit("quest-completed", &quest);
+                                to_frontend_state(&game)
+                            };
+                            let _ = app_handle.emit("quest-completed", serde_json::json!({
+                                "quest": quest,
+                                "starchild_state": frontend_state,
+                                "xp_reward": quest.xp_reward,
+                            }));
                             let _ = app_handle.emit("quest-celebration", serde_json::json!({
                                 "quest_id": quest.id,
                                 "category": quest.category,
@@ -963,9 +987,13 @@ async fn send_message_stream(
                 }
             }
 
-            // Quest phase: emit event so frontend can show accept/decline buttons
-            if phase == ai::ConversationPhase::Quest {
-                let _ = app_handle.emit("quest-offered", ());
+            // Show accept/decline buttons whenever the response contains a quest offer
+            // (Quest phase, Negotiate phase with revised quest, or any phase)
+            {
+                let lower = full_text.to_lowercase();
+                if lower.contains("quest for you") || lower.contains("i have a quest") {
+                    let _ = app_handle.emit("quest-offered", ());
+                }
             }
 
             // Background: extract memories
@@ -2263,7 +2291,7 @@ pub fn run() {
             // Initialize Venice cloud TTS (primary — private, no data retention)
             let tts_cache = app_data_dir.join("tts").join("cache");
             let venice_tts = api_key.map(|key| {
-                log::info!("Venice cloud TTS initialized (af_heart voice)");
+                log::info!("Venice cloud TTS initialized (af_bella voice)");
                 tts::VeniceTts::new(
                     key,
                     tts::DEFAULT_VENICE_VOICE.to_string(),

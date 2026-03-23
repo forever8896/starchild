@@ -24,7 +24,7 @@ use std::process::Command;
 /// - `am_michael` — male
 /// - `bf_emma`    — British female
 /// - `bm_george`  — British male
-pub const DEFAULT_VENICE_VOICE: &str = "am_echo";
+pub const DEFAULT_VENICE_VOICE: &str = "af_bella";
 
 const VENICE_TTS_URL: &str = "https://api.venice.ai/api/v1/audio/speech";
 

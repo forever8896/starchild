@@ -191,6 +191,15 @@ export default function App() {
 
   // Track whether this is the FIRST skill tree reveal (from Crystallize — shows video intro)
   const [isFirstTreeReveal, setIsFirstTreeReveal] = useState(false)
+  // Tree icon hidden until first reveal
+  const [treeUnlocked, setTreeUnlocked] = useState(false)
+
+  // Check on mount if tree was already unlocked in a previous session
+  useEffect(() => {
+    invoke<string | null>('get_setting', { key: 'vision_revealed' }).then((val) => {
+      if (val) setTreeUnlocked(true)
+    }).catch(() => {})
+  }, [])
 
   // Reveal the skill tree when the backend emits 'reveal-skill-tree'
   // (fired after Crystallize phase completes — video intro plays only this time)
@@ -200,6 +209,7 @@ export default function App() {
 
     listen('reveal-skill-tree', () => {
       setIsFirstTreeReveal(true) // this is the cinematic first reveal
+      setTreeUnlocked(true)
       const checkAndReveal = () => {
         const ttsAudio = (window as any).__ttsAudio as HTMLAudioElement | undefined
         if (ttsAudio && !ttsAudio.ended && !ttsAudio.paused) {
@@ -217,18 +227,6 @@ export default function App() {
       unlisten?.()
       if (revealTimer) clearTimeout(revealTimer)
     }
-  }, [setCurrentView])
-
-  // Auto-switch to tree view on quest celebration (brief, no video)
-  useEffect(() => {
-    let unlisten: (() => void) | null = null
-    listen('quest-celebration', () => {
-      setIsFirstTreeReveal(false)
-      setCurrentView('tree')
-      // Auto-return to chat after 4s
-      setTimeout(() => setCurrentView('chat'), 4000)
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
   }, [setCurrentView])
 
   // Loading — invisible hold while we check onboarding state
@@ -279,13 +277,13 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Top-right nav buttons */}
-      <div className="absolute top-4 right-4 z-50 flex items-center gap-2.5">
+      {/* Top-right nav buttons — hidden when tree is showing (tree has its own back button) */}
+      <div className="absolute top-4 right-4 z-50 flex items-center gap-2.5" style={{ display: currentView === 'tree' ? 'none' : 'flex' }}>
         {/* Music toggle */}
         <MusicToggle />
 
-        {/* Skill Tree button */}
-        <motion.button
+        {/* Skill Tree button — only visible after first reveal */}
+        {treeUnlocked && <motion.button
           onClick={() => {
             setIsFirstTreeReveal(false) // manual nav → no video intro
             setCurrentView(currentView === 'tree' ? 'chat' : 'tree')
@@ -298,7 +296,7 @@ export default function App() {
           title="Your Journey"
         >
           <TreeIcon />
-        </motion.button>
+        </motion.button>}
 
         {/* Settings / Back gear */}
         <motion.button

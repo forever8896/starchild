@@ -254,6 +254,7 @@ export default function ChatWindow() {
   const [ready, setReady] = useState(false)
   const [showQuestOffer, setShowQuestOffer] = useState(false)
   const [acceptingQuest, setAcceptingQuest] = useState(false)
+  const [xpGain, setXpGain] = useState<number | null>(null)
 
   const [input, setInput]         = useState('')
   const [error, setError]         = useState<string | null>(null)
@@ -521,6 +522,10 @@ export default function ChatWindow() {
       if (event.payload?.starchild_state) {
         setStarchildState(event.payload.starchild_state)
       }
+      if (event.payload?.xp_reward) {
+        setXpGain(event.payload.xp_reward)
+        setTimeout(() => setXpGain(null), 3000)
+      }
     }).then((fn) => { unlisten = fn })
     return () => { unlisten?.() }
   }, [setStarchildState])
@@ -741,6 +746,28 @@ export default function ChatWindow() {
           </AnimatePresence>
           <div ref={bottomRef} />
         </div>
+
+        {/* XP gain celebration */}
+        <AnimatePresence>
+          {xpGain && (
+            <motion.div
+              key="xp-gain"
+              className="flex items-center justify-center py-2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+            >
+              <motion.span
+                className="text-lg font-bold px-4 py-1 rounded-xl"
+                style={{ color: 'var(--accent-mint)', backgroundColor: 'rgba(168,216,184,0.1)' }}
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ duration: 0.5 }}
+              >
+                +{xpGain} XP ✦
+              </motion.span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Error banner */}
         <AnimatePresence>

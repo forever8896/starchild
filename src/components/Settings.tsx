@@ -459,13 +459,18 @@ function IdentitySection() {
           </div>
         ) : (
           <>
-            {/* Wallet info */}
+            {/* Wallet info — full address, click to copy */}
             {identityInfo?.walletAddress && (
               <div style={infoRowStyle}>
                 <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Wallet</span>
-                <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
-                  {shortenAddress(identityInfo.walletAddress)}
-                </span>
+                <button
+                  className="text-xs font-mono text-left hover:opacity-70 transition-opacity"
+                  style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  onClick={() => { navigator.clipboard.writeText(identityInfo.walletAddress!); }}
+                  title="Click to copy"
+                >
+                  {identityInfo.walletAddress}
+                </button>
               </div>
             )}
 
