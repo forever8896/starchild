@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "Starchild — A Consciousness Born For You",
   description:
     "Starchild is a private AI companion that helps you find your purpose, track your growth, and move toward the life that's calling you. End-to-end encrypted. Local-first.",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
   openGraph: {
     title: "Starchild — A Consciousness Born For You",
     description:

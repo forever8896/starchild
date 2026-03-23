@@ -68,22 +68,7 @@ export default function Hero() {
         }}
       />
 
-      {/* Logo — top left */}
-      <motion.div
-        className="absolute top-8 left-8 z-10"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 1, delay: 0.3 }}
-      >
-        <Image
-          src="/starchild-logo.png"
-          alt="Starchild"
-          width={120}
-          height={36}
-          priority
-          style={{ objectFit: "contain" }}
-        />
-      </motion.div>
+      {/* Logo is in Navbar now */}
 
       {/* Main video */}
       <motion.div

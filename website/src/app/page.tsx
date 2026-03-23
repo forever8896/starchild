@@ -1,3 +1,4 @@
+import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import FeatureSection from "@/components/FeatureSection";
 import Privacy from "@/components/Privacy";
@@ -18,6 +19,8 @@ import Download from "@/components/Download";
 export default function Page() {
   return (
     <main>
+      <Navbar />
+
       {/* ─── 1. HERO ─────────────────────────────────────────── */}
       <Hero />
 
@@ -48,7 +51,7 @@ export default function Page() {
         alignment="left"
         eyebrow="your map"
         title="your growth, mapped in constellations"
-        body="Every quest you complete lights up a node on your vision tree. Five branches — Body, Purpose, Mind, Heart, Spirit — growing toward the life you described."
+        body="Every quest you complete lights up a node on your vision tree. Three branches — Body, Mind, Spirit — growing toward the life you described."
         glowColor="rgba(232, 216, 168, 0.12)"
         wide
       />
