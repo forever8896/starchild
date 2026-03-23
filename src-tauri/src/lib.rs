@@ -349,7 +349,13 @@ async fn extract_quest_from_conversation(
 
     // Build recent context for the LLM
     let recent_context: String = history.iter().rev().take(6)
-        .map(|m| format!("{}: {}", m.role, &m.content[..m.content.len().min(200)]))
+        .map(|m| {
+            let truncated: String = m.content.char_indices()
+                .take_while(|(i, _)| *i < 200)
+                .map(|(_, c)| c)
+                .collect();
+            format!("{}: {truncated}", m.role)
+        })
         .collect::<Vec<_>>()
         .into_iter().rev()
         .collect::<Vec<_>>()
@@ -507,7 +513,11 @@ async fn classify_conversation_phase(
     // Build a compact conversation summary for classification
     let convo: String = history.iter().map(|m| {
         let role = if m.role == "user" { "Human" } else { "Starchild" };
-        format!("{role}: {}", &m.content[..m.content.len().min(200)])
+        let truncated = m.content.char_indices()
+            .take_while(|(i, _)| *i < 200)
+            .map(|(_, c)| c)
+            .collect::<String>();
+        format!("{role}: {truncated}")
     }).collect::<Vec<_>>().join("\n");
 
     let exchange_count = history.iter().filter(|m| m.role == "user").count();

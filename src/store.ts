@@ -104,6 +104,10 @@ interface AppState {
   hasQuests: boolean
   setHasQuests: (has: boolean) => void
 
+  // Quest offer buttons (persists across view switches)
+  showQuestOffer: boolean
+  setShowQuestOffer: (show: boolean) => void
+
   // Voice / TTS
   ttsEnabled: boolean
   setTtsEnabled: (enabled: boolean) => void
@@ -211,6 +215,9 @@ export const useAppStore = create<AppState>((set) => ({
   // Progressive UI
   hasQuests: false,
   setHasQuests: (hasQuests) => set({ hasQuests }),
+
+  showQuestOffer: false,
+  setShowQuestOffer: (showQuestOffer) => set({ showQuestOffer }),
 
   // Voice / TTS
   ttsEnabled: true,

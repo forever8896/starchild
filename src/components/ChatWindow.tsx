@@ -252,7 +252,8 @@ export default function ChatWindow() {
   const setStarchildState = useAppStore((s) => s.setStarchildState)
   const setCurrentView    = useAppStore((s) => s.setCurrentView)
   const [ready, setReady] = useState(false)
-  const [showQuestOffer, setShowQuestOffer] = useState(false)
+  const showQuestOffer = useAppStore((s) => s.showQuestOffer)
+  const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const [acceptingQuest, setAcceptingQuest] = useState(false)
   const [xpGain, setXpGain] = useState<number | null>(null)
 
@@ -320,14 +321,7 @@ export default function ChatWindow() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping, showQuestOffer])
 
-  // Listen for quest-offered event — show accept/decline buttons
-  useEffect(() => {
-    let unlisten: (() => void) | null = null
-    listen('quest-offered', () => {
-      setShowQuestOffer(true)
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
-  }, [])
+  // quest-offered listener is in App.tsx (persists across view switches)
 
   const handleSend = useCallback(async () => {
     const text = input.trim()

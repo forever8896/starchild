@@ -279,6 +279,7 @@ export default function StarchildAvatar() {
           autoPlay
           muted
           playsInline
+          preload="auto"
           loop={shouldLoop}
           onEnded={isIntro ? handleVideoEnded : undefined}
           className="absolute inset-0 w-full h-full object-contain z-20"

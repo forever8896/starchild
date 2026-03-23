@@ -65,7 +65,7 @@ impl ModelTier {
     /// Returns None if this tier doesn't use E2EE.
     pub fn e2ee_model_id(&self) -> Option<&'static str> {
         match self {
-            ModelTier::Regular | ModelTier::Deep => Some("e2ee-qwen3-5-122b-a10b"),
+            ModelTier::Regular | ModelTier::Deep => Some("e2ee-qwen3-30b-a3b-p"),
             _ => None,
         }
     }

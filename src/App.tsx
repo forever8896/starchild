@@ -229,6 +229,20 @@ export default function App() {
     }
   }, [setCurrentView])
 
+  // Listen for quest-offered globally (persists across view switches)
+  const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    listen('quest-offered', () => {
+      setShowQuestOffer(true)
+      // Auto-switch to chat if on another view
+      if (useAppStore.getState().currentView !== 'chat') {
+        setCurrentView('chat')
+      }
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [setShowQuestOffer, setCurrentView])
+
   // Loading — invisible hold while we check onboarding state
   if (!onboardingChecked) {
     return <div className="w-screen h-screen" style={{ backgroundColor: 'var(--bg-deep)' }} />

@@ -61,7 +61,7 @@ After the scaffold was in place, development continued as a direct human + Claud
 
 | Commit | What Was Built |
 |--------|---------------|
-| `ceb02a9` | Conversation arc engine (8-phase MI/Clean Language/IFS system), vision crystallization, E2EE encryption (secp256k1 ECDH + AES-256-GCM) |
+| `ceb02a9` | Conversation arc engine (MI/Clean Language system), vision crystallization, E2EE encryption (secp256k1 ECDH + AES-256-GCM) |
 | `bfdb7f7` | Video-driven avatar with mood-based animation, skill tree cinematic intro |
 | `c22033c` | Transparent background videos with seamless loop compositing |
 | `ce81580` | Intro video onboarding replacing static imagery |
@@ -86,28 +86,30 @@ This isn't small talk. It's the seed of your vision tree.
 
 Starchild uses a research-backed conversation engine inspired by Motivational Interviewing, Clean Language, and Internal Family Systems:
 
+**First conversation (fast):** Arrive → Dig → Crystallize → Quest
+**Subsequent conversations (patient):** Arrive → Explore → Reframe → Quest → Release
+
 | Phase | What Happens |
 |-------|-------------|
 | **Arrive** | Mirror one specific detail from what you said. Ask one sharp question. |
 | **Dig** | Develop your metaphor forward — "what kind of?", "anything else?" |
 | **Crystallize** | Synthesize your dream into a single poetic line. Place it on your vision tree. |
-| **Edge** | Name the tension between where you are and where you want to be. |
+| **Explore** | Learn about your real life — challenges, daily reality, what stands between you and your vision. |
 | **Reframe** | Connect your words into a pattern you haven't seen yet. |
-| **Envision** | Pull toward the future — "what would +1 look like?" |
-| **Commit** | Offer a quest — concrete, tiny, connected to everything discussed. |
+| **Quest** | Offer a quest — concrete, tiny, connected to everything discussed. Accept or decline. |
+| **Negotiate** | Discuss, adjust, or refuse a quest. The Starchild listens. |
+| **Proof** | Share what you did. The Starchild validates and celebrates. |
 | **Release** | Affirm, let it breathe. |
 
 The AI never asks two questions at once. Never summarizes what you said back to you. Never uses therapist-speak. It echoes your exact words and builds on them.
 
 ### The Vision Tree
 
-A constellation map of your growth. Your preferential reality sits at the crown. Five branches extend below it:
+A constellation map of your growth. Your preferential reality sits at the crown. Three branches extend below it:
 
-- **Body** — physical vitality, movement, health
-- **Purpose** — career, craft, contribution
-- **Mind** — learning, curiosity, intellectual growth
-- **Heart** — relationships, connection, love
-- **Spirit** — creativity, meaning, transcendence
+- **Body** — physical vitality, movement, health, embodiment
+- **Mind** — learning, curiosity, creating, building
+- **Spirit** — presence, reflection, connection, alchemy
 
 Quests are nodes on these branches. As you complete them, the tree grows. As you discover more about yourself, the quests become more meaningful.
 
@@ -138,7 +140,7 @@ Starchild's design is grounded in peer-reviewed research, not vibes:
 - **Self-Determination Theory** (Deci & Ryan) — quests support autonomy (you choose), competence (progressive challenge), and relatedness (the companion itself)
 - **Flow State Research** (Csikszentmihalyi) — quest difficulty calibrated to the flow channel; flow patterns used as diagnostic for purpose
 - **Ikigai** — both the Western framework (what you love / need / paid for / good at) and the Japanese original (small daily reasons for being)
-- **PERMA Model** (Seligman) — positive emotions, engagement, relationships, meaning, achievement mapped to the five tree branches
+- **PERMA Model** (Seligman) — positive emotions, engagement, relationships, meaning, achievement mapped to the tree branches
 - **Motivational Interviewing** — amplify change talk, redirect sustain talk, never confront
 - **Clean Language** (David Grove) — use the user's exact metaphors, don't paraphrase
 - **Internal Family Systems** — unburdening arc, parts recognition
@@ -206,12 +208,12 @@ The full research document is in [`docs/spark-research.md`](docs/spark-research.
 
 | Tier | Model | Use Case |
 |------|-------|----------|
-| Quick | Llama 3.3 70B | Internal tasks (memory extraction, summarization) |
-| Regular | Venice Uncensored | All conversation — the Starchild's true voice |
-| Deep | Deepseek v3.2 | Emotional depth, life purpose work, breakthroughs |
+| Quick | Llama 3.3 70B | Internal tasks (memory extraction, phase classification) |
+| Regular | Qwen3 30B MoE (E2EE) | All conversation — the Starchild's true voice |
+| Deep | Qwen3 30B MoE (E2EE) | Emotional depth, life purpose work |
 | Vision | Qwen3 VL 235B | Image understanding |
 
-The model router selects tiers based on conversation context — emotional or existential moments automatically route to the Deep tier for richer responses.
+All user-facing conversation runs through Venice's **E2EE** (end-to-end encryption) — conversations are encrypted on your device and only decrypted inside hardware-verified trusted execution environments. Not even Venice can read them.
 
 ### 11-Layer Prompt System
 
@@ -259,7 +261,9 @@ Starchild anchors your journey on **Base** (Ethereum L2):
 - **Journey Proof** — quest completions hashed locally, batched into Merkle roots, attested on-chain via EAS
 - **Privacy preserved** — only hashes go on-chain, never raw data
 
-No wallet required to start. Starchild manages a burner wallet internally. Export your key later for full sovereignty.
+No wallet required. No ETH needed. Journey proofs are submitted via a **Cloudflare Worker relay** that signs EAS attestations on behalf of users — the project wallet pays gas (~$0.001 per attestation on Base).
+
+EAS Schema UID: `0x867ba65be1c06c2ea4aaaa5929550ff01c97cf4e525b88e5d587eb96f69c6eca`
 
 ---
 
@@ -295,16 +299,16 @@ npm run test:e2e:fast     # Skip LLM judge (faster)
 ### Install & Run
 
 ```bash
-git clone https://github.com/user/starchild.git
+git clone https://github.com/forever8896/starchild.git
 cd starchild
 npm install
-npm run tauri:dev
+npm run tauri dev
 ```
 
 ### Build for Production
 
 ```bash
-npm run tauri:build
+npm run tauri build
 # Binaries in src-tauri/target/release/bundle/
 ```
 
