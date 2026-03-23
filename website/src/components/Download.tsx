@@ -102,7 +102,8 @@ export default function Download() {
 
       {/* Download buttons */}
       <motion.div
-        className="relative z-10 mt-14 flex flex-wrap items-stretch justify-center gap-5"
+        className="relative z-10 flex flex-wrap items-stretch justify-center gap-5"
+        style={{ marginTop: "5rem" }}
         variants={fadeUp}
         initial="hidden"
         whileInView="visible"
@@ -174,6 +175,20 @@ export default function Download() {
       >
         Free. Open source. Your data never leaves your device.
       </motion.p>
+
+      <p
+        className="relative z-10 mt-4 text-center"
+        style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.25)" }}
+      >
+        Having trouble running the app?{" "}
+        <a
+          href="https://github.com/forever8896/starchild#readme"
+          target="_blank"
+          style={{ color: "var(--lavender)", opacity: 0.5, borderBottom: "1px solid rgba(184, 160, 216, 0.2)" }}
+        >
+          Build from source
+        </a>
+      </p>
 
       {/* Divider */}
       <div

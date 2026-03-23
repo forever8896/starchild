@@ -89,7 +89,9 @@ export default function OriginPage() {
 
             <p>
               When I started my hackathon journey last year in Cannes, fate paved the
-              way for me to meet with Owen Barnes, a fellow creative soul. We quickly
+              way for me to meet with{" "}
+              <a href="https://www.owenbarnes.com/" target="_blank" style={{ color: "var(--lavender)", borderBottom: "1px solid rgba(184, 160, 216, 0.3)" }}>Owen Barnes</a>,
+              a fellow creative soul. We quickly
               got to build a solid friendship, and ended up travelling the world
               together, winning hackathons.
             </p>
@@ -258,7 +260,7 @@ export default function OriginPage() {
               </p>
               <p>
                 The scaffolding was done using{" "}
-                <span style={{ color: "var(--gold)" }}>The Agency</span>, an open-source
+                <a href="https://github.com/forever8896/agency" target="_blank" style={{ color: "var(--gold)", borderBottom: "1px solid rgba(232, 216, 168, 0.3)" }}>The Agency</a>, an open-source
                 Claude Code orchestrator. The entire codebase was then built using{" "}
                 <span style={{ color: "var(--gold)" }}>Claude Code</span> as the sole
                 code writer and executor of the vision.

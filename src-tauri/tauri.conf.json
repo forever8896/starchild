@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://api.venice.ai https://starchild-relay.starchild.workers.dev; style-src 'self' 'unsafe-inline'; media-src 'self' data:"
+      "csp": "default-src 'self'; connect-src 'self' https://api.venice.ai https://starchild-relay.starchild.workers.dev; style-src 'self' 'unsafe-inline'; media-src 'self' data: blob: asset: https://asset.localhost; img-src 'self' data: blob: asset: https://asset.localhost; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com"
     },
     "trayIcon": {
       "iconPath": "icons/32x32.png",

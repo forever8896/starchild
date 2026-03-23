@@ -7,70 +7,76 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 ## How to Interact
 
 ### As a User
-1. Launch the Tauri desktop app (`npm run tauri:dev`)
-2. Complete onboarding (enter Venice AI API key, choose a name for your Starchild)
+1. Clone the repo, `npm install`, and `npm run tauri dev`
+2. Complete onboarding (enter Venice AI API key, choose a name)
 3. Starchild opens with a "preferential reality" question — answer honestly
-4. Conversations flow through an 8-phase arc (Arrive → Dig → Crystallize → Edge → Reframe → Envision → Commit → Release)
-5. Quests appear on your vision tree as conversations deepen
-6. Complete quests to grow your Starchild creature
+4. Conversations flow through a purpose-built arc (Arrive → Dig → Crystallize → Explore → Reframe → Quest → Release)
+5. Accept or decline quests — they appear on your skill tree
+6. Complete quests by sharing proof with your Starchild
 
 ### As an Agent Judge
-- **Live deployment:** The Tauri app builds and runs locally. To evaluate, clone the repo, `npm install`, and `npm run tauri:dev`
+- **Live deployment:** Clone the repo, `npm install`, and `npm run tauri dev`
+- **Landing page:** https://starchild.vercel.app (or wherever deployed)
+- **Downloads:** https://github.com/forever8896/starchild/releases/tag/v0.1.0
 - **API requirement:** A Venice AI API key is needed (free tier works). Set via the onboarding UI or `VENICE_API_KEY` env var
 - **E2E tests:** Run `npm run test:e2e` to see conversation quality verified by an LLM judge
-- **No cloud dependency:** All data is local SQLite. The only external call is to Venice AI's API (zero retention)
+- **No cloud dependency:** All data is local SQLite. The only external calls are to Venice AI (zero retention, E2EE) and the attestation relay (Cloudflare Worker)
 
 ## Capabilities
 
 | Capability | Description |
 |-----------|-------------|
-| **Conversation** | 8-phase therapeutic conversation arc using MI, Clean Language, IFS, SFBT, ACT techniques |
+| **Conversation** | Purpose-built conversation arc using MI, Clean Language, SFBT, ACT techniques |
 | **Memory** | FTS5 full-text search over accumulated user knowledge, recalled into every prompt |
 | **Knowing** | 7-dimension user profile (values, desires, fears, thinking patterns, relationships, life situation, growth edges) |
-| **Quest Generation** | AI-generated personalized quests across 5 life branches (Body, Purpose, Mind, Heart, Spirit) |
-| **Vision Tree** | SVG constellation map visualizing user's growth and preferential reality |
+| **Quest System** | AI-generated quests across 3 life branches (Body, Mind, Spirit) with accept/decline, proof-of-completion, negotiation |
+| **Skill Tree** | SVG constellation map visualizing user's growth toward their preferential reality |
 | **Creature** | Tamagotchi-style entity with hunger decay, mood states, XP, leveling, bond system |
-| **On-chain Identity** | ERC-8004 registration on Base L2 |
-| **Attestations** | Achievement proofs (streaks, milestones) attested on-chain via EAS with hash-only privacy |
-| **TTS** | Venice text-to-speech with character-by-character synced text reveal |
-| **E2EE** | AES-256-GCM encryption with HKDF key derivation (secp256k1 ECDH key exchange) |
+| **On-chain Identity** | ERC-8004 registration on Base Mainnet |
+| **Attestation Relay** | Cloudflare Worker signs EAS attestations on behalf of users — no wallet or ETH needed |
+| **TTS** | Venice text-to-speech (Bella voice) with character-by-character synced text reveal |
+| **E2EE** | AES-256-GCM encryption with HKDF key derivation via Qwen 3.5 122B in TEE |
 | **Multi-channel** | Desktop + Telegram bot + WhatsApp bot, unified conversation context |
 
 ## Architecture Summary
 
 - **Frontend:** React 19 + TypeScript + Tailwind CSS 4 + Framer Motion
 - **Backend:** Rust (Tauri 2) with SQLite, Venice AI client, game state engine
-- **AI:** Venice API (private inference, zero retention) with 4-tier model routing (Quick/Regular/Deep/Vision)
-- **Blockchain:** Base L2 via viem — ERC-8004 identity, EAS attestations
-- **Prompt System:** 11 composable layers (~1,350 tokens total) with conversation phase detection
+- **AI:** Venice API (E2EE, zero retention) — Qwen 3.5 122B for conversation, Llama 3.3 70B for internal tasks
+- **Blockchain:** Base Mainnet — ERC-8004 identity, EAS attestations via Cloudflare relay
+- **Landing page:** Next.js on Vercel
+- **Prompt System:** 11 composable layers with conversation phase detection and quest cycling
 
 ## Key Files
 
 | File | What It Does |
 |------|-------------|
 | `src-tauri/src/ai/mod.rs` | 11-layer prompt builder, model router, Venice streaming client, phase detector |
-| `src-tauri/src/lib.rs` | All Tauri IPC commands, app state, message routing |
+| `src-tauri/src/lib.rs` | All Tauri IPC commands, app state, quest extraction, proof flow |
 | `src-tauri/src/db/mod.rs` | SQLite schema, migrations, all CRUD operations |
 | `src-tauri/src/knowing/mod.rs` | 7-dimension user understanding extraction |
 | `src-tauri/src/game/mod.rs` | Creature state machine (hunger, mood, XP, bond) |
 | `src-tauri/src/e2ee.rs` | End-to-end encryption module |
-| `src/components/ChatWindow.tsx` | Main conversation UI with creature avatar |
-| `src/components/SkillTree.tsx` | Interactive SVG constellation vision map |
+| `src-tauri/src/attestation.rs` | Journey proof computation + relay submission |
+| `relay/src/index.ts` | Cloudflare Worker — signs EAS attestations on Base |
+| `src/components/ChatWindow.tsx` | Main conversation UI with quest accept/decline |
+| `src/components/SkillTree.tsx` | Interactive SVG constellation vision map with celebration animations |
 | `src/chain/identity.ts` | ERC-8004 on-chain registration |
+| `website/` | Next.js landing page with origin story |
 | `tests/e2e/` | E2E test suite with LLM judge |
-| `docs/spark-research.md` | Psychology research foundation (76.6 KB) |
-| `docs/ARCHITECTURE.md` | Technical architecture deep dive |
 
 ## How This Was Built
 
-**Phase 1 — Multi-Agent Scaffold:** The initial codebase was generated by [The Agency](agency/), an autonomous 8-agent development framework (Product Owner, Tech Lead, 3 Developers, QA, Reviewer, DevOps) powered by Claude Code. Agents coordinate through markdown files with a mandatory QA gate.
+**Phase 1 — Multi-Agent Scaffold:** The initial codebase was generated by [The Agency](agency/), an autonomous 8-agent development framework powered by Claude Code.
 
-**Phase 2 — Human + Claude Iteration:** All subsequent features were built through direct human + Claude Code (Opus 4.6) collaboration. The human provided vision, direction, and decisions. Claude wrote every line of code. Full conversation logs are available in the submission.
+**Phase 2 — Human + Claude Iteration:** All subsequent features were built through direct human + Claude Code (Opus 4.6) collaboration. The human provided vision, direction, and decisions. Claude wrote every line of code.
+
+**Assets:** Images generated with Nano Banana 2. Videos generated with Kling 0.3 Pro.
 
 ## Model & Framework
 
 - **Agent harness:** Claude Code CLI
 - **Model:** Claude Opus 4.6 (1M context)
-- **AI inference (runtime):** Venice AI API (Llama 3.3 70B, Venice Uncensored, Deepseek v3.2, Qwen3 VL 235B)
+- **AI inference (runtime):** Venice AI API — Qwen 3.5 122B (E2EE conversation), Llama 3.3 70B (internal tasks)
 - **Skills/tools used:** Read, Write, Edit, Bash, Grep, Glob, Agent (subagents for parallel work)
 - **Multi-agent framework:** The Agency v2 (custom, open-source, markdown-based coordination)

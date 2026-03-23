@@ -71,6 +71,23 @@ export default function Page() {
 
       {/* ─── 7. DOWNLOAD / CTA ───────────────────────────────── */}
       <Download />
+
+      {/* ─── FOOTER ─────────────────────────────────────────── */}
+      <footer
+        style={{
+          padding: "2.5rem 2rem",
+          textAlign: "center",
+          fontSize: "0.78rem",
+          color: "rgba(255,255,255,0.3)",
+          borderTop: "1px solid rgba(184, 160, 216, 0.1)",
+        }}
+      >
+        powered by{" "}
+        <a href="https://venice.ai" target="_blank" style={{ color: "var(--lavender)", opacity: 0.6 }}>venice.ai</a>
+        {" "}&middot;{" "}
+        built for the{" "}
+        <a href="https://synthesis.md" target="_blank" style={{ color: "var(--lavender)", opacity: 0.6 }}>synthesis hackathon</a>
+      </footer>
     </main>
   );
 }
