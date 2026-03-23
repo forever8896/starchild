@@ -15,6 +15,7 @@ import {
   createWalletClient,
   createPublicClient,
   http,
+  fallback,
   encodeFunctionData,
   encodeAbiParameters,
   parseAbiParameters,
@@ -32,7 +33,11 @@ const EAS_ADDRESS = '0x4200000000000000000000000000000000000021' as const
 // Schema: "bytes32 userHash, bytes32 journeyRoot, uint64 questCount, uint64 currentStreak"
 const SCHEMA_UID = '0x867ba65be1c06c2ea4aaaa5929550ff01c97cf4e525b88e5d587eb96f69c6eca' as const
 
-const BASE_RPC = 'https://mainnet.base.org'
+const BASE_RPCS = [
+  'https://base.publicnode.com',
+  'https://mainnet.base.org',
+  'https://1rpc.io/base',
+]
 
 // EAS attest function ABI (minimal)
 const EAS_ABI = [
@@ -144,14 +149,15 @@ export default {
 
       // Create wallet client from project's private key
       const account = privateKeyToAccount(env.ATTESTER_PRIVATE_KEY as Hex)
+      const transport = fallback(BASE_RPCS.map(url => http(url)))
       const walletClient = createWalletClient({
         account,
         chain: base,
-        transport: http(BASE_RPC),
+        transport,
       })
       const publicClient = createPublicClient({
         chain: base,
-        transport: http(BASE_RPC),
+        transport,
       })
 
       // Encode the attestation data (schema fields)

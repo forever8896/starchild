@@ -794,6 +794,29 @@ async fn send_message_stream(
     } else {
         // ── Heuristic overrides (run BEFORE LLM classifier) ──
 
+        // 0. Quest cooldown: if a quest was just completed (proof celebration in last 2 msgs), explore first
+        let quest_just_completed = phase_history.iter().rev().take(3)
+            .filter(|m| m.role == "assistant")
+            .any(|m| {
+                let lower = m.content.to_lowercase();
+                lower.contains("got brighter") || lower.contains("shifted in me")
+                    || lower.contains("witnessing") || lower.contains("celebrate")
+            });
+        // Also check via DB: if pending_proof was recently cleared
+        let recently_completed = state.db.get_quests(Some("completed")).unwrap_or_default()
+            .first()
+            .and_then(|q| q.completed_at.as_ref())
+            .map(|t| {
+                // If completed within last 5 minutes, still in cooldown
+                chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S")
+                    .map(|completed| {
+                        let now = chrono::Utc::now().naive_utc();
+                        (now - completed).num_minutes() < 5
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
         // 1. First quest: if vision is placed but no quest has ever been offered, offer one
         let any_quest_offered = phase_history.iter()
             .filter(|m| m.role == "assistant")
@@ -803,7 +826,11 @@ async fn send_message_stream(
             });
         let has_active_quests = !active_quest_titles.is_empty();
 
-        if has_vision && !any_quest_offered && !has_active_quests {
+        if (quest_just_completed || recently_completed) && !active_quest_titles.is_empty() {
+            // Just completed a quest — explore, don't rush to the next one
+            ai::ConversationPhase::Explore
+        }
+        else if has_vision && !any_quest_offered && !has_active_quests && !recently_completed {
             // Vision is on the tree but no quest yet → offer first quest
             ai::ConversationPhase::Quest
         }

@@ -1055,18 +1055,21 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
               VERIFIED ON BASE
               {journeyProof.last_anchor_tx && (
                 <span
-                  className="ml-1 opacity-50 cursor-pointer"
-                  title={journeyProof.last_anchor_tx}
-                  onClick={() => {
+                  className="ml-1 opacity-50 cursor-pointer hover:opacity-100 transition-opacity"
+                  title="Click to copy attestation link"
+                  onClick={(e) => {
+                    e.stopPropagation()
                     if (journeyProof.last_anchor_tx) {
-                      window.open(
-                        `https://basescan.org/tx/${journeyProof.last_anchor_tx}`,
-                        '_blank'
-                      )
+                      const url = `https://basescan.org/tx/${journeyProof.last_anchor_tx}`
+                      navigator.clipboard.writeText(url)
+                      const el = e.currentTarget
+                      const original = el.textContent
+                      el.textContent = 'copied!'
+                      setTimeout(() => { el.textContent = original }, 1500)
                     }
                   }}
                 >
-                  {journeyProof.last_anchor_tx.slice(0, 8)}...
+                  {journeyProof.last_anchor_tx.slice(0, 10)}...
                 </span>
               )}
             </div>
