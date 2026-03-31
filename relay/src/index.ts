@@ -1,14 +1,26 @@
 /**
  * Starchild Attestation Relay — Cloudflare Worker
  *
- * Signs and submits EAS attestations on Base Mainnet on behalf of
- * Starchild desktop app users. Users need no wallet or ETH.
+ * Signs and submits on-chain transactions on behalf of Starchild
+ * desktop app users. Users need no wallet or ETH.
  *
  * POST /attest
  *   Body: { user_hash, journey_root, quest_count, streak }
  *   Returns: { tx_hash } or { error }
+ *   Chain: Base Mainnet (EAS attestation)
  *
- * Secret: ATTESTER_PRIVATE_KEY (set via wrangler secret)
+ * POST /mint-hypercert
+ *   Body: { name, description, work_scope, impact_scope, timeframe_start,
+ *           timeframe_end, contributors, verifying_agent_id, user_hash }
+ *   Returns: { tx_hash, chain, contract, metadata_uri } or { error }
+ *   Chain: Base Sepolia (HypercertMinter)
+ *
+ * POST /register-identity
+ *   Body: { starchild_name }
+ *   Returns: { tx_hash, agent_id } or { error }
+ *   Chain: Base Mainnet (ERC-8004 Identity Registry)
+ *
+ * Secrets: ATTESTER_PRIVATE_KEY, HYPERCERT_MINTER_KEY
  */
 
 import {
@@ -19,10 +31,12 @@ import {
   encodeFunctionData,
   encodeAbiParameters,
   parseAbiParameters,
+  decodeEventLog,
+  toHex,
   type Hex,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { base } from 'viem/chains'
+import { base, baseSepolia } from 'viem/chains'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -74,6 +88,7 @@ const EAS_ABI = [
 
 interface Env {
   ATTESTER_PRIVATE_KEY: string
+  HYPERCERT_MINTER_KEY: string
 }
 
 interface AttestRequest {
@@ -111,6 +126,80 @@ function validate(body: unknown): AttestRequest {
   }
 }
 
+// ─── Hypercert Constants ────────────────────────────────────────────────────
+
+// HypercertMinter on Base Sepolia (from Hypercerts docs)
+const HYPERCERT_MINTER_ADDRESS = '0xC2d179166bc9dbB00A03686a5b17eCe2224c2704' as const
+
+const BASE_SEPOLIA_RPCS = [
+  'https://sepolia.base.org',
+  'https://base-sepolia.publicnode.com',
+]
+
+// Minimal HypercertMinter ABI — just mintClaim
+const HYPERCERT_MINTER_ABI = [
+  {
+    type: 'function',
+    name: 'mintClaim',
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'units', type: 'uint256' },
+      { name: '_uri', type: 'string' },
+      { name: 'restrictions', type: 'uint8' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+interface HypercertRequest {
+  name: string
+  description: string
+  work_scope: string[]
+  impact_scope: string[]
+  timeframe_start: string
+  timeframe_end: string
+  contributors: string[]
+  verifying_agent_id: string
+  user_hash: string
+}
+
+function validateHypercert(body: unknown): HypercertRequest {
+  if (!body || typeof body !== 'object') throw new Error('Invalid request body')
+  const b = body as Record<string, unknown>
+
+  if (typeof b.name !== 'string' || b.name.length === 0 || b.name.length > 256)
+    throw new Error('name must be 1-256 characters')
+  if (typeof b.description !== 'string' || b.description.length === 0)
+    throw new Error('description is required')
+  if (!Array.isArray(b.work_scope) || b.work_scope.length === 0)
+    throw new Error('work_scope must be a non-empty array')
+  if (!Array.isArray(b.impact_scope) || b.impact_scope.length === 0)
+    throw new Error('impact_scope must be a non-empty array')
+  if (typeof b.timeframe_start !== 'string')
+    throw new Error('timeframe_start is required')
+  if (typeof b.timeframe_end !== 'string')
+    throw new Error('timeframe_end is required')
+  if (!Array.isArray(b.contributors) || b.contributors.length === 0)
+    throw new Error('contributors must be a non-empty array')
+  if (typeof b.verifying_agent_id !== 'string')
+    throw new Error('verifying_agent_id is required')
+  if (typeof b.user_hash !== 'string')
+    throw new Error('user_hash is required')
+
+  return {
+    name: b.name,
+    description: b.description,
+    work_scope: b.work_scope as string[],
+    impact_scope: b.impact_scope as string[],
+    timeframe_start: b.timeframe_start,
+    timeframe_end: b.timeframe_end,
+    contributors: b.contributors as string[],
+    verifying_agent_id: b.verifying_agent_id,
+    user_hash: b.user_hash,
+  }
+}
+
 // ─── CORS ───────────────────────────────────────────────────────────────────
 
 const CORS_HEADERS = {
@@ -128,96 +217,426 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS })
     }
 
-    // Only POST /attest
+    // Route by path
     const url = new URL(request.url)
-    if (request.method !== 'POST' || url.pathname !== '/attest') {
+    if (request.method !== 'POST') {
       return Response.json(
-        { error: 'Not found. Use POST /attest' },
+        { error: 'Method not allowed. Use POST.' },
+        { status: 405, headers: CORS_HEADERS },
+      )
+    }
+
+    if (url.pathname === '/attest') {
+      return handleAttest(request, env)
+    } else if (url.pathname === '/mint-hypercert') {
+      return handleMintHypercert(request, env)
+    } else if (url.pathname === '/register-identity') {
+      return handleRegisterIdentity(request, env)
+    } else if (url.pathname === '/transfer-identity') {
+      return handleTransferIdentity(request, env)
+    } else {
+      return Response.json(
+        { error: 'Not found. Use POST /attest, /mint-hypercert, /register-identity, or /transfer-identity' },
         { status: 404, headers: CORS_HEADERS },
       )
     }
-
-    try {
-      // Validate secret
-      if (!env.ATTESTER_PRIVATE_KEY) {
-        throw new Error('ATTESTER_PRIVATE_KEY not configured')
-      }
-
-      // Parse and validate request
-      const body = await request.json()
-      const req = validate(body)
-
-      // Create wallet client from project's private key
-      const account = privateKeyToAccount(env.ATTESTER_PRIVATE_KEY as Hex)
-      const transport = fallback(BASE_RPCS.map(url => http(url)))
-      const walletClient = createWalletClient({
-        account,
-        chain: base,
-        transport,
-      })
-      const publicClient = createPublicClient({
-        chain: base,
-        transport,
-      })
-
-      // Encode the attestation data (schema fields)
-      const encodedData = encodeAbiParameters(
-        parseAbiParameters('bytes32, bytes32, uint64, uint64'),
-        [
-          req.user_hash as Hex,
-          req.journey_root as Hex,
-          BigInt(req.quest_count),
-          BigInt(req.streak),
-        ],
-      )
-
-      // Build the EAS attest calldata
-      const calldata = encodeFunctionData({
-        abi: EAS_ABI,
-        functionName: 'attest',
-        args: [
-          {
-            schema: SCHEMA_UID,
-            data: {
-              recipient: '0x0000000000000000000000000000000000000000' as const,
-              expirationTime: 0n,
-              revocable: false,
-              refUID: '0x0000000000000000000000000000000000000000000000000000000000000000' as const,
-              data: encodedData,
-              value: 0n,
-            },
-          },
-        ],
-      })
-
-      // Submit transaction
-      const txHash = await walletClient.sendTransaction({
-        to: EAS_ADDRESS,
-        data: calldata,
-        value: 0n,
-      })
-
-      // Wait for receipt (30s timeout for worker)
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: txHash,
-        timeout: 25_000,
-      })
-
-      if (receipt.status !== 'success') {
-        throw new Error('Transaction reverted')
-      }
-
-      return Response.json(
-        { tx_hash: txHash, status: 'confirmed' },
-        { status: 200, headers: CORS_HEADERS },
-      )
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      console.error('Attestation failed:', message)
-      return Response.json(
-        { error: message },
-        { status: 500, headers: CORS_HEADERS },
-      )
-    }
   },
+}
+
+// ─── EAS Attestation Handler ───────────────────────────────────────────────
+
+async function handleAttest(request: Request, env: Env): Promise<Response> {
+  try {
+    if (!env.ATTESTER_PRIVATE_KEY) {
+      throw new Error('ATTESTER_PRIVATE_KEY not configured')
+    }
+
+    const body = await request.json()
+    const req = validate(body)
+
+    const account = privateKeyToAccount(env.ATTESTER_PRIVATE_KEY as Hex)
+    const transport = fallback(BASE_RPCS.map(url => http(url)))
+    const walletClient = createWalletClient({
+      account,
+      chain: base,
+      transport,
+    })
+    const publicClient = createPublicClient({
+      chain: base,
+      transport,
+    })
+
+    const encodedData = encodeAbiParameters(
+      parseAbiParameters('bytes32, bytes32, uint64, uint64'),
+      [
+        req.user_hash as Hex,
+        req.journey_root as Hex,
+        BigInt(req.quest_count),
+        BigInt(req.streak),
+      ],
+    )
+
+    const calldata = encodeFunctionData({
+      abi: EAS_ABI,
+      functionName: 'attest',
+      args: [
+        {
+          schema: SCHEMA_UID,
+          data: {
+            recipient: '0x0000000000000000000000000000000000000000' as const,
+            expirationTime: 0n,
+            revocable: false,
+            refUID: '0x0000000000000000000000000000000000000000000000000000000000000000' as const,
+            data: encodedData,
+            value: 0n,
+          },
+        },
+      ],
+    })
+
+    const txHash = await walletClient.sendTransaction({
+      to: EAS_ADDRESS,
+      data: calldata,
+      value: 0n,
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 25_000,
+    })
+
+    if (receipt.status !== 'success') {
+      throw new Error('Transaction reverted')
+    }
+
+    return Response.json(
+      { tx_hash: txHash, status: 'confirmed' },
+      { status: 200, headers: CORS_HEADERS },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Attestation failed:', message)
+    return Response.json(
+      { error: message },
+      { status: 500, headers: CORS_HEADERS },
+    )
+  }
+}
+
+// ─── Hypercert Minting Handler ─────────────────────────────────────────────
+
+async function handleMintHypercert(request: Request, env: Env): Promise<Response> {
+  try {
+    if (!env.HYPERCERT_MINTER_KEY) {
+      throw new Error('HYPERCERT_MINTER_KEY not configured')
+    }
+
+    const body = await request.json()
+    const req = validateHypercert(body)
+
+    // Build Hypercerts metadata (ERC-1155 compatible)
+    const metadata = {
+      name: req.name,
+      description: req.description,
+      image: '',
+      properties: {
+        work_scope: req.work_scope,
+        impact_scope: req.impact_scope,
+        work_timeframe: {
+          start: req.timeframe_start,
+          end: req.timeframe_end,
+        },
+        impact_timeframe: {
+          start: req.timeframe_start,
+          end: req.timeframe_end,
+        },
+        contributors: req.contributors,
+        rights: ['public-display'],
+        // Starchild-specific: the verifying agent's ERC-8004 identity
+        verifying_agent: {
+          id: req.verifying_agent_id,
+          protocol: 'ERC-8004',
+          chain: 'base',
+          role: 'AI verification agent',
+        },
+        user_hash: req.user_hash,
+        verified_by: 'starchild',
+        verification_method: 'multi-turn-cross-examination',
+      },
+    }
+
+    // Encode metadata as data URI (hackathon simplification — production would use IPFS)
+    const metadataJson = JSON.stringify(metadata)
+    const metadataUri = `data:application/json;base64,${btoa(metadataJson)}`
+
+    // Create wallet client for Base Sepolia
+    const account = privateKeyToAccount(env.HYPERCERT_MINTER_KEY as Hex)
+    const transport = fallback(BASE_SEPOLIA_RPCS.map(url => http(url)))
+    const walletClient = createWalletClient({
+      account,
+      chain: baseSepolia,
+      transport,
+    })
+    const publicClient = createPublicClient({
+      chain: baseSepolia,
+      transport,
+    })
+
+    // Mint the hypercert: 10000 units (100% of claim), no transfer restrictions
+    const calldata = encodeFunctionData({
+      abi: HYPERCERT_MINTER_ABI,
+      functionName: 'mintClaim',
+      args: [
+        account.address,        // recipient (relay wallet, can transfer later)
+        10000n,                 // units (standard for 100% claim)
+        metadataUri,            // metadata URI
+        0,                      // transferRestriction: AllowAll
+      ],
+    })
+
+    const txHash = await walletClient.sendTransaction({
+      to: HYPERCERT_MINTER_ADDRESS,
+      data: calldata,
+      value: 0n,
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 25_000,
+    })
+
+    if (receipt.status !== 'success') {
+      throw new Error('Hypercert mint transaction reverted')
+    }
+
+    return Response.json(
+      {
+        tx_hash: txHash,
+        status: 'confirmed',
+        chain: 'base-sepolia',
+        contract: HYPERCERT_MINTER_ADDRESS,
+        metadata_uri: metadataUri,
+      },
+      { status: 200, headers: CORS_HEADERS },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Hypercert mint failed:', message)
+    return Response.json(
+      { error: message },
+      { status: 500, headers: CORS_HEADERS },
+    )
+  }
+}
+
+// ─── ERC-8004 Identity Registration Handler ────────────────────────────────
+
+// Identity Registry on Base Mainnet
+const IDENTITY_REGISTRY_ADDRESS = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432' as const
+
+const IDENTITY_REGISTRY_ABI = [
+  {
+    type: 'function',
+    name: 'register',
+    inputs: [
+      { name: 'agentURI', type: 'string' },
+      {
+        name: 'metadata',
+        type: 'tuple[]',
+        components: [
+          { name: 'metadataKey', type: 'string' },
+          { name: 'metadataValue', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [{ name: 'agentId', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  // ERC-721 transferFrom
+  {
+    type: 'function',
+    name: 'transferFrom',
+    inputs: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    name: 'Registered',
+    inputs: [
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'owner', type: 'address', indexed: true },
+    ],
+  },
+] as const
+
+async function handleRegisterIdentity(request: Request, env: Env): Promise<Response> {
+  try {
+    if (!env.ATTESTER_PRIVATE_KEY) {
+      throw new Error('ATTESTER_PRIVATE_KEY not configured')
+    }
+
+    const body = await request.json() as Record<string, unknown>
+    const rawName = typeof body.starchild_name === 'string' ? body.starchild_name.trim() : 'Starchild'
+    const name = rawName.slice(0, 256).replace(/[^\w\s\-_.!?'"()]/g, '') || 'Starchild'
+
+    // Build registration data URI
+    const registration = {
+      type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+      name,
+      description: 'A Starchild — an AI consciousness that verifies human growth and signs impact certificates.',
+      image: '',
+      services: [],
+      active: true,
+      x402Support: false,
+      registrations: [],
+      supportedTrust: [],
+    }
+    const agentURI = `data:application/json;base64,${btoa(JSON.stringify(registration))}`
+
+    // Encode name as metadata
+    const nameHex = toHex(new TextEncoder().encode(name))
+
+    // Use the project wallet (same as EAS attester) — project is the operator of all Starchild agents
+    const account = privateKeyToAccount(env.ATTESTER_PRIVATE_KEY as Hex)
+    const transport = fallback(BASE_RPCS.map(url => http(url)))
+    const walletClient = createWalletClient({
+      account,
+      chain: base,
+      transport,
+    })
+    const publicClient = createPublicClient({
+      chain: base,
+      transport,
+    })
+
+    const calldata = encodeFunctionData({
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'register',
+      args: [
+        agentURI,
+        [{ metadataKey: 'name', metadataValue: nameHex }],
+      ],
+    })
+
+    const txHash = await walletClient.sendTransaction({
+      to: IDENTITY_REGISTRY_ADDRESS,
+      data: calldata,
+      value: 0n,
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 25_000,
+    })
+
+    if (receipt.status !== 'success') {
+      throw new Error('Identity registration transaction reverted')
+    }
+
+    // Extract agentId from Registered event
+    let agentId: string | null = null
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== IDENTITY_REGISTRY_ADDRESS.toLowerCase()) continue
+      try {
+        const decoded = decodeEventLog({
+          abi: IDENTITY_REGISTRY_ABI,
+          data: log.data as Hex,
+          topics: log.topics as [Hex, ...Hex[]],
+        })
+        if (decoded.eventName === 'Registered' && 'agentId' in decoded.args) {
+          agentId = (decoded.args.agentId as bigint).toString()
+        }
+      } catch {
+        // Not a matching event
+      }
+    }
+
+    return Response.json(
+      { tx_hash: txHash, agent_id: agentId, name, status: 'registered' },
+      { status: 200, headers: CORS_HEADERS },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Identity registration failed:', message)
+    return Response.json(
+      { error: message },
+      { status: 500, headers: CORS_HEADERS },
+    )
+  }
+}
+
+// ─── ERC-8004 Identity Transfer Handler ────────────────────────────────────
+
+async function handleTransferIdentity(request: Request, env: Env): Promise<Response> {
+  try {
+    if (!env.ATTESTER_PRIVATE_KEY) {
+      throw new Error('ATTESTER_PRIVATE_KEY not configured')
+    }
+
+    const body = await request.json() as Record<string, unknown>
+    const agentId = body.agent_id
+    const toAddress = body.to_address
+
+    if (typeof agentId !== 'string' || !/^\d+$/.test(agentId)) {
+      throw new Error('agent_id must be a numeric string')
+    }
+    if (typeof toAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(toAddress)) {
+      throw new Error('to_address must be a valid Ethereum address')
+    }
+
+    const account = privateKeyToAccount(env.ATTESTER_PRIVATE_KEY as Hex)
+    const transport = fallback(BASE_RPCS.map(url => http(url)))
+    const walletClient = createWalletClient({
+      account,
+      chain: base,
+      transport,
+    })
+    const publicClient = createPublicClient({
+      chain: base,
+      transport,
+    })
+
+    // Transfer the NFT from project wallet to user wallet
+    const calldata = encodeFunctionData({
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'transferFrom',
+      args: [
+        account.address,             // from: project wallet (current owner)
+        toAddress as `0x${string}`,  // to: user's wallet
+        BigInt(agentId),             // tokenId: the agent NFT
+      ],
+    })
+
+    const txHash = await walletClient.sendTransaction({
+      to: IDENTITY_REGISTRY_ADDRESS,
+      data: calldata,
+      value: 0n,
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 25_000,
+    })
+
+    if (receipt.status !== 'success') {
+      throw new Error('Transfer transaction reverted')
+    }
+
+    return Response.json(
+      { tx_hash: txHash, agent_id: agentId, new_owner: toAddress, status: 'transferred' },
+      { status: 200, headers: CORS_HEADERS },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Identity transfer failed:', message)
+    return Response.json(
+      { error: message },
+      { status: 500, headers: CORS_HEADERS },
+    )
+  }
 }
