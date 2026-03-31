@@ -120,6 +120,18 @@ interface AppState {
   bgMusicMuted: boolean
   setBgMusicMuted: (muted: boolean) => void
 
+  // Hypercert (impact certificate)
+  pendingHypercert: {
+    title: string
+    description: string
+    impact: string
+    timeframe_start: string
+    timeframe_end: string
+  } | null
+  setPendingHypercert: (draft: AppState['pendingHypercert']) => void
+  hypercertMinting: boolean
+  setHypercertMinting: (minting: boolean) => void
+
   // Journey proof (EAS attestation on Base)
   journeyProof: {
     userHash: string
@@ -229,6 +241,12 @@ export const useAppStore = create<AppState>((set) => ({
 
   bgMusicMuted: false,
   setBgMusicMuted: (bgMusicMuted) => set({ bgMusicMuted }),
+
+  // Hypercert
+  pendingHypercert: null,
+  setPendingHypercert: (pendingHypercert) => set({ pendingHypercert }),
+  hypercertMinting: false,
+  setHypercertMinting: (hypercertMinting) => set({ hypercertMinting }),
 
   // Journey proof
   journeyProof: null,

@@ -256,6 +256,10 @@ export default function ChatWindow() {
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const [acceptingQuest, setAcceptingQuest] = useState(false)
   const [xpGain, setXpGain] = useState<number | null>(null)
+  const pendingHypercert = useAppStore((s) => s.pendingHypercert)
+  const setPendingHypercert = useAppStore((s) => s.setPendingHypercert)
+  const hypercertMinting = useAppStore((s) => s.hypercertMinting)
+  const setHypercertMinting = useAppStore((s) => s.setHypercertMinting)
 
   const [input, setInput]         = useState('')
   const [error, setError]         = useState<string | null>(null)
@@ -319,7 +323,7 @@ export default function ChatWindow() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isTyping, showQuestOffer])
+  }, [messages, isTyping, showQuestOffer, pendingHypercert])
 
   // quest-offered listener is in App.tsx (persists across view switches)
 
@@ -440,6 +444,36 @@ export default function ChatWindow() {
     inputRef.current?.focus()
   }, [])
 
+  // Hypercert: user clicks "publish on-chain" button
+  const handlePublishHypercert = useCallback(async () => {
+    if (!pendingHypercert || hypercertMinting) return
+    setHypercertMinting(true)
+    try {
+      const { mintHypercert } = await import('../chain/hypercert')
+      const result = await mintHypercert(pendingHypercert)
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `your impact certificate is on-chain. tx: ${result.tx_hash}`,
+        created_at: new Date().toISOString(),
+      })
+    } catch (err) {
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `something went wrong minting your certificate: ${err instanceof Error ? err.message : 'unknown error'}`,
+        created_at: new Date().toISOString(),
+      })
+    } finally {
+      setHypercertMinting(false)
+      setPendingHypercert(null)
+    }
+  }, [pendingHypercert, hypercertMinting, addMessage, setHypercertMinting, setPendingHypercert])
+
+  const handleDismissHypercert = useCallback(() => {
+    setPendingHypercert(null)
+  }, [setPendingHypercert])
+
   // Proof flow: user clicks "i did it" → send proof trigger to conversation
   const handleRequestProof = useCallback((quest: { id: string; title: string; description: string | null }) => {
     const displayText = `i did the quest: "${quest.title}"`
@@ -523,6 +557,46 @@ export default function ChatWindow() {
     }).then((fn) => { unlisten = fn })
     return () => { unlisten?.() }
   }, [setStarchildState])
+
+  // Listen for hypercert draft ready (Starchild has drafted a certificate)
+  useEffect(() => {
+    let unlistenDraft: (() => void) | null = null
+    let unlistenConfirm: (() => void) | null = null
+    listen<{ title: string; description: string; impact: string; timeframe_start: string; timeframe_end: string }>(
+      'hypercert-draft-ready',
+      (event) => {
+        setPendingHypercert(event.payload)
+      },
+    ).then((fn) => { unlistenDraft = fn })
+    listen<any>('hypercert-confirmed', async (event) => {
+      // Auto-mint when confirmed via conversation (Starchild said "publishing...")
+      const draft = event.payload
+      if (draft?.title) {
+        setHypercertMinting(true)
+        try {
+          const { mintHypercert } = await import('../chain/hypercert')
+          const result = await mintHypercert(draft)
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: `your impact certificate is on-chain. tx: ${result.tx_hash}`,
+            created_at: new Date().toISOString(),
+          })
+        } catch (err) {
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: `something went wrong minting your certificate: ${err instanceof Error ? err.message : 'unknown error'}`,
+            created_at: new Date().toISOString(),
+          })
+        } finally {
+          setHypercertMinting(false)
+          setPendingHypercert(null)
+        }
+      }
+    }).then((fn) => { unlistenConfirm = fn })
+    return () => { unlistenDraft?.(); unlistenConfirm?.() }
+  }, [setPendingHypercert, setHypercertMinting, addMessage])
 
   const handleMicToggle = useCallback(async () => {
     if (isRecording && micStreamRef.current) {
@@ -735,6 +809,54 @@ export default function ChatWindow() {
                 >
                   decline & clarify
                 </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {/* Hypercert draft — publish or dismiss */}
+          <AnimatePresence>
+            {pendingHypercert && (
+              <motion.div
+                className="mx-4 my-2 p-4 rounded-2xl"
+                style={{ backgroundColor: 'rgba(168, 156, 216, 0.12)', border: '1px solid rgba(168, 156, 216, 0.3)' }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+              >
+                <div className="text-xs font-semibold mb-2" style={{ color: 'var(--accent-lavender)' }}>
+                  impact certificate draft
+                </div>
+                <div className="text-sm font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                  {pendingHypercert.title}
+                </div>
+                <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  {pendingHypercert.description}
+                </div>
+                <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                  {pendingHypercert.impact} | {pendingHypercert.timeframe_start} to {pendingHypercert.timeframe_end}
+                </div>
+                <div className="flex gap-2">
+                  <motion.button
+                    onClick={handlePublishHypercert}
+                    disabled={hypercertMinting}
+                    className="clay-button px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                    style={{ backgroundColor: 'rgba(168, 156, 216, 0.85)', color: '#1a1525' }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                  >
+                    {hypercertMinting ? 'publishing...' : 'publish on-chain'}
+                  </motion.button>
+                  <motion.button
+                    onClick={handleDismissHypercert}
+                    disabled={hypercertMinting}
+                    className="px-4 py-2 text-xs font-medium rounded-xl"
+                    style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-card)', border: '1px solid var(--outline)' }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                  >
+                    not yet
+                  </motion.button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

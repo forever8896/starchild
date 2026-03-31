@@ -13,7 +13,10 @@
     "tauri:build": "tauri build",
     "test:e2e": "tsx tests/e2e/run.ts",
     "test:e2e:verbose": "tsx tests/e2e/run.ts --verbose",
-    "test:e2e:fast": "tsx tests/e2e/run.ts --no-judge"
+    "test:e2e:fast": "tsx tests/e2e/run.ts --no-judge",
+    "test:verify": "tsx tests/e2e/run-verify.ts",
+    "test:verify:verbose": "tsx tests/e2e/run-verify.ts --verbose",
+    "test:verify:fast": "tsx tests/e2e/run-verify.ts --no-judge"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.0",

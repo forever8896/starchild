@@ -13,3 +13,9 @@ export {
   MILESTONES,
   type Attestation,
 } from './attestation'
+export {
+  mintHypercert,
+  claimIdentity,
+  type HypercertDraft,
+  type HypercertResult,
+} from './hypercert'
