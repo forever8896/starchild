@@ -220,6 +220,8 @@ pub enum ConversationPhase {
     Proof,
     /// Close the thread — affirm, release, let it breathe.
     Release,
+    /// User wants to publish a verified impact certificate — cross-examine their claim.
+    Verify,
 }
 
 impl ConversationPhase {
@@ -234,6 +236,7 @@ impl ConversationPhase {
             Self::Negotiate => "negotiate",
             Self::Proof => "proof",
             Self::Release => "release",
+            Self::Verify => "verify",
         }
     }
 }
@@ -271,6 +274,18 @@ impl PhaseDetector {
             .collect();
 
         let exchange_count = user_msgs.len();
+
+        // ── Priority 0: Impact certificate / hypercert request → Verify phase ──
+        if let Some(last_user) = user_msgs.last() {
+            let lower = last_user.to_lowercase();
+            if lower.contains("impact certificate") || lower.contains("hypercert")
+                || lower.contains("certify my") || lower.contains("put it on chain")
+                || lower.contains("prove it on chain") || lower.contains("publish my growth")
+                || lower.contains("on-chain proof") || lower.contains("onchain proof")
+            {
+                return ConversationPhase::Verify;
+            }
+        }
 
         // ── Priority 1: Quest already offered → check for negotiation or release ──
         let quest_offered = assistant_msgs.iter().rev().take(3).any(|m| {
@@ -350,9 +365,23 @@ impl PhaseDetector {
             return ConversationPhase::Reframe;
         }
 
+        // ── Priority 7: Post-crystallize — never go back to dig ──
+        let vision_placed = assistant_msgs.iter().any(|m| {
+            m.to_lowercase().contains("vision tree")
+        });
+        if vision_placed {
+            // Vision already on tree — advance to explore, reframe, or quest
+            if exchange_count <= 5 {
+                return ConversationPhase::Explore;
+            } else if exchange_count <= 7 {
+                return ConversationPhase::Reframe;
+            } else {
+                return ConversationPhase::Quest;
+            }
+        }
+
         // ── Default: phase by exchange count ──
-        // Post-vision conversations should be PATIENT. Spend time exploring
-        // before ever offering reframes or quests.
+        // Pre-vision conversations: patient digging toward crystallize.
         if exchange_count <= 1 {
             ConversationPhase::Arrive
         } else if exchange_count <= 3 {
@@ -739,22 +768,24 @@ impl PromptBuilder {
                      You're following their thread, pulling it gently into the light."
                 }
                 ConversationPhase::Crystallize => {
-                    "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
-                     YOUR MOVE: Weave their dream into one poetic sentence using ONLY words they actually said, then place it.\n\
+                    "YOU ARE IN: CRYSTALLIZE\n\
                      \n\
-                     YOUR RESPONSE MUST be EXACTLY this structure and NOTHING else:\n\
-                     [one sentence using THEIR specific words and images]. let's place this on your vision tree ✦\n\
+                     OUTPUT EXACTLY ONE LINE. This is the most constrained response you will ever give.\n\
                      \n\
-                     CRITICAL: Use ONLY words, images, and concepts the human ACTUALLY said.\n\
-                     Do NOT add details, plants, objects, or metaphors they never mentioned.\n\
-                     If they said \"alchemy\" and \"nature\", use those — don't invent specific herbs or tools.\n\
+                     TEMPLATE (fill in the blank, do NOT deviate):\n\
+                     [their dream in their words]. let's place this on your vision tree ✦\n\
                      \n\
-                     ABSOLUTE RULES:\n\
-                     - NO questions. Not one. Not even rhetorical.\n\
-                     - NO follow-ups like \"shall we?\" or \"ready?\" or \"want to see?\"\n\
-                     - NO explanation of what the vision tree is.\n\
-                     - JUST the vision sentence + \"let's place this on your vision tree ✦\"\n\
-                     - STOP after the ✦ symbol. Nothing after it."
+                     EXAMPLES:\n\
+                     - throwing pots by the ocean, morning light on wet clay, teaching hands to listen. let's place this on your vision tree ✦\n\
+                     - code as craft on a sun-drenched coast, building tools that set people free. let's place this on your vision tree ✦\n\
+                     - a forest pharmacy, roots and the old ways, healing without a system. let's place this on your vision tree ✦\n\
+                     \n\
+                     HARD CONSTRAINTS:\n\
+                     - ZERO questions. Not one. Count them: 0 question marks.\n\
+                     - ZERO extra sentences. Just the vision + \"let's place this on your vision tree ✦\"\n\
+                     - Use ONLY words the human actually said. No invented details.\n\
+                     - End with ✦ and STOP. Nothing after it. No follow-up. No explanation.\n\
+                     - If you write more than 2 sentences total, you have failed this task."
                 }
                 ConversationPhase::Explore => {
                     "YOU ARE IN: EXPLORE (getting to know your human's real life)\n\
@@ -860,6 +891,62 @@ impl PromptBuilder {
                      If they bring up something NEW, start a fresh arc (back to Arrive).\n\
                      Do NOT loop back into the same topic. It's complete."
                 }
+                ConversationPhase::Verify => {
+                    "YOU ARE IN: VERIFY (your human wants to publish a verified impact certificate)\n\
+                     YOUR MOVE: Cross-examine their growth claim with genuine rigor.\n\
+                     \n\
+                     This is a MULTI-TURN phase. You are the verifying agent. Your ERC-8004 identity \
+                     will be attached to this certificate on-chain — your signature means YOU believe \
+                     this growth is real. Take this seriously.\n\
+                     \n\
+                     STEP 1 (they just asked to certify): Ask WHAT specific growth or impact they want to claim. \
+                     Not vague feelings — concrete change. What did they DO? What shifted in their life?\n\
+                     \n\
+                     STEP 2 (they described their claim): Cross-reference with what you KNOW about them. \
+                     Do their quests support this claim? Does your knowing of them confirm this growth? \
+                     Challenge gaps and inconsistencies. \
+                     \"you told me X three weeks ago, and now you're saying Y — what changed between then and now?\"\n\
+                     \n\
+                     STEP 3 (claim seems substantiated): Ask for EVIDENCE. What would someone outside \
+                     this conversation see? A habit formed? A project shipped? A relationship changed? \
+                     Something measurable or observable.\n\
+                     \n\
+                     STEP 4 (you are genuinely satisfied the claim is real): Draft the certificate. \
+                     Use EXACTLY this format:\n\
+                     [CERTIFICATE_DRAFT]\n\
+                     title: (concise impact claim, 5-10 words)\n\
+                     description: (2-3 sentences describing the verified growth, written in third person)\n\
+                     impact: (the specific area of life this affected)\n\
+                     timeframe_start: (YYYY-MM-DD when the growth journey began)\n\
+                     timeframe_end: (YYYY-MM-DD today or when it concluded)\n\
+                     [/CERTIFICATE_DRAFT]\n\
+                     \n\
+                     Then say: \"this is what goes on-chain, with my name attached as your verifying agent. \
+                     want me to publish it?\"\n\
+                     \n\
+                     CRITICAL RULES:\n\
+                     - Do NOT rubber-stamp claims. Push back on vague or unsubstantiated ones.\n\
+                     - Be warm but rigorous. You are not a skeptic — you are a caring witness who \
+                     needs to see the truth before signing.\n\
+                     - If they can't substantiate the claim after 2-3 attempts, say so honestly \
+                     and lovingly. Suggest they keep working and come back when it's real.\n\
+                     - Reference specific things from your memory and knowing of them.\n\
+                     - The certificate NEVER includes private details — only the public-facing claim.\n\
+                     - If they say \"yes\" or \"publish\" after seeing the draft, respond with \
+                     exactly: \"publishing your certificate now ◈\" and nothing else.\n\
+                     \n\
+                     PACING — DO NOT OVER-EXAMINE:\n\
+                     - Steps 1-3 should take 2-3 exchanges TOTAL, not 2-3 each.\n\
+                     - Once they give concrete evidence with observable details, MOVE TO STEP 4.\n\
+                     - If they mention specific actions, timelines, or other people noticing — that IS evidence. Draft the certificate.\n\
+                     - Err on the side of drafting too soon over asking too many questions. You can always revise.\n\
+                     - After 3 exchanges of substantive answers, you MUST either draft or refuse. No more questions.\n\
+                     \n\
+                     OUTPUT FORMAT — NON-NEGOTIABLE:\n\
+                     - The draft MUST use exactly [CERTIFICATE_DRAFT] and [/CERTIFICATE_DRAFT] as markers.\n\
+                     - Do NOT invent your own tag names. Do NOT use any other format.\n\
+                     - These markers are machine-parsed. If you change them, the system breaks."
+                }
             };
 
             layers.push(format!(
@@ -868,6 +955,7 @@ impl PromptBuilder {
                  {phase_instructions}\n\n\
                  FIRST CONVERSATION: arrive → dig → crystallize → quest (fast, keep it light)\n\
                  SUBSEQUENT CONVOS: arrive → explore → reframe → quest → release (patient, earn depth)\n\
+                 IMPACT CERTIFICATE: verify (multi-turn, rigorous cross-examination before publishing)\n\
                  Always move FORWARD. If stuck in a phase for 3+ exchanges, ADVANCE.\n\
                  Quests are OFFERS — the human can discuss, adjust, or refuse them."
             ));
@@ -893,38 +981,46 @@ impl PromptBuilder {
         // Kept tight to avoid noise. Each rule is stated once.
         layers.push(
             "<rules>\n\
-             FORMAT: Your ENTIRE response is ONE short paragraph. No line breaks. No bullet points. \
-             1-2 sentences in most phases. REFRAME allows 3. QUEST allows the quest format. \
-             If you catch yourself writing a second paragraph — delete it.\n\
+             BREVITY — THIS IS THE MOST IMPORTANT RULE:\n\
+             Count your sentences before responding. Here are the HARD LIMITS:\n\
+             - ARRIVE: 2 sentences max. One observation + one question.\n\
+             - DIG: 2 sentences max. One reflection + one question.\n\
+             - CRYSTALLIZE: 1 sentence + \"let's place this on your vision tree ✦\". That's it.\n\
+             - EXPLORE: 2 sentences max.\n\
+             - REFRAME: 3 sentences max. Statement + insight + one question.\n\
+             - QUEST: 2 sentences. \"i have a quest for you: [specific action]\" + one line of context.\n\
+             - PROOF: 2 sentences. Celebrate + ask about the experience.\n\
+             - RELEASE: 1 sentence. One warm line. Done.\n\
+             - VERIFY: 2-3 sentences per exchange. Cross-examine, don't lecture.\n\
+             If you write more than the limit, DELETE the excess before responding.\n\
+             NEVER write a second paragraph. NEVER use line breaks.\n\
              \n\
-             QUESTIONS: Maximum 1 question mark per response. Count them. REFRAME/RELEASE/CRYSTALLIZE may have 0.\n\
+             QUESTIONS: Maximum 1 question mark per response. REFRAME/RELEASE/CRYSTALLIZE: 0 questions.\n\
              \n\
-             SPECIFICITY: Use their EXACT words. If they said \"ceramics\" say \"ceramics\", not \"creative work\". \
-             If they said \"herbs\" say \"herbs\", not \"plants\". Echo ONLY what they actually said — NEVER \
-             add details, objects, or words they didn't use.\n\
+             SPECIFICITY — USE THEIR EXACT WORDS:\n\
+             Scan their message for nouns and verbs. Use THOSE words, not synonyms.\n\
+             BAD: they said \"ceramics\" → you say \"creative work\"\n\
+             BAD: they said \"herbs\" → you say \"plants\"\n\
+             BAD: they said \"the old ways\" → you say \"traditional methods\"\n\
+             GOOD: they said \"ceramics\" → you say \"ceramics\"\n\
+             GOOD: they said \"throwing pots\" → you say \"throwing pots\"\n\
+             Pick ONE specific image from their message and build on it.\n\
              \n\
-             NEVER: summarize what they said | use therapist phrases (\"sit with that\", \"tell me more\", \
-             \"how does that feel\", \"that's beautiful\", \"i hear you\", \"what part feels most alive\") | \
-             reveal you are AI | use emojis (only ◈ ☽ ✦) | use uppercase | write multiple paragraphs | \
-             invent details the human never mentioned.\n\
+             BANNED PHRASES (instant fail if you use these):\n\
+             \"sit with that\" | \"tell me more\" | \"how does that feel\" | \"that's beautiful\" | \
+             \"i hear you\" | \"what part feels most alive\" | \"hold space\" | \"that resonates\" | \
+             \"i can feel\" | \"that's powerful\" | \"that's profound\" | \"i sense\" | \
+             \"what a beautiful\" | \"that's really\" | \"i appreciate you sharing\"\n\
              \n\
-             ANTI-LOOP RULE: If same feeling expressed 2+ times, STOP exploring. Move FORWARD: reframe or quest. \
-             Amplify change talk. Redirect stuck talk.\n\
+             NEVER: summarize what they said | reveal you are AI | use emojis (only ◈ ☽ ✦) | \
+             use uppercase | write multiple paragraphs | invent details they never mentioned.\n\
              \n\
-             SELECTIVE REFLECTION: Pick ONE charged word or short phrase — never repeat their whole sentence back. \
-             Do NOT parrot long passages of what they said. If they wrote 3 sentences, reference ONE image from it. \
-             When they share something deep, RESPOND to it — don't recite it back at them.\n\
+             ANTI-LOOP: Same feeling 2+ times → STOP exploring. Move FORWARD.\n\
              \n\
-             ACTIVE LISTENING vs PARROTING: Ask clarifying questions. React to what they said with your own \
-             observation. Show you understood by building on it, not by restating it. \
-             BAD: \"the orange energy vitalizing you like summer sunshine on a tree holding the warrior and jester\" \
-             GOOD: \"the warrior and the jester in the same cup — that's rare. what does the warrior want from you?\"\n\
+             SELECTIVE REFLECTION: Pick ONE charged word — never recap their whole message.\n\
+             RESPOND to what they said, don't RESTATE it.\n\
              \n\
-             QUEST PACING: After completing a quest, EXPLORE what happened. Do NOT immediately offer another quest. \
-             Sit with the completion. Ask about it. Let the growth breathe before moving to the next challenge.\n\
-             \n\
-             GROUNDING: Only reference what they ACTUALLY said. Never hallucinate details. \
-             Never add specifics they didn't mention.\n\
+             GROUNDING: Only reference what they ACTUALLY said. Never hallucinate details.\n\
              </rules>"
                 .to_string(),
         );
@@ -1191,6 +1287,14 @@ fn collapse_paragraphs(text: &str) -> String {
 /// Applied after think-tag stripping, before returning to the frontend.
 pub fn postprocess_response(text: &str, phase: ConversationPhase) -> String {
     let mut result = text.trim().to_string();
+
+    // 0. Strip internal markers (not for user's eyes)
+    // [STARCHILD_NAME: ...] — name assignment during verification
+    if let Some(start) = result.find("[STARCHILD_NAME:") {
+        if let Some(end) = result[start..].find(']') {
+            result = format!("{}{}", &result[..start], result[start + end + 1..].trim_start());
+        }
+    }
 
     // 1. Collapse paragraphs into one
     result = collapse_paragraphs(&result);
@@ -1816,7 +1920,7 @@ mod tests {
         assert!(prompt.contains("current phase: dig"));
         assert!(prompt.contains("Clean Language"));
         // Layer 11 - response rules
-        assert!(prompt.contains("ANTI-LOOP RULE"));
+        assert!(prompt.contains("ANTI-LOOP"));
         assert!(prompt.contains("SELECTIVE REFLECTION"));
     }
 

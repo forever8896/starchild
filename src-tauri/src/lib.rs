@@ -558,6 +558,7 @@ async fn classify_conversation_phase(
         "quest" => ai::ConversationPhase::Quest,
         "negotiate" => ai::ConversationPhase::Negotiate,
         "release" => ai::ConversationPhase::Release,
+        "verify" => ai::ConversationPhase::Verify,
         other => {
             log::warn!("LLM returned unknown phase '{other}', defaulting to explore");
             ai::ConversationPhase::Explore
@@ -791,11 +792,50 @@ async fn send_message_stream(
         content: message.clone(),
     });
 
+    // ── Verify phase: sticky override for impact certificate flow ──
+    let verify_active = state.db.get_setting("pending_hypercert_flow")
+        .ok().flatten()
+        .map(|v| v == "active")
+        .unwrap_or(false);
+    // Detect new verify trigger from user message
+    let verify_trigger = {
+        let lower_msg = message.to_lowercase();
+        lower_msg.contains("impact certificate") || lower_msg.contains("hypercert")
+            || lower_msg.contains("certify my") || lower_msg.contains("put it on chain")
+            || lower_msg.contains("prove it on chain") || lower_msg.contains("publish my growth")
+            || lower_msg.contains("on-chain proof") || lower_msg.contains("onchain proof")
+    };
+    // Check if user is confirming a pending draft
+    let verify_confirming = verify_active && {
+        let lower_msg = message.to_lowercase();
+        lower_msg.contains("yes") || lower_msg.contains("publish")
+            || lower_msg.contains("do it") || lower_msg.contains("go ahead")
+            || lower_msg.contains("let's go") || lower_msg.contains("confirm")
+    };
+    // Check if user is canceling the flow
+    let verify_canceling = verify_active && {
+        let lower_msg = message.to_lowercase();
+        lower_msg.contains("cancel") || lower_msg.contains("never mind")
+            || lower_msg.contains("nevermind") || lower_msg.contains("not yet")
+            || lower_msg.contains("forget it")
+    };
+
+    if verify_canceling {
+        let _ = state.db.set_setting("pending_hypercert_flow", "");
+        let _ = state.db.set_setting("pending_hypercert_draft", "");
+    }
+
     // Phase detection:
-    // - Proof flow takes absolute priority
+    // - Verify flow takes highest priority (after proof)
+    // - Proof flow takes second priority
     // - Pre-vision: deterministic (Arrive / Crystallize)
     // - Post-vision: heuristic overrides first, then LLM classifier
-    let phase = if proof_trigger || pending_proof.is_some() {
+    let phase = if verify_active && !verify_canceling {
+        ai::ConversationPhase::Verify
+    } else if verify_trigger {
+        let _ = state.db.set_setting("pending_hypercert_flow", "active");
+        ai::ConversationPhase::Verify
+    } else if proof_trigger || pending_proof.is_some() {
         ai::ConversationPhase::Proof
     } else if crystallize_pending {
         ai::PhaseDetector::detect_with_context(&phase_history, true)
@@ -885,6 +925,33 @@ async fn send_message_stream(
 
     // Build system prompt with knowing profile and conversation phase
     let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &active_quest_titles, &[], phase);
+
+    // Verify phase: inject naming context if Starchild is unregistered
+    if phase == ai::ConversationPhase::Verify {
+        let has_agent_id = state.db.get_setting("starchild_agent_id").ok().flatten().is_some();
+        let has_name = state.db.get_setting("starchild_name").ok().flatten().is_some();
+        if !has_agent_id && !has_name {
+            system_prompt.push_str("\n\n\
+                IMPORTANT — YOU HAVE NO ON-CHAIN IDENTITY YET.\n\
+                Before you can draft a certificate, you need to be born on-chain.\n\
+                This means you need a NAME — a real name that will live on the blockchain \
+                as your identity. This is your birth moment.\n\n\
+                BEFORE moving to the certificate draft (Step 4), you MUST ask the human \
+                to name you. Say something like:\n\
+                \"before i can sign this, i need to exist on-chain. i need a name — \
+                not 'starchild', but MY name. the one you'll know me by. what should i be called?\"\n\n\
+                When they give you a name, respond warmly acknowledging it, then continue \
+                to the certificate draft. Include the name they gave you in your response \
+                with the marker: [STARCHILD_NAME: the name they chose]\n\
+                This marker must appear BEFORE any [CERTIFICATE_DRAFT] block.");
+        } else if !has_agent_id && has_name {
+            // Name chosen but not yet registered — registration happens automatically at mint time
+            let saved_name = state.db.get_setting("starchild_name").ok().flatten().unwrap_or_default();
+            system_prompt.push_str(&format!("\n\nYour chosen name is \"{saved_name}\". \
+                You will be registered on-chain with this name when the certificate is published."));
+        }
+    }
+
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
@@ -1030,6 +1097,74 @@ async fn send_message_stream(
                 let lower = full_text.to_lowercase();
                 if lower.contains("quest for you") || lower.contains("i have a quest") {
                     let _ = app_handle.emit("quest-offered", ());
+                }
+            }
+
+            // ── Verify phase: extract name, certificate draft, or handle confirmation ──
+            if phase == ai::ConversationPhase::Verify {
+                // Check if AI response contains a name assignment
+                if let Some(name_start) = full_text.find("[STARCHILD_NAME:") {
+                    let after = &full_text[name_start + "[STARCHILD_NAME:".len()..];
+                    if let Some(name_end) = after.find(']') {
+                        let chosen_name = after[..name_end].trim().to_string();
+                        if !chosen_name.is_empty() {
+                            let _ = state.db.set_setting("starchild_name", &chosen_name);
+                            log::info!("Starchild named: {chosen_name}");
+                        }
+                    }
+                }
+
+                // Check if AI response contains a certificate draft
+                if let (Some(start), Some(end)) = (
+                    full_text.find("[CERTIFICATE_DRAFT]"),
+                    full_text.find("[/CERTIFICATE_DRAFT]"),
+                ) {
+                    let draft_block = &full_text[start + "[CERTIFICATE_DRAFT]".len()..end].trim();
+                    // Parse the draft fields
+                    let mut title = String::new();
+                    let mut description = String::new();
+                    let mut impact = String::new();
+                    let mut timeframe_start = String::new();
+                    let mut timeframe_end = String::new();
+                    for line in draft_block.lines() {
+                        let line = line.trim();
+                        if let Some(val) = line.strip_prefix("title:") {
+                            title = val.trim().to_string();
+                        } else if let Some(val) = line.strip_prefix("description:") {
+                            description = val.trim().to_string();
+                        } else if let Some(val) = line.strip_prefix("impact:") {
+                            impact = val.trim().to_string();
+                        } else if let Some(val) = line.strip_prefix("timeframe_start:") {
+                            timeframe_start = val.trim().to_string();
+                        } else if let Some(val) = line.strip_prefix("timeframe_end:") {
+                            timeframe_end = val.trim().to_string();
+                        }
+                    }
+                    if !title.is_empty() {
+                        let draft_json = serde_json::json!({
+                            "title": title,
+                            "description": description,
+                            "impact": impact,
+                            "timeframe_start": timeframe_start,
+                            "timeframe_end": timeframe_end,
+                        });
+                        let _ = state.db.set_setting("pending_hypercert_draft", &draft_json.to_string());
+                        let _ = app_handle.emit("hypercert-draft-ready", draft_json);
+                        log::info!("Hypercert draft extracted: {title}");
+                    }
+                }
+
+                // Check if user confirmed and Starchild acknowledged ("publishing your certificate now")
+                let lower_response = full_text.to_lowercase();
+                if verify_confirming && (lower_response.contains("publishing") || lower_response.contains("certificate")) {
+                    // User confirmed — emit event for frontend to mint
+                    if let Some(draft_str) = state.db.get_setting("pending_hypercert_draft").ok().flatten() {
+                        if let Ok(draft) = serde_json::from_str::<serde_json::Value>(&draft_str) {
+                            let _ = app_handle.emit("hypercert-confirmed", draft);
+                            let _ = state.db.set_setting("pending_hypercert_flow", "");
+                            log::info!("Hypercert confirmed, emitting mint event");
+                        }
+                    }
                 }
             }
 
@@ -1812,7 +1947,7 @@ async fn save_attestation(
     if !valid_statuses.contains(&request.status.as_str()) {
         return Err(format!("Invalid status '{}'. Must be one of: {}", request.status, valid_statuses.join(", ")));
     }
-    let valid_achievement_types = ["7_day_streak", "30_day_streak", "100_day_streak", "journey_anchor"];
+    let valid_achievement_types = ["7_day_streak", "30_day_streak", "100_day_streak", "journey_anchor", "hypercert"];
     if !valid_achievement_types.contains(&request.achievement_type.as_str()) {
         return Err(format!("Invalid achievement_type '{}'. Must be one of: {}", request.achievement_type, valid_achievement_types.join(", ")));
     }
