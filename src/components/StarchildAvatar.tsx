@@ -188,17 +188,19 @@ export default function StarchildAvatar() {
 
     const onPlaying = () => {
       back.removeEventListener('playing', onPlaying)
-      // Fade out front
-      front.style.transition = 'opacity 0.7s ease'
-      front.style.opacity = '0'
-      back.style.transition = 'opacity 0.7s ease'
-      back.style.opacity = '1'
-      // After transition, swap roles
-      setTimeout(() => {
-        front.style.transition = ''
-        setFrontIsA(prev => !prev)
-        setActiveVideo(src)
-      }, 720)
+      // Use rAF to ensure the compositor is ready before starting the fade
+      requestAnimationFrame(() => {
+        front.style.transition = 'opacity 0.7s ease'
+        front.style.opacity = '0'
+        back.style.transition = 'opacity 0.7s ease'
+        back.style.opacity = '1'
+        // After transition, swap roles
+        setTimeout(() => {
+          front.style.transition = ''
+          setFrontIsA(prev => !prev)
+          setActiveVideo(src)
+        }, 720)
+      })
     }
 
     back.addEventListener('playing', onPlaying)
@@ -237,6 +239,25 @@ export default function StarchildAvatar() {
     }
   }, [switchTo])
 
+  // Seamless loop: seek back to 0 slightly before the video ends to avoid decode gap.
+  // This prevents the black-frame flash that occurs with native loop on Linux VP9 decoders.
+  useEffect(() => {
+    const handleTimeUpdate = (e: Event) => {
+      const video = e.target as HTMLVideoElement
+      if (video.loop && video.duration > 0 && video.currentTime > video.duration - 0.15) {
+        video.currentTime = 0
+      }
+    }
+    const a = videoARef.current
+    const b = videoBRef.current
+    a?.addEventListener('timeupdate', handleTimeUpdate)
+    b?.addEventListener('timeupdate', handleTimeUpdate)
+    return () => {
+      a?.removeEventListener('timeupdate', handleTimeUpdate)
+      b?.removeEventListener('timeupdate', handleTimeUpdate)
+    }
+  }, [])
+
   // Initial mount: set up the front video
   useEffect(() => {
     const front = frontIsA ? videoARef.current : videoBRef.current
@@ -262,6 +283,9 @@ export default function StarchildAvatar() {
         style={{
           WebkitMaskImage: 'radial-gradient(ellipse 48% 45% at 50% 48%, black 20%, transparent 75%)',
           maskImage: 'radial-gradient(ellipse 48% 45% at 50% 48%, black 20%, transparent 75%)',
+          willChange: 'transform',
+          transform: 'translateZ(0)',
+          backfaceVisibility: 'hidden',
         }}
       >
         {/* Back layer (loading next video) */}
@@ -270,8 +294,14 @@ export default function StarchildAvatar() {
           autoPlay={false}
           muted
           playsInline
+          preload="auto"
           className="absolute inset-0 w-full h-full object-contain z-10"
-          style={{ opacity: 0 }}
+          style={{
+            opacity: 0,
+            willChange: 'opacity',
+            transform: 'translateZ(0)',
+            backfaceVisibility: 'hidden',
+          }}
         />
         {/* Front layer (currently visible) */}
         <video
@@ -287,6 +317,9 @@ export default function StarchildAvatar() {
             opacity: 1,
             maxWidth: '500px',
             margin: '0 auto',
+            willChange: 'opacity',
+            transform: 'translateZ(0)',
+            backfaceVisibility: 'hidden',
           }}
         />
       </div>

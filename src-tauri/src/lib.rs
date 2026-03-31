@@ -2404,9 +2404,18 @@ pub fn run() {
     // Load .env file if present (for managed VENICE_API_KEY, etc.)
     let _ = dotenvy::dotenv();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
-        .setup(|app| {
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init());
+
+    // MCP plugin for AI-driven desktop testing (dev builds only)
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.plugin(tauri_plugin_mcp::init_with_config(
+            tauri_plugin_mcp::PluginConfig::new("starchild".to_string()),
+        ));
+    }
+
+    builder.setup(|app| {
             // Logging
             if cfg!(debug_assertions) {
                 app.handle().plugin(

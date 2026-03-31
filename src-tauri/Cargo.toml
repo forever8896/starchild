@@ -28,6 +28,7 @@ tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+tauri-plugin-mcp = { git = "https://github.com/P3GLEG/tauri-plugin-mcp" }
 thiserror = "2"
 base64 = "0.22"
 dotenvy = "0.15.7"
