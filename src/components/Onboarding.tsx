@@ -8,7 +8,7 @@
  *   - Glassmorphism card fills the window
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
@@ -185,6 +185,18 @@ export default function Onboarding() {
             }}
           >
             <video
+              ref={(el) => {
+                if (el) {
+                  el.play().catch(() => {
+                    // Autoplay blocked — play on first interaction
+                    const resume = () => {
+                      el.play().catch(() => {})
+                      document.removeEventListener('pointerdown', resume)
+                    }
+                    document.addEventListener('pointerdown', resume, { once: true })
+                  })
+                }
+              }}
               src={videoIntro}
               autoPlay
               muted

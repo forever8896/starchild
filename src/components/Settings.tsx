@@ -14,11 +14,9 @@ import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
 import {
-  hasWallet,
-  createWallet,
   getIdentityInfo,
-  registerIdentity,
   checkRegistrationStatus,
+  claimIdentity,
   type RegistrationStatus,
 } from '../chain'
 
@@ -355,11 +353,11 @@ function IdentitySection() {
   const identityInfo    = useAppStore((s) => s.identityInfo)
   const setIdentityInfo = useAppStore((s) => s.setIdentityInfo)
 
-  const [isLoading, setIsLoading]         = useState(true)
-  const [isRegistering, setIsRegistering] = useState(false)
-  const [isGenerating, setIsGenerating]   = useState(false)
-  const [walletExists, setWalletExists]   = useState(false)
-  const [regError, setRegError]           = useState<string | null>(null)
+  const [isLoading, setIsLoading]       = useState(true)
+  const [isClaiming, setIsClaiming]     = useState(false)
+  const [claimAddress, setClaimAddress] = useState('')
+  const [identityOwner, setIdentityOwner] = useState<string | null>(null)
+  const [error, setError]               = useState<string | null>(null)
 
   // Load identity info on mount
   useEffect(() => {
@@ -367,17 +365,16 @@ function IdentitySection() {
 
     async function load() {
       try {
-        const walletOk = await hasWallet()
-        if (!cancelled) setWalletExists(walletOk)
-
         const info = await getIdentityInfo()
         if (!cancelled) setIdentityInfo(info)
 
-        // If pending, check for confirmation
         if (info.status === 'pending') {
           const updated = await checkRegistrationStatus()
           if (!cancelled) setIdentityInfo(updated)
         }
+
+        const owner = await invoke<string | null>('get_setting', { key: 'starchild_identity_owner' })
+        if (!cancelled) setIdentityOwner(owner)
       } catch (err) {
         console.error('Failed to load identity info:', err)
       } finally {
@@ -389,46 +386,37 @@ function IdentitySection() {
     return () => { cancelled = true }
   }, [setIdentityInfo])
 
-  // Generate wallet
-  async function handleGenerateWallet() {
-    setIsGenerating(true)
-    setRegError(null)
+  // Claim ownership — transfer NFT from project wallet to user's own wallet
+  async function handleClaim() {
+    if (!claimAddress || !/^0x[0-9a-fA-F]{40}$/.test(claimAddress)) {
+      setError('Enter a valid Ethereum address')
+      return
+    }
+    setIsClaiming(true)
+    setError(null)
     try {
-      const address = await createWallet()
-      setWalletExists(true)
+      // Save the user's address, then transfer
+      await invoke('save_settings', { key: 'wallet_address', value: claimAddress })
+      const result = await claimIdentity()
+      setIdentityOwner('user')
       setIdentityInfo({
-        status: 'none',
-        agentId: null,
-        walletAddress: address,
-        txHash: null,
+        ...identityInfo!,
+        status: 'registered',
+        agentId: result.agentId,
+        walletAddress: claimAddress,
+        txHash: result.txHash,
       })
     } catch (err) {
-      setRegError(err instanceof Error ? err.message : 'Failed to generate wallet')
+      setError(err instanceof Error ? err.message : 'Transfer failed')
     } finally {
-      setIsGenerating(false)
+      setIsClaiming(false)
     }
   }
 
-  // Register identity
-  async function handleRegister() {
-    setIsRegistering(true)
-    setRegError(null)
-    try {
-      const result = await registerIdentity('Starchild')
-      setIdentityInfo(result)
-      if (result.error) {
-        setRegError(result.error)
-      }
-    } catch (err) {
-      setRegError(err instanceof Error ? err.message : 'Registration failed')
-    } finally {
-      setIsRegistering(false)
-    }
-  }
-
-  const status      = identityInfo?.status ?? 'none'
-  const canRegister = walletExists && (status === 'none' || status === 'error')
+  const status       = identityInfo?.status ?? 'none'
   const isRegistered = status === 'registered'
+  const isOwnedByUser = identityOwner === 'user'
+  const canClaim     = isRegistered && !isOwnedByUser
 
   function shortenAddress(addr: string): string {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
@@ -445,8 +433,9 @@ function IdentitySection() {
         </div>
 
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          Register your Starchild as an autonomous agent on Base using the ERC-8004 standard.
-          This gives your companion a verifiable on-chain identity.
+          {isRegistered
+            ? 'Your Starchild has a verifiable on-chain identity. It was created automatically when you published your first impact certificate.'
+            : 'Your Starchild will get an on-chain identity automatically when you publish your first impact certificate. No ETH required.'}
         </p>
 
         {isLoading ? (
@@ -459,21 +448,6 @@ function IdentitySection() {
           </div>
         ) : (
           <>
-            {/* Wallet info — full address, click to copy */}
-            {identityInfo?.walletAddress && (
-              <div style={infoRowStyle}>
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Wallet</span>
-                <button
-                  className="text-xs font-mono text-left hover:opacity-70 transition-opacity"
-                  style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                  onClick={() => { navigator.clipboard.writeText(identityInfo.walletAddress!); }}
-                  title="Click to copy"
-                >
-                  {identityInfo.walletAddress}
-                </button>
-              </div>
-            )}
-
             {/* Agent ID */}
             {identityInfo?.agentId && (
               <div style={infoRowStyle}>
@@ -494,56 +468,65 @@ function IdentitySection() {
               </div>
             )}
 
-            {/* Generate wallet button */}
-            {!walletExists && (
-              <button
-                onClick={handleGenerateWallet}
-                disabled={isGenerating}
-                className={actionBtnClass}
-                style={isGenerating ? disabledBtnStyle : skyBtnStyle}
-              >
-                {isGenerating ? 'Generating...' : 'Generate Wallet'}
-              </button>
-            )}
-
-            {/* Register button */}
-            {canRegister && (
-              <button
-                onClick={handleRegister}
-                disabled={isRegistering}
-                className={actionBtnClass}
-                style={isRegistering ? disabledBtnStyle : primaryBtnStyle}
-              >
-                {isRegistering ? 'Registering on Base...' : 'Register ERC-8004 Identity'}
-              </button>
-            )}
-
-            {/* Registered success */}
+            {/* Ownership status */}
             {isRegistered && (
-              <p className="text-xs text-center" style={{ color: 'var(--accent-mint)' }} role="status">
-                Your Starchild has an on-chain identity on Base Mainnet.
-              </p>
+              <div style={infoRowStyle}>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Owned by</span>
+                <span className="text-xs" style={{ color: isOwnedByUser ? 'var(--accent-mint)' : 'var(--text-secondary)' }}>
+                  {isOwnedByUser ? 'You' : 'Starchild project'}
+                </span>
+              </div>
             )}
 
-            {/* Pending info */}
-            {status === 'pending' && (
-              <p className="text-xs text-center" style={{ color: 'var(--accent-gold)' }}>
-                Transaction submitted. Waiting for confirmation...
-              </p>
+            {/* Claim ownership */}
+            {canClaim && (
+              <>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  Transfer the ERC-8004 identity NFT to your own wallet.
+                  This is permanent — you'll fully own your Starchild's on-chain identity.
+                </p>
+                <input
+                  type="text"
+                  value={claimAddress}
+                  onChange={(e) => setClaimAddress(e.target.value)}
+                  placeholder="0x... your wallet address"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl"
+                  style={{
+                    backgroundColor: 'var(--bg-card)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--outline)',
+                  }}
+                />
+                <button
+                  onClick={handleClaim}
+                  disabled={isClaiming || !claimAddress}
+                  className={actionBtnClass}
+                  style={isClaiming || !claimAddress ? disabledBtnStyle : primaryBtnStyle}
+                >
+                  {isClaiming ? 'Transferring...' : 'Claim Ownership'}
+                </button>
+              </>
+            )}
+
+            {/* Already owned */}
+            {isOwnedByUser && identityInfo?.walletAddress && (
+              <div style={infoRowStyle}>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Your wallet</span>
+                <button
+                  className="text-xs font-mono text-left hover:opacity-70 transition-opacity"
+                  style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  onClick={() => { navigator.clipboard.writeText(identityInfo.walletAddress!); }}
+                  title="Click to copy"
+                >
+                  {shortenAddress(identityInfo.walletAddress)}
+                </button>
+              </div>
             )}
 
             {/* Error */}
-            {regError && (
+            {error && (
               <p className="text-xs text-center" style={{ color: 'var(--accent-rose)' }} role="alert">
-                {regError}
-              </p>
-            )}
-
-            {/* ETH needed notice */}
-            {walletExists && !isRegistered && !regError && status !== 'pending' && (
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                Registration requires a small amount of ETH on Base for gas.
-                Send ETH to your wallet address above.
+                {error}
               </p>
             )}
           </>

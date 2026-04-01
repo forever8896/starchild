@@ -96,7 +96,7 @@ export async function claimIdentity(): Promise<{ txHash: string; agentId: string
 
   const walletAddress = await invoke<string | null>('get_setting', { key: 'wallet_address' })
   if (!walletAddress) {
-    throw new Error('No local wallet found.')
+    throw new Error('No wallet address set. Enter your wallet address in Settings first.')
   }
 
   const relayUrl = import.meta.env.VITE_RELAY_URL || RELAY_URL

@@ -2,6 +2,14 @@ name = "starchild-relay"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
-# Secret: ATTESTER_PRIVATE_KEY (set via `npx wrangler secret put ATTESTER_PRIVATE_KEY`)
-# This is the project wallet that pays gas for EAS attestations on Base.
-# Fund it with a small amount of ETH on Base (~0.01 ETH handles thousands of attestations).
+# Secrets (set via `npx wrangler secret put <NAME>`):
+#
+# ATTESTER_PRIVATE_KEY — Project wallet for Base Mainnet transactions:
+#   - EAS attestations (POST /attest)
+#   - ERC-8004 identity registration (POST /register-identity)
+#   - ERC-8004 identity transfer (POST /transfer-identity)
+#   Fund with ~0.01 ETH on Base Mainnet.
+#
+# HYPERCERT_MINTER_KEY — Wallet for Base Sepolia transactions:
+#   - Hypercert minting (POST /mint-hypercert)
+#   Fund with testnet ETH from a Base Sepolia faucet.

@@ -433,6 +433,14 @@ export default function ChatWindow() {
       setCurrentView('tree')
     } catch (err) {
       console.error('Failed to accept quest:', err)
+      // Retry once — the LLM extraction can be flaky
+      try {
+        await invoke('accept_quest_from_conversation')
+        setCurrentView('tree')
+      } catch (retryErr) {
+        console.error('Retry also failed:', retryErr)
+        setShowQuestOffer(true)
+      }
     } finally {
       setAcceptingQuest(false)
     }

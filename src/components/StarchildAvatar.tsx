@@ -239,26 +239,45 @@ export default function StarchildAvatar() {
     }
   }, [switchTo])
 
-  // Seamless loop: seek back to 0 slightly before the video ends to avoid decode gap.
-  // This prevents the black-frame flash that occurs with native loop on Linux VP9 decoders.
+  // Seamless loop: use requestVideoFrameCallback (or fallback to timeupdate)
+  // to seek back to 0 before the decode gap at the end of the video.
   useEffect(() => {
-    const handleTimeUpdate = (e: Event) => {
-      const video = e.target as HTMLVideoElement
-      if (video.loop && video.duration > 0 && video.currentTime > video.duration - 0.15) {
-        video.currentTime = 0
+    const videos = [videoARef.current, videoBRef.current].filter(Boolean) as HTMLVideoElement[]
+
+    for (const video of videos) {
+      if ('requestVideoFrameCallback' in video) {
+        // High-precision frame callback — fires every frame, no 250ms delay
+        let cancelled = false
+        const checkFrame = () => {
+          if (cancelled) return
+          if (video.loop && video.duration > 0 && video.currentTime > video.duration - 0.25) {
+            video.currentTime = 0
+          }
+          video.requestVideoFrameCallback(checkFrame)
+        }
+        video.requestVideoFrameCallback(checkFrame)
+        // Store cancel flag on the element for cleanup
+        ;(video as any)._loopCancel = () => { cancelled = true }
+      } else {
+        // Fallback: timeupdate fires ~4x/sec, so use a larger threshold
+        const handleTimeUpdate = () => {
+          if (video.loop && video.duration > 0 && video.currentTime > video.duration - 0.35) {
+            video.currentTime = 0
+          }
+        }
+        video.addEventListener('timeupdate', handleTimeUpdate)
+        ;(video as any)._loopCancel = () => video.removeEventListener('timeupdate', handleTimeUpdate)
       }
     }
-    const a = videoARef.current
-    const b = videoBRef.current
-    a?.addEventListener('timeupdate', handleTimeUpdate)
-    b?.addEventListener('timeupdate', handleTimeUpdate)
+
     return () => {
-      a?.removeEventListener('timeupdate', handleTimeUpdate)
-      b?.removeEventListener('timeupdate', handleTimeUpdate)
+      for (const video of videos) {
+        ;(video as any)._loopCancel?.()
+      }
     }
   }, [])
 
-  // Initial mount: set up the front video
+  // Initial mount: set up the front video and handle autoplay restrictions
   useEffect(() => {
     const front = frontIsA ? videoARef.current : videoBRef.current
     if (!front) return
@@ -266,7 +285,22 @@ export default function StarchildAvatar() {
     front.loop = activeVideo !== videoIntro
     front.style.opacity = '1'
     front.load()
-    front.play().catch(() => {})
+
+    const tryPlay = () => {
+      front.play().catch(() => {
+        // Autoplay blocked — play on first user interaction
+        const resume = () => {
+          front.play().catch(() => {})
+          document.removeEventListener('click', resume)
+          document.removeEventListener('keydown', resume)
+          document.removeEventListener('pointerdown', resume)
+        }
+        document.addEventListener('click', resume, { once: true })
+        document.addEventListener('keydown', resume, { once: true })
+        document.addEventListener('pointerdown', resume, { once: true })
+      })
+    }
+    tryPlay()
   }, []) // run once on mount only
 
   // Determine which ref is front and which is back for rendering

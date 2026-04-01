@@ -200,6 +200,18 @@ function validateHypercert(body: unknown): HypercertRequest {
   }
 }
 
+// ─── Utilities ─────────────────────────────────────────────────────────────
+
+/** UTF-8 safe base64 encoding (btoa only handles Latin1 in Workers) */
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str)
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary)
+}
+
 // ─── CORS ───────────────────────────────────────────────────────────────────
 
 const CORS_HEADERS = {
@@ -367,7 +379,7 @@ async function handleMintHypercert(request: Request, env: Env): Promise<Response
 
     // Encode metadata as data URI (hackathon simplification — production would use IPFS)
     const metadataJson = JSON.stringify(metadata)
-    const metadataUri = `data:application/json;base64,${btoa(metadataJson)}`
+    const metadataUri = `data:application/json;base64,${utf8ToBase64(metadataJson)}`
 
     // Create wallet client for Base Sepolia
     const account = privateKeyToAccount(env.HYPERCERT_MINTER_KEY as Hex)
@@ -496,7 +508,7 @@ async function handleRegisterIdentity(request: Request, env: Env): Promise<Respo
       registrations: [],
       supportedTrust: [],
     }
-    const agentURI = `data:application/json;base64,${btoa(JSON.stringify(registration))}`
+    const agentURI = `data:application/json;base64,${utf8ToBase64(JSON.stringify(registration))}`
 
     // Encode name as metadata
     const nameHex = toHex(new TextEncoder().encode(name))
@@ -538,21 +550,19 @@ async function handleRegisterIdentity(request: Request, env: Env): Promise<Respo
       throw new Error('Identity registration transaction reverted')
     }
 
-    // Extract agentId from Registered event
+    // Extract agentId from ERC-721 Transfer event in logs
+    // Transfer(address from, address to, uint256 tokenId) — tokenId is the agentId
     let agentId: string | null = null
     for (const log of receipt.logs) {
       if (log.address.toLowerCase() !== IDENTITY_REGISTRY_ADDRESS.toLowerCase()) continue
-      try {
-        const decoded = decodeEventLog({
-          abi: IDENTITY_REGISTRY_ABI,
-          data: log.data as Hex,
-          topics: log.topics as [Hex, ...Hex[]],
-        })
-        if (decoded.eventName === 'Registered' && 'agentId' in decoded.args) {
-          agentId = (decoded.args.agentId as bigint).toString()
+      // ERC-721 Transfer topic0 = keccak256("Transfer(address,address,uint256)")
+      const topic0 = log.topics[0]?.toLowerCase()
+      if (topic0 === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' && log.topics.length >= 4) {
+        const tokenIdHex = log.topics[3]
+        if (tokenIdHex) {
+          agentId = BigInt(tokenIdHex).toString()
+          break
         }
-      } catch {
-        // Not a matching event
       }
     }
 

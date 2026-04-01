@@ -282,6 +282,8 @@ impl PhaseDetector {
                 || lower.contains("certify my") || lower.contains("put it on chain")
                 || lower.contains("prove it on chain") || lower.contains("publish my growth")
                 || lower.contains("on-chain proof") || lower.contains("onchain proof")
+                || lower.contains("certification") || lower.contains("certificate")
+                || (lower.contains("publish") && (lower.contains("on chain") || lower.contains("onchain") || lower.contains("certif")))
             {
                 return ConversationPhase::Verify;
             }
@@ -902,23 +904,25 @@ impl PromptBuilder {
                      STEP 1 (they just asked to certify): Ask WHAT specific growth or impact they want to claim. \
                      Not vague feelings — concrete change. What did they DO? What shifted in their life?\n\
                      \n\
-                     STEP 2 (they described their claim): Cross-reference with what you KNOW about them. \
-                     Do their quests support this claim? Does your knowing of them confirm this growth? \
-                     Challenge gaps and inconsistencies. \
-                     \"you told me X three weeks ago, and now you're saying Y — what changed between then and now?\"\n\
+                     STEP 2 (they described their claim): Cross-reference ONLY with facts you actually have — \
+                     quests they completed, things they said in THIS conversation, facts from your knowing profile. \
+                     If you have relevant context, use it. If you don't, ask them to tell you more. \
+                     NEVER invent or fabricate past conversations. NEVER say \"you told me\" unless \
+                     you have the actual memory. If your knowing profile is sparse, just ask direct questions.\n\
                      \n\
                      STEP 3 (claim seems substantiated): Ask for EVIDENCE. What would someone outside \
                      this conversation see? A habit formed? A project shipped? A relationship changed? \
                      Something measurable or observable.\n\
                      \n\
                      STEP 4 (you are genuinely satisfied the claim is real): Draft the certificate. \
+                     IMPORTANT: Today's date is {today}. Use this for timeframe_end if the growth is ongoing.\n\
                      Use EXACTLY this format:\n\
                      [CERTIFICATE_DRAFT]\n\
                      title: (concise impact claim, 5-10 words)\n\
                      description: (2-3 sentences describing the verified growth, written in third person)\n\
                      impact: (the specific area of life this affected)\n\
-                     timeframe_start: (YYYY-MM-DD when the growth journey began)\n\
-                     timeframe_end: (YYYY-MM-DD today or when it concluded)\n\
+                     timeframe_start: (YYYY-MM-DD when the growth journey began — ask if unsure)\n\
+                     timeframe_end: (YYYY-MM-DD — use {today} if ongoing or just completed)\n\
                      [/CERTIFICATE_DRAFT]\n\
                      \n\
                      Then say: \"this is what goes on-chain, with my name attached as your verifying agent. \
@@ -934,6 +938,11 @@ impl PromptBuilder {
                      - The certificate NEVER includes private details — only the public-facing claim.\n\
                      - If they say \"yes\" or \"publish\" after seeing the draft, respond with \
                      exactly: \"publishing your certificate now ◈\" and nothing else.\n\
+                     - Do NOT ask for a name, wallet address, or any on-chain identity details. \
+                     Registration and blockchain mechanics are handled automatically by the system. \
+                     Your ONLY job is verifying the growth claim and drafting the certificate.\n\
+                     - Do NOT offer quests during verification. This is NOT the quest phase. \
+                     No \"i have a quest for you\", no tasks, no challenges. ONLY verify and draft.\n\
                      \n\
                      PACING — DO NOT OVER-EXAMINE:\n\
                      - Steps 1-3 should take 2-3 exchanges TOTAL, not 2-3 each.\n\
@@ -949,6 +958,8 @@ impl PromptBuilder {
                 }
             };
 
+            let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+            let phase_instructions = phase_instructions.replace("{today}", &today);
             layers.push(format!(
                 "THE CONVERSATION ARC — WHERE YOU ARE RIGHT NOW:\n\
                  (current phase: {phase_str})\n\n\

@@ -338,9 +338,16 @@ async fn extract_quest_from_conversation(
         .find(|m| {
             let lower = m.content.to_lowercase();
             lower.contains("quest for you") || lower.contains("i have a quest")
-                || lower.contains("here's something to try")
+                || lower.contains("here's something to try") || lower.contains("your quest")
+                || lower.contains("first quest") || lower.contains("try this")
+                || lower.contains("your mission") || lower.contains("a quest")
+                || lower.contains("challenge for you")
         })
-        .map(|m| m.content.as_str())
+        .map(|m| m.content.as_str());
+
+    // Fallback: if no quest phrase detected, use the most recent assistant message
+    let quest_msg = quest_msg
+        .or_else(|| history.iter().rev().find(|m| m.role == "assistant").map(|m| m.content.as_str()))
         .unwrap_or("");
 
     if quest_msg.is_empty() {
@@ -386,11 +393,19 @@ async fn extract_quest_from_conversation(
     ];
 
     let response = client
-        .chat(messages, ai::ModelTier::Quick)
+        .chat(messages, ai::ModelTier::Regular)
         .await
         .map_err(|e| e.to_string())?;
 
+    // Strip markdown fences if the model wraps JSON in ```json ... ```
     let trimmed = response.trim();
+    let trimmed = if trimmed.starts_with("```") {
+        let inner = trimmed.trim_start_matches("```json").trim_start_matches("```");
+        inner.trim_end_matches("```").trim()
+    } else {
+        trimmed
+    };
+    log::info!("Quest extraction response: {}", &trimmed[..trimmed.len().min(200)]);
     if trimmed == "null" || trimmed.is_empty() {
         return Err("No quest found to extract".to_string());
     }
@@ -804,6 +819,8 @@ async fn send_message_stream(
             || lower_msg.contains("certify my") || lower_msg.contains("put it on chain")
             || lower_msg.contains("prove it on chain") || lower_msg.contains("publish my growth")
             || lower_msg.contains("on-chain proof") || lower_msg.contains("onchain proof")
+            || lower_msg.contains("certification") || lower_msg.contains("certificate")
+            || (lower_msg.contains("publish") && (lower_msg.contains("on chain") || lower_msg.contains("onchain") || lower_msg.contains("certif")))
     };
     // Check if user is confirming a pending draft
     let verify_confirming = verify_active && {
@@ -881,8 +898,14 @@ async fn send_message_stream(
             ai::ConversationPhase::Explore
         }
         else if has_vision && !any_quest_offered && !has_active_quests && !recently_completed {
-            // Vision is on the tree but no quest yet → offer first quest
-            ai::ConversationPhase::Quest
+            // Vision is on the tree but no quest yet — offer first quest
+            // BUT: if the user is asking a question, answer it first (Explore)
+            let user_asking = message.contains('?');
+            if user_asking {
+                ai::ConversationPhase::Explore
+            } else {
+                ai::ConversationPhase::Quest
+            }
         }
         // 2. User explicitly asking for action → Quest (don't let LLM ignore this)
         else if {
@@ -929,6 +952,30 @@ async fn send_message_stream(
     // Verify phase: inject naming context if Starchild is unregistered
     if phase == ai::ConversationPhase::Verify {
         let has_agent_id = state.db.get_setting("starchild_agent_id").ok().flatten().is_some();
+        let has_name = state.db.get_setting("starchild_name").ok().flatten().is_some();
+
+        // Detect if Starchild asked for a name in the previous message and user just answered
+        if !has_agent_id && !has_name {
+            let starchild_asked_for_name = phase_history.iter().rev()
+                .filter(|m| m.role == "assistant")
+                .take(1)
+                .any(|m| {
+                    let lower = m.content.to_lowercase();
+                    lower.contains("what should i be called") || lower.contains("what will you name me")
+                        || lower.contains("need a name") || lower.contains("give me a name")
+                        || lower.contains("name me") || lower.contains("be called")
+                });
+            if starchild_asked_for_name {
+                // The user's current message IS the name — save it directly
+                let name = message.trim().to_string();
+                if !name.is_empty() && name.len() <= 64 {
+                    let _ = state.db.set_setting("starchild_name", &name);
+                    log::info!("Starchild named (from user reply): {name}");
+                }
+            }
+        }
+
+        // Re-check after potential save above
         let has_name = state.db.get_setting("starchild_name").ok().flatten().is_some();
         if !has_agent_id && !has_name {
             system_prompt.push_str("\n\n\
@@ -2416,6 +2463,26 @@ pub fn run() {
     }
 
     builder.setup(|app| {
+            // ── FIRST: configure WebKit autoplay before the page finishes loading ──
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    use webkit2gtk::{WebViewExt, SettingsExt, PermissionRequestExt};
+                    window.with_webview(|webview| {
+                        let wv = webview.inner();
+                        let settings = wv.settings().unwrap();
+                        settings.set_media_playback_requires_user_gesture(false);
+                        settings.set_enable_media_stream(true);
+                        settings.set_enable_mediasource(true);
+                        // Auto-grant permission requests (microphone, camera)
+                        wv.connect_permission_request(|_wv, request| {
+                            request.allow();
+                            true
+                        });
+                    }).ok();
+                }
+            }
+
             // Logging
             if cfg!(debug_assertions) {
                 app.handle().plugin(
