@@ -168,8 +168,10 @@ function validateHypercert(body: unknown): HypercertRequest {
   if (!body || typeof body !== 'object') throw new Error('Invalid request body')
   const b = body as Record<string, unknown>
 
-  if (typeof b.name !== 'string' || b.name.length === 0 || b.name.length > 256)
-    throw new Error('name must be 1-256 characters')
+  if (typeof b.name !== 'string' || b.name.length === 0)
+    throw new Error('name is required')
+  // Truncate to 256 chars if needed (LLM sometimes produces long titles)
+  if ((b.name as string).length > 256) b.name = (b.name as string).slice(0, 256)
   if (typeof b.description !== 'string' || b.description.length === 0)
     throw new Error('description is required')
   if (!Array.isArray(b.work_scope) || b.work_scope.length === 0)
@@ -188,15 +190,15 @@ function validateHypercert(body: unknown): HypercertRequest {
     throw new Error('user_hash is required')
 
   return {
-    name: b.name,
-    description: b.description,
+    name: b.name as string,
+    description: b.description as string,
     work_scope: b.work_scope as string[],
     impact_scope: b.impact_scope as string[],
-    timeframe_start: b.timeframe_start,
-    timeframe_end: b.timeframe_end,
+    timeframe_start: b.timeframe_start as string,
+    timeframe_end: b.timeframe_end as string,
     contributors: b.contributors as string[],
-    verifying_agent_id: b.verifying_agent_id,
-    user_hash: b.user_hash,
+    verifying_agent_id: b.verifying_agent_id as string,
+    user_hash: b.user_hash as string,
   }
 }
 

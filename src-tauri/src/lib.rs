@@ -954,19 +954,21 @@ async fn send_message_stream(
         let has_agent_id = state.db.get_setting("starchild_agent_id").ok().flatten().is_some();
         let has_name = state.db.get_setting("starchild_name").ok().flatten().is_some();
 
-        // Detect if Starchild asked for a name in the previous message and user just answered
+        // Detect if Starchild asked for a name in the previous message and user just answered.
+        // Check DB directly (not phase_history) because history may be truncated.
         if !has_agent_id && !has_name {
-            let starchild_asked_for_name = phase_history.iter().rev()
-                .filter(|m| m.role == "assistant")
-                .take(1)
-                .any(|m| {
+            let last_assistant = state.db.get_messages(2).ok()
+                .and_then(|msgs| msgs.into_iter().find(|m| m.role == "assistant"));
+            let starchild_asked_for_name = last_assistant
+                .map(|m| {
                     let lower = m.content.to_lowercase();
                     lower.contains("what should i be called") || lower.contains("what will you name me")
                         || lower.contains("need a name") || lower.contains("give me a name")
                         || lower.contains("name me") || lower.contains("be called")
-                });
+                })
+                .unwrap_or(false);
+            log::info!("Verify naming check: asked_for_name={starchild_asked_for_name}, user_msg=\"{}\"", &message[..message.len().min(50)]);
             if starchild_asked_for_name {
-                // The user's current message IS the name — save it directly
                 let name = message.trim().to_string();
                 if !name.is_empty() && name.len() <= 64 {
                     let _ = state.db.set_setting("starchild_name", &name);
@@ -1161,19 +1163,30 @@ async fn send_message_stream(
                     }
                 }
 
-                // Check if AI response contains a certificate draft
+                // Check if AI response contains a certificate draft (case-insensitive)
+                let lower_text = full_text.to_lowercase();
                 if let (Some(start), Some(end)) = (
-                    full_text.find("[CERTIFICATE_DRAFT]"),
-                    full_text.find("[/CERTIFICATE_DRAFT]"),
+                    lower_text.find("[certificate_draft]"),
+                    lower_text.find("[/certificate_draft]"),
                 ) {
-                    let draft_block = &full_text[start + "[CERTIFICATE_DRAFT]".len()..end].trim();
-                    // Parse the draft fields
+                    let draft_raw = &full_text[start + "[certificate_draft]".len()..end];
+                    let draft_block = draft_raw.trim();
+                    // Parse fields — handle both multi-line and single-line formats.
+                    // For single-line: "title: X description: Y impact: Z ..."
+                    // For multi-line: each field on its own line.
                     let mut title = String::new();
                     let mut description = String::new();
                     let mut impact = String::new();
                     let mut timeframe_start = String::new();
                     let mut timeframe_end = String::new();
-                    for line in draft_block.lines() {
+
+                    // Normalize: insert newlines before known field prefixes so we can split by lines
+                    let normalized = draft_block
+                        .replace("description:", "\ndescription:")
+                        .replace("impact:", "\nimpact:")
+                        .replace("timeframe_start:", "\ntimeframe_start:")
+                        .replace("timeframe_end:", "\ntimeframe_end:");
+                    for line in normalized.lines() {
                         let line = line.trim();
                         if let Some(val) = line.strip_prefix("title:") {
                             title = val.trim().to_string();
