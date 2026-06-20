@@ -33,14 +33,14 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 | **Skill Tree** | SVG constellation map visualizing user's growth toward their preferential reality |
 | **Creature** | Tamagotchi-style entity with hunger decay, mood states, XP, leveling, bond system |
 | **TTS** | Venice text-to-speech (Bella voice) with character-by-character synced text reveal |
-| **E2EE** | AES-256-GCM encryption with HKDF key derivation via Qwen 3.5 122B in TEE |
+| **E2EE** | AES-256-GCM + HKDF key derivation; conversation runs on GLM-4.7 inside a Venice TEE |
 | **Multi-channel** | Desktop + Telegram bot + WhatsApp bot, unified conversation context |
 
 ## Architecture Summary
 
 - **Frontend:** React 19 + TypeScript + Tailwind CSS 4 + Framer Motion
 - **Backend:** Rust (Tauri 2) with SQLite, Venice AI client, game state engine
-- **AI:** Venice API (E2EE, zero retention) — Qwen 3.5 122B for conversation, Llama 3.3 70B for internal tasks
+- **AI:** Venice API (E2EE, zero retention) — GLM-4.7 for conversation, Llama 3.3 70B for internal tasks
 - **Landing page:** Next.js on Vercel
 - **Prompt System:** 11 composable layers with conversation phase detection and quest cycling
 
@@ -71,6 +71,6 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 
 - **Agent harness:** Claude Code CLI
 - **Model:** Claude Opus 4.6 (1M context)
-- **AI inference (runtime):** Venice AI API — Qwen 3.5 122B (E2EE conversation), Llama 3.3 70B (internal tasks)
+- **AI inference (runtime):** Venice AI API — GLM-4.7 (E2EE conversation), Llama 3.3 70B (internal tasks)
 - **Skills/tools used:** Read, Write, Edit, Bash, Grep, Glob, Agent (subagents for parallel work)
 - **Multi-agent framework:** The Agency v2 (custom, open-source, markdown-based coordination)
