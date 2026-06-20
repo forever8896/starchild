@@ -63,9 +63,14 @@ impl ModelTier {
     /// E2EE model identifier (actual Venice E2EE model name).
     /// All user-facing tiers use the same E2EE model so a single session works.
     /// Returns None if this tier doesn't use E2EE.
+    ///
+    /// GLM-4.7 (z-ai/glm-4.7): a strong, recent model that still exposes Venice's
+    /// v1 E2EE attestation (secp256k1 `signing_public_key` + ecdsa, TDX-verified) —
+    /// a drop-in for the v1 handshake in `e2ee.rs`. GLM-5.2 uses the v2 `e2e_pubkey`
+    /// scheme this client does not implement, so it is intentionally not used.
     pub fn e2ee_model_id(&self) -> Option<&'static str> {
         match self {
-            ModelTier::Regular | ModelTier::Deep => Some("e2ee-qwen3-30b-a3b-p"),
+            ModelTier::Regular | ModelTier::Deep => Some("e2ee-glm-4-7-p"),
             _ => None,
         }
     }

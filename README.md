@@ -206,8 +206,8 @@ The full research document is in [`docs/spark-research.md`](docs/spark-research.
 | Tier | Model | Use Case |
 |------|-------|----------|
 | Quick | Llama 3.3 70B | Internal tasks (memory extraction, phase classification) |
-| Regular | Qwen3 30B MoE (E2EE) | All conversation — the Starchild's true voice |
-| Deep | Qwen3 30B MoE (E2EE) | Emotional depth, life purpose work |
+| Regular | GLM-4.7 (E2EE) | All conversation — the Starchild's true voice |
+| Deep | GLM-4.7 (E2EE) | Emotional depth, life purpose work |
 | Vision | Qwen3 VL 235B | Image understanding |
 
 All user-facing conversation runs through Venice's **E2EE** (end-to-end encryption) — conversations are encrypted on your device and only decrypted inside hardware-verified trusted execution environments. Not even Venice can read them.
