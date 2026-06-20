@@ -1,5 +1,4 @@
 pub mod ai;
-pub mod attestation;
 pub mod db;
 pub mod e2ee;
 pub mod game;
@@ -1435,32 +1434,6 @@ async fn has_api_key(state: tauri::State<'_, AppState>) -> Result<bool, String> 
 }
 
 #[tauri::command]
-async fn store_secret(service: String, key: String, value: String) -> Result<(), String> {
-    let entry = keyring::Entry::new(&service, &key).map_err(|e| e.to_string())?;
-    entry.set_password(&value).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn get_secret(service: String, key: String) -> Result<Option<String>, String> {
-    let entry = keyring::Entry::new(&service, &key).map_err(|e| e.to_string())?;
-    match entry.get_password() {
-        Ok(pw) => Ok(Some(pw)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-async fn delete_secret(service: String, key: String) -> Result<(), String> {
-    let entry = keyring::Entry::new(&service, &key).map_err(|e| e.to_string())?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
 async fn save_settings(
     key: String,
     value: String,
@@ -1663,11 +1636,7 @@ struct CompleteQuestResponse {
     quest: db::Quest,
     starchild_state: FrontendStarchildState,
     levelled_up: bool,
-    milestones: Vec<String>,
 }
-
-// Milestone thresholds for achievement attestations
-const MILESTONE_STREAKS: &[i64] = &[7, 30, 100];
 
 const VALID_QUEST_TYPES: &[&str] = &["daily", "weekly"];
 const VALID_CATEGORIES: &[&str] = &["body", "mind", "spirit"];
@@ -1734,25 +1703,10 @@ async fn complete_quest(
         (to_frontend_state(&game), levelled_up)
     };
 
-    // Detect milestone achievements (streak-based)
-    let milestones: Vec<String> = MILESTONE_STREAKS
-        .iter()
-        .filter(|&&threshold| quest.streak_count == threshold)
-        .filter_map(|&threshold| {
-            let achievement = format!("{}_day_streak", threshold);
-            // Only report if not already confirmed (allows retry of failed mints)
-            match state.db.has_confirmed_attestation(&achievement) {
-                Ok(false) => Some(achievement),
-                _ => None,
-            }
-        })
-        .collect();
-
     Ok(CompleteQuestResponse {
         quest,
         starchild_state: frontend_state,
         levelled_up,
-        milestones,
     })
 }
 
@@ -1788,51 +1742,6 @@ async fn delete_quest(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     state.db.delete_quest(&id).map_err(|e| e.to_string())
-}
-
-// ---------------------------------------------------------------------------
-// Attestation commands
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct SaveAttestationRequest {
-    id: String,
-    achievement_type: String,
-    tx_hash: Option<String>,
-    status: String,
-    metadata: Option<String>,
-}
-
-#[tauri::command]
-async fn save_attestation(
-    request: SaveAttestationRequest,
-    state: tauri::State<'_, AppState>,
-) -> Result<db::Attestation, String> {
-    let valid_statuses = ["pending", "confirmed", "error"];
-    if !valid_statuses.contains(&request.status.as_str()) {
-        return Err(format!("Invalid status '{}'. Must be one of: {}", request.status, valid_statuses.join(", ")));
-    }
-    let valid_achievement_types = ["7_day_streak", "30_day_streak", "100_day_streak", "journey_anchor"];
-    if !valid_achievement_types.contains(&request.achievement_type.as_str()) {
-        return Err(format!("Invalid achievement_type '{}'. Must be one of: {}", request.achievement_type, valid_achievement_types.join(", ")));
-    }
-    state
-        .db
-        .save_attestation(
-            &request.id,
-            &request.achievement_type,
-            request.tx_hash.as_deref(),
-            &request.status,
-            request.metadata.as_deref(),
-        )
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn get_attestations(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<db::Attestation>, String> {
-    state.db.get_attestations().map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -2072,11 +1981,6 @@ async fn clear_all_data(
         *ai = None;
     }
 
-    // Delete wallet private key from OS keychain
-    if let Ok(entry) = keyring::Entry::new("starchild", "wallet_private_key") {
-        let _ = entry.delete_credential(); // ignore NoEntry errors
-    }
-
     Ok(())
 }
 
@@ -2086,89 +1990,6 @@ async fn delete_message(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     state.db.delete_message(&id).map_err(|e| e.to_string())
-}
-
-// ---------------------------------------------------------------------------
-// Journey attestation commands (EAS on Base)
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Clone, Debug)]
-struct VerificationInfo {
-    user_hash: String,
-    secret: String,
-}
-
-#[tauri::command]
-async fn get_verification_info(
-    state: tauri::State<'_, AppState>,
-) -> Result<VerificationInfo, String> {
-    let secret = attestation::get_or_create_verification_secret(&state.db)?;
-    let user_hash_bytes = attestation::compute_user_hash(&secret)?;
-    Ok(VerificationInfo {
-        user_hash: format!("0x{}", hex::encode(user_hash_bytes)),
-        secret,
-    })
-}
-
-#[tauri::command]
-async fn get_journey_proof(
-    state: tauri::State<'_, AppState>,
-) -> Result<attestation::JourneyProof, String> {
-    attestation::compute_journey_proof(&state.db)
-}
-
-#[tauri::command]
-async fn anchor_journey_onchain(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
-    // Compute current proof
-    let proof = attestation::compute_journey_proof(&state.db)?;
-
-    // Save as pending
-    let attestation_id = Uuid::new_v4().to_string();
-    let metadata = serde_json::json!({
-        "user_hash": proof.user_hash,
-        "journey_root": proof.journey_root,
-        "quest_count": proof.quest_count,
-        "streak": proof.streak,
-    });
-    state.db.save_attestation(
-        &attestation_id,
-        "journey_anchor",
-        None,
-        "pending",
-        Some(&metadata.to_string()),
-    ).map_err(|e| e.to_string())?;
-
-    // Submit via relay (relay holds the project wallet, pays gas)
-    let http_client = reqwest::Client::new();
-    let tx_hash = attestation::submit_to_relay(
-        &http_client,
-        &proof.user_hash,
-        &proof.journey_root,
-        proof.quest_count,
-        proof.streak,
-    )
-    .await
-    .map_err(|e| {
-        // Update attestation to error
-        let _ = state.db.save_attestation(
-            &attestation_id, "journey_anchor", None, "error",
-            Some(&metadata.to_string()),
-        );
-        e
-    })?;
-
-    // Update with tx hash — confirmed (relay already waited for receipt)
-    state.db.save_attestation(
-        &attestation_id,
-        "journey_anchor",
-        Some(&tx_hash),
-        "confirmed",
-        Some(&metadata.to_string()),
-    ).map_err(|e| e.to_string())?;
-
-    Ok(tx_hash)
 }
 
 // ---------------------------------------------------------------------------
@@ -2480,20 +2301,12 @@ pub fn run() {
             complete_quest,
             delete_quest,
             accept_quest_from_conversation,
-            save_attestation,
-            get_attestations,
-            get_verification_info,
-            get_journey_proof,
-            anchor_journey_onchain,
             start_telegram_bot,
             stop_telegram_bot,
             get_telegram_status,
             start_whatsapp_bot,
             stop_whatsapp_bot,
             get_whatsapp_status,
-            store_secret,
-            get_secret,
-            delete_secret,
             send_checkin_notification,
             get_streak_warnings,
             export_all_data,

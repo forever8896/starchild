@@ -1,7 +1,5 @@
 import { create } from 'zustand'
 
-import type { IdentityInfo, Attestation } from './chain'
-
 // ─── Shared types ────────────────────────────────────────────────────────────
 
 export interface Message {
@@ -89,17 +87,6 @@ interface AppState {
   setWhatsappPhone: (phone: string | null) => void
   setWhatsappQrCode: (qr: string | null) => void
 
-  // Identity
-  identityInfo: IdentityInfo | null
-  setIdentityInfo: (info: IdentityInfo) => void
-
-  // Attestations
-  attestations: Attestation[]
-  setAttestations: (attestations: Attestation[]) => void
-  pendingMilestones: string[]
-  setPendingMilestones: (milestones: string[]) => void
-  dismissMilestone: (milestone: string) => void
-
   // Progressive UI — hide sections until they're relevant
   hasQuests: boolean
   setHasQuests: (has: boolean) => void
@@ -119,24 +106,6 @@ interface AppState {
   // Background music
   bgMusicMuted: boolean
   setBgMusicMuted: (muted: boolean) => void
-
-  // Journey proof (EAS attestation on Base)
-  journeyProof: {
-    userHash: string
-    journeyRoot: string
-    questCount: number
-    streak: number
-    anchored: boolean
-    lastAnchorTx: string | null
-  } | null
-  setJourneyProof: (proof: {
-    userHash: string
-    journeyRoot: string
-    questCount: number
-    streak: number
-    anchored: boolean
-    lastAnchorTx: string | null
-  } | null) => void
 }
 
 // ─── Store implementation ────────────────────────────────────────────────────
@@ -198,20 +167,6 @@ export const useAppStore = create<AppState>((set) => ({
   setWhatsappPhone: (whatsappPhone) => set({ whatsappPhone }),
   setWhatsappQrCode: (whatsappQrCode) => set({ whatsappQrCode }),
 
-  // Identity
-  identityInfo: null,
-  setIdentityInfo: (identityInfo) => set({ identityInfo }),
-
-  // Attestations
-  attestations: [],
-  setAttestations: (attestations) => set({ attestations }),
-  pendingMilestones: [],
-  setPendingMilestones: (pendingMilestones) => set({ pendingMilestones }),
-  dismissMilestone: (milestone) =>
-    set((state) => ({
-      pendingMilestones: state.pendingMilestones.filter((m) => m !== milestone),
-    })),
-
   // Progressive UI
   hasQuests: false,
   setHasQuests: (hasQuests) => set({ hasQuests }),
@@ -229,8 +184,4 @@ export const useAppStore = create<AppState>((set) => ({
 
   bgMusicMuted: false,
   setBgMusicMuted: (bgMusicMuted) => set({ bgMusicMuted }),
-
-  // Journey proof
-  journeyProof: null,
-  setJourneyProof: (journeyProof) => set({ journeyProof }),
 }))

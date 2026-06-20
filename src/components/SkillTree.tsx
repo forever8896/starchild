@@ -620,22 +620,10 @@ function QuestPopup({
 
 // ─── Main SkillTree Component ───────────────────────────────────────────────
 
-interface JourneyProof {
-  user_hash: string
-  journey_root: string
-  quest_count: number
-  streak: number
-  anchored: boolean
-  last_anchor_tx: string | null
-}
-
 export default function SkillTree({ onBack, showIntro = false }: { onBack: () => void; showIntro?: boolean }) {
   const [quests, setQuests] = useState<Quest[]>([])
   const [preferentialReality, setPreferentialReality] = useState('')
   const [selectedQuest, setSelectedQuest] = useState<{ quest: Quest; color: string } | null>(null)
-  const [journeyProof, setJourneyProof] = useState<JourneyProof | null>(null)
-  const [isAnchoring, setIsAnchoring] = useState(false)
-  const [anchorResult, setAnchorResult] = useState<string | null>(null)
   const [celebratingQuestId, setCelebratingQuestId] = useState<string | null>(null)
   const [celebrationXp, setCelebrationXp] = useState<number | null>(null)
 
@@ -695,14 +683,6 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
       } catch {
         // ignore
       }
-
-      // Load journey proof / attestation status
-      try {
-        const proof = await invoke<JourneyProof>('get_journey_proof')
-        if (!cancelled) setJourneyProof(proof)
-      } catch {
-        // ignore — attestation features may not be available
-      }
     }
 
     load()
@@ -719,22 +699,6 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
     }).then((fn) => { ul2 = fn })
     return () => { cancelled = true; ul1?.(); ul2?.() }
   }, [])
-
-  const handleAnchorJourney = async () => {
-    setIsAnchoring(true)
-    setAnchorResult(null)
-    try {
-      const txHash = await invoke<string>('anchor_journey_onchain')
-      setAnchorResult(txHash)
-      // Refresh the proof
-      const proof = await invoke<JourneyProof>('get_journey_proof')
-      setJourneyProof(proof)
-    } catch (err) {
-      setAnchorResult(`error: ${err}`)
-    } finally {
-      setIsAnchoring(false)
-    }
-  }
 
   // Group quests by category
   const questsByCategory = useMemo(() => {
@@ -1029,97 +993,6 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
           <YouMarker />
         </svg>
       </div>
-
-      {/* Journey attestation badge — bottom of screen */}
-      {journeyProof && journeyProof.quest_count > 0 && (
-        <motion.div
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 2.8, duration: 0.5 }}
-        >
-          {journeyProof.anchored ? (
-            <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-semibold tracking-wide"
-              style={{
-                backgroundColor: 'rgba(168, 216, 184, 0.15)',
-                border: '1px solid rgba(168, 216, 184, 0.3)',
-                color: '#a8d8b8',
-              }}
-            >
-              {/* Chain link icon */}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-              VERIFIED ON BASE
-              {journeyProof.last_anchor_tx && (
-                <span
-                  className="ml-1 opacity-50 cursor-pointer hover:opacity-100 transition-opacity"
-                  title="Click to copy attestation link"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (journeyProof.last_anchor_tx) {
-                      const url = `https://basescan.org/tx/${journeyProof.last_anchor_tx}`
-                      navigator.clipboard.writeText(url)
-                      const el = e.currentTarget
-                      const original = el.textContent
-                      el.textContent = 'copied!'
-                      setTimeout(() => { el.textContent = original }, 1500)
-                    }
-                  }}
-                >
-                  {journeyProof.last_anchor_tx.slice(0, 10)}...
-                </span>
-              )}
-            </div>
-          ) : (
-            <motion.button
-              onClick={handleAnchorJourney}
-              disabled={isAnchoring}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-semibold tracking-wide transition-colors"
-              style={{
-                backgroundColor: isAnchoring
-                  ? 'rgba(184, 160, 216, 0.1)'
-                  : 'rgba(184, 160, 216, 0.15)',
-                border: '1px solid rgba(184, 160, 216, 0.3)',
-                color: '#b8a0d8',
-                cursor: isAnchoring ? 'wait' : 'pointer',
-              }}
-              whileHover={isAnchoring ? {} : { scale: 1.03 }}
-              whileTap={isAnchoring ? {} : { scale: 0.97 }}
-            >
-              {/* Anchor icon */}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="5" r="3" />
-                <line x1="12" y1="22" x2="12" y2="8" />
-                <path d="M5 12H2a10 10 0 0 0 20 0h-3" />
-              </svg>
-              {isAnchoring ? 'ANCHORING...' : 'ANCHOR JOURNEY'}
-            </motion.button>
-          )}
-
-          {/* Brief confirmation toast */}
-          <AnimatePresence>
-            {anchorResult && !anchorResult.startsWith('error:') && (
-              <motion.div
-                className="absolute -top-10 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1 rounded-full text-[9px] font-semibold"
-                style={{
-                  backgroundColor: 'rgba(168, 216, 184, 0.2)',
-                  border: '1px solid rgba(168, 216, 184, 0.3)',
-                  color: '#a8d8b8',
-                }}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.3 }}
-              >
-                Anchored: {anchorResult.slice(0, 10)}...
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      )}
 
       {/* Quest detail popup — AnimatePresence for mount/unmount transitions */}
       <AnimatePresence>
