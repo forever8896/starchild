@@ -20,7 +20,7 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 - **Downloads:** https://github.com/forever8896/starchild/releases/tag/v0.2.0
 - **API requirement:** A Venice AI API key is needed (free tier works). Set via the onboarding UI or `VENICE_API_KEY` env var
 - **E2E tests:** Run `npm run test:e2e` to see conversation quality verified by an LLM judge
-- **No cloud dependency:** All data is local SQLite. The only external calls are to Venice AI (zero retention, E2EE) and the attestation relay (Cloudflare Worker)
+- **No cloud dependency:** All data is local SQLite. The only external call is to Venice AI (zero retention, E2EE) — there is no blockchain, no relay, no telemetry
 
 ## Capabilities
 
@@ -32,8 +32,6 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 | **Quest System** | AI-generated quests across 3 life branches (Body, Mind, Spirit) with accept/decline, proof-of-completion, negotiation |
 | **Skill Tree** | SVG constellation map visualizing user's growth toward their preferential reality |
 | **Creature** | Tamagotchi-style entity with hunger decay, mood states, XP, leveling, bond system |
-| **On-chain Identity** | ERC-8004 registration on Base Mainnet |
-| **Attestation Relay** | Cloudflare Worker signs EAS attestations on behalf of users — no wallet or ETH needed |
 | **TTS** | Venice text-to-speech (Bella voice) with character-by-character synced text reveal |
 | **E2EE** | AES-256-GCM encryption with HKDF key derivation via Qwen 3.5 122B in TEE |
 | **Multi-channel** | Desktop + Telegram bot + WhatsApp bot, unified conversation context |
@@ -43,7 +41,6 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 - **Frontend:** React 19 + TypeScript + Tailwind CSS 4 + Framer Motion
 - **Backend:** Rust (Tauri 2) with SQLite, Venice AI client, game state engine
 - **AI:** Venice API (E2EE, zero retention) — Qwen 3.5 122B for conversation, Llama 3.3 70B for internal tasks
-- **Blockchain:** Base Mainnet — ERC-8004 identity, EAS attestations via Cloudflare relay
 - **Landing page:** Next.js on Vercel
 - **Prompt System:** 11 composable layers with conversation phase detection and quest cycling
 
@@ -57,11 +54,8 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 | `src-tauri/src/knowing/mod.rs` | 7-dimension user understanding extraction |
 | `src-tauri/src/game/mod.rs` | Creature state machine (hunger, mood, XP, bond) |
 | `src-tauri/src/e2ee.rs` | End-to-end encryption module |
-| `src-tauri/src/attestation.rs` | Journey proof computation + relay submission |
-| `relay/src/index.ts` | Cloudflare Worker — signs EAS attestations on Base |
 | `src/components/ChatWindow.tsx` | Main conversation UI with quest accept/decline |
 | `src/components/SkillTree.tsx` | Interactive SVG constellation vision map with celebration animations |
-| `src/chain/identity.ts` | ERC-8004 on-chain registration |
 | `website/` | Next.js landing page with origin story |
 | `tests/e2e/` | E2E test suite with LLM judge |
 

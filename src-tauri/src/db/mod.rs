@@ -81,16 +81,6 @@ pub struct Quest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Attestation {
-    pub id: String,
-    pub achievement_type: String,
-    pub tx_hash: Option<String>,
-    pub status: String, // 'pending' | 'confirmed' | 'error'
-    pub metadata: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Personality {
     pub warmth: f64,
     pub intensity: f64,
@@ -105,7 +95,6 @@ pub struct ExportedData {
     pub messages: Vec<Message>,
     pub memories: Vec<Memory>,
     pub quests: Vec<Quest>,
-    pub attestations: Vec<Attestation>,
     pub personality: Option<Personality>,
     pub settings: Vec<(String, String)>,
 }
@@ -555,92 +544,6 @@ impl Database {
         Ok(quests)
     }
 
-    // -- attestations --------------------------------------------------------
-
-    pub fn save_attestation(
-        &self,
-        id: &str,
-        achievement_type: &str,
-        tx_hash: Option<&str>,
-        status: &str,
-        metadata: Option<&str>,
-    ) -> Result<Attestation> {
-        let conn = self.lock()?;
-        conn.execute(
-            "INSERT INTO attestations (id, achievement_type, tx_hash, status, metadata) \
-             VALUES (?1, ?2, ?3, ?4, ?5) \
-             ON CONFLICT(id) DO UPDATE SET \
-                tx_hash = COALESCE(excluded.tx_hash, attestations.tx_hash), \
-                status = excluded.status, \
-                metadata = COALESCE(excluded.metadata, attestations.metadata)",
-            params![id, achievement_type, tx_hash, status, metadata],
-        )?;
-        conn.query_row(
-            "SELECT id, achievement_type, tx_hash, status, metadata, created_at \
-             FROM attestations WHERE id = ?1",
-            params![id],
-            |row| {
-                Ok(Attestation {
-                    id: row.get(0)?,
-                    achievement_type: row.get(1)?,
-                    tx_hash: row.get(2)?,
-                    status: row.get(3)?,
-                    metadata: row.get(4)?,
-                    created_at: row.get(5)?,
-                })
-            },
-        )
-        .map_err(DbError::from)
-    }
-
-    pub fn get_attestations(&self) -> Result<Vec<Attestation>> {
-        let conn = self.lock()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, achievement_type, tx_hash, status, metadata, created_at \
-             FROM attestations ORDER BY created_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Attestation {
-                id: row.get(0)?,
-                achievement_type: row.get(1)?,
-                tx_hash: row.get(2)?,
-                status: row.get(3)?,
-                metadata: row.get(4)?,
-                created_at: row.get(5)?,
-            })
-        })?;
-        let mut attestations = Vec::new();
-        for row in rows {
-            attestations.push(row?);
-        }
-        Ok(attestations)
-    }
-
-    pub fn has_attestation(&self, achievement_type: &str) -> Result<bool> {
-        let conn = self.lock()?;
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM attestations WHERE achievement_type = ?1",
-                params![achievement_type],
-                |row| row.get(0),
-            )?;
-        Ok(count > 0)
-    }
-
-    /// Check if a *confirmed* attestation exists for the given achievement type.
-    /// Unlike `has_attestation`, this ignores 'pending' and 'error' entries,
-    /// allowing retry of failed attestations.
-    pub fn has_confirmed_attestation(&self, achievement_type: &str) -> Result<bool> {
-        let conn = self.lock()?;
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM attestations WHERE achievement_type = ?1 AND status = 'confirmed'",
-                params![achievement_type],
-                |row| row.get(0),
-            )?;
-        Ok(count > 0)
-    }
-
     // -- personality ---------------------------------------------------------
 
     pub fn get_personality(&self) -> Result<Personality> {
@@ -744,24 +647,6 @@ impl Database {
             .filter_map(|r| r.ok())
             .collect();
 
-        let mut stmt = conn.prepare(
-            "SELECT id, achievement_type, tx_hash, status, metadata, created_at \
-             FROM attestations ORDER BY created_at ASC",
-        )?;
-        let attestations: Vec<Attestation> = stmt
-            .query_map([], |row| {
-                Ok(Attestation {
-                    id: row.get(0)?,
-                    achievement_type: row.get(1)?,
-                    tx_hash: row.get(2)?,
-                    status: row.get(3)?,
-                    metadata: row.get(4)?,
-                    created_at: row.get(5)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
         let personality = conn
             .query_row(
                 "SELECT warmth, intensity, humor, mysticism, directness \
@@ -792,7 +677,6 @@ impl Database {
             messages,
             memories,
             quests,
-            attestations,
             personality,
             settings,
         })
@@ -807,7 +691,6 @@ impl Database {
              DELETE FROM memories_fts;
              DELETE FROM knowing_facts;
              DELETE FROM quests;
-             DELETE FROM attestations;
              DELETE FROM settings;
              UPDATE starchild_state SET
                 hunger = 50.0, mood = 'Content', energy = 100.0, bond = 0.0,
@@ -961,18 +844,6 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
             completed_at  TEXT,
             due_at        TEXT
-        );",
-    )?;
-
-    // -- attestations -------------------------------------------------------
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS attestations (
-            id                TEXT PRIMARY KEY,
-            achievement_type  TEXT NOT NULL,
-            tx_hash           TEXT,
-            status            TEXT NOT NULL DEFAULT 'pending',
-            metadata          TEXT,
-            created_at        TEXT NOT NULL DEFAULT (datetime('now'))
         );",
     )?;
 
@@ -1273,44 +1144,6 @@ mod tests {
     }
 
     #[test]
-    fn test_attestation_crud() {
-        let db = test_db();
-
-        // Save
-        let att = db
-            .save_attestation("a1", "7_day_streak", Some("0xabc"), "confirmed", Some("{\"streak\":7}"))
-            .unwrap();
-        assert_eq!(att.achievement_type, "7_day_streak");
-        assert_eq!(att.status, "confirmed");
-        assert_eq!(att.tx_hash, Some("0xabc".to_string()));
-
-        // List
-        let all = db.get_attestations().unwrap();
-        assert_eq!(all.len(), 1);
-
-        // Has attestation
-        assert!(db.has_attestation("7_day_streak").unwrap());
-        assert!(!db.has_attestation("30_day_streak").unwrap());
-
-        // has_confirmed_attestation — confirmed entry should return true
-        assert!(db.has_confirmed_attestation("7_day_streak").unwrap());
-        assert!(!db.has_confirmed_attestation("30_day_streak").unwrap());
-
-        // Upsert (update status)
-        let updated = db
-            .save_attestation("a1", "7_day_streak", Some("0xabc"), "error", None)
-            .unwrap();
-        assert_eq!(updated.status, "error");
-        let all = db.get_attestations().unwrap();
-        assert_eq!(all.len(), 1); // still just one
-
-        // has_confirmed_attestation — error status should return false (allows retry)
-        assert!(!db.has_confirmed_attestation("7_day_streak").unwrap());
-        // has_attestation still returns true (any status)
-        assert!(db.has_attestation("7_day_streak").unwrap());
-    }
-
-    #[test]
     fn test_export_all_data() {
         let db = test_db();
 
@@ -1319,14 +1152,12 @@ mod tests {
         db.save_message("m2", "desktop", "assistant", "Hi!").unwrap();
         db.save_memory("mem1", "User likes Rust", 0.8, Some("preference")).unwrap();
         db.create_quest("q1", "Run", None, "daily", Some("body"), 10, None).unwrap();
-        db.save_attestation("a1", "7_day_streak", Some("0xabc"), "confirmed", None).unwrap();
         db.set_setting("theme", "dark").unwrap();
 
         let export = db.export_all_data().unwrap();
         assert_eq!(export.messages.len(), 2);
         assert_eq!(export.memories.len(), 1);
         assert_eq!(export.quests.len(), 1);
-        assert_eq!(export.attestations.len(), 1);
         assert!(export.personality.is_some());
         assert_eq!(export.settings.len(), 1);
         assert!(!export.exported_at.is_empty());

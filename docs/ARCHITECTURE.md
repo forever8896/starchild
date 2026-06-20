@@ -22,17 +22,15 @@ Technical deep dive into how Starchild works under the hood.
 │  │  UserProfile         │              │  Database (SQLite)   │ │
 │  │                      │              │  TTS Engine          │ │
 │  │  Zustand Store       │              │  E2EE Module         │ │
-│  │  Chain Module (viem) │              │  Telegram Bot        │ │
+│  │                      │              │  Telegram Bot        │ │
 │  └──────────────────────┘              │  WhatsApp Bot        │ │
 │                                        └──────────┬───────────┘ │
 └───────────────────────────────────────────────────┼─────────────┘
                                                     │
-                              ┌──────────────────────┼──────────────┐
-                              │                      │              │
-                        ┌─────▼─────┐         ┌─────▼─────┐  ┌────▼────┐
-                        │ Venice AI │         │  Base L2  │  │  OS     │
-                        │ (Private) │         │ (ERC-8004)│  │ Keychain│
-                        └───────────┘         └───────────┘  └─────────┘
+                                              ┌─────▼─────┐
+                                              │ Venice AI │
+                                              │ (Private) │
+                                              └───────────┘
 ```
 
 ---
@@ -182,7 +180,7 @@ Videos use VP9 with alpha channel for transparent compositing over the skyline b
 - **Categories:** Body, Purpose, Mind, Heart, Spirit (mapped 1:1 to skill tree branches)
 - **Types:** Daily, Weekly
 - **XP:** 5–50 per quest (calibrated to difficulty)
-- **Streaks:** Tracked per quest, milestone attestations at 7/30/100 days
+- **Streaks:** Tracked per quest, milestone celebrations at 7/30/100 days
 - **AI Suggestions:** Starchild generates 3 personalized quests based on knowing profile + branch balance
 
 ---
@@ -194,45 +192,9 @@ messages        (id, platform, role, content, created_at)
 quests          (id, title, description, quest_type, category, status, xp_reward, streak_count, due_at, completed_at)
 starchild_state (hunger, mood, energy, bond, xp, level, last_decay_at)
 memories        (id, content, importance, category)  -- FTS5 indexed
-attestations    (id, achievement_type, tx_hash, status, metadata)
 personality     (warmth, intensity, humor, mysticism, directness)
 settings        (key, value)  -- key-value store for all config
 knowing_*       -- per-category tables for structured user understanding
-```
-
----
-
-## On-Chain Architecture
-
-### Identity (ERC-8004)
-
-```
-User launches app
-    → Starchild generates wallet (private key → OS keychain)
-    → Registers agent ID on Base Mainnet via ERC-8004 Identity Registry
-    → Token ID stored locally
-```
-
-### Attestations
-
-```
-User hits milestone (7/30/100-day streak)
-    → Frontend shows "Anchor to chain?" toast
-    → Rust builds attestation metadata (achievement_type, timestamp, proof)
-    → Submits as ERC-8004 token metadata on Base
-    → TxHash stored in local attestations table
-    → Skill tree node shows "anchored" badge
-```
-
-### Journey Proof (EAS)
-
-```
-Quest completions
-    → Hash each (quest_id + completion_time + user_salt)
-    → Batch into Merkle root weekly
-    → Submit root as EAS attestation on Base
-    → Schema: bytes32 journeyHash, uint64 questCount, uint64 streak
-    → Privacy: only hashes on-chain, raw data stays local
 ```
 
 ---
@@ -241,13 +203,11 @@ Quest completions
 
 | Threat | Mitigation |
 |--------|-----------|
-| API key exposure | Stored in OS keychain, never in config files |
 | Data at rest | Local SQLite only, no cloud sync |
-| Data in transit | Venice API over HTTPS, CSP headers restrict connections |
+| Data in transit | Venice API over HTTPS, CSP headers restrict connections (Venice only) |
 | LLM prompt injection | Response post-processing strips unexpected content |
-| On-chain privacy | Hash commitments only, no raw personal data |
-| Wallet security | Private key in OS keychain, burner wallet pattern |
-| E2EE (future) | AES-256-GCM with HKDF key derivation, implemented and ready |
+| Network surface | The only outbound call is AI inference to Venice — no blockchain, no telemetry |
+| E2EE | AES-256-GCM with HKDF key derivation, encrypted to Venice TEE |
 
 ---
 

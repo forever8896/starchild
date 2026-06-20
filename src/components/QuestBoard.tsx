@@ -12,7 +12,6 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { type Quest } from '../store'
 import { useAppStore } from '../store'
-import { mintAttestation, MILESTONES } from '../chain'
 import QuestSuggestions from './QuestSuggestions'
 import questBoardBg from '../assets/quest-board-bg.png'
 
@@ -262,75 +261,6 @@ function QuestCard({ quest, onComplete, onDelete }: QuestCardProps) {
   )
 }
 
-// ─── Milestone Toast ─────────────────────────────────────────────────────────
-
-function MilestoneToast({
-  milestone,
-  onMint,
-  onDismiss,
-}: {
-  milestone: string
-  onMint: () => void
-  onDismiss: () => void
-}) {
-  const info = MILESTONES[milestone]
-  const [minting, setMinting] = useState(false)
-  const [result, setResult] = useState<'success' | 'error' | null>(null)
-
-  const handleMint = async () => {
-    setMinting(true)
-    try {
-      await mintAttestation(milestone)
-      setResult('success')
-      setTimeout(onDismiss, 2000)
-    } catch (err) {
-      console.error('Failed to mint attestation:', err)
-      setResult('error')
-    } finally {
-      setMinting(false)
-    }
-  }
-
-  return (
-    <div className="p-4 rounded-xl flex flex-col gap-2 animate-in" style={{ backgroundColor: 'var(--bg-card)', border: '2px solid var(--accent-lavender)', boxShadow: '0 0 20px var(--glow-lavender)' }}>
-      <div className="flex items-center gap-2">
-        <span className="text-lg">✦</span>
-        <span className="text-sm font-semibold" style={{ color: 'var(--accent-lavender)' }}>
-          Achievement Unlocked!
-        </span>
-      </div>
-      <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{info?.label ?? milestone}</p>
-      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{info?.description ?? 'A new milestone reached'}</p>
-
-      {result === 'success' ? (
-        <p className="text-xs font-medium" style={{ color: 'var(--accent-mint)' }}>Attestation minted on-chain!</p>
-      ) : result === 'error' ? (
-        <p className="text-xs font-medium" style={{ color: 'var(--accent-rose)' }}>
-          Minting failed. You can try again from Profile.
-        </p>
-      ) : (
-        <div className="flex gap-2 mt-1">
-          <button
-            onClick={handleMint}
-            disabled={minting}
-            className="px-3 py-1.5 text-xs font-medium rounded-xl transition-all press-scale disabled:opacity-50"
-            style={{ backgroundColor: 'var(--accent-lavender)', color: '#1a1525' }}
-          >
-            {minting ? 'Minting...' : 'Mint On-Chain'}
-          </button>
-          <button
-            onClick={onDismiss}
-            className="px-3 py-1.5 text-xs transition-opacity hover:opacity-70"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            Later
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function QuestBoard() {
@@ -358,25 +288,16 @@ export default function QuestBoard() {
     loadQuests(status)
   }, [filter, loadQuests])
 
-  const setPendingMilestones = useAppStore((s) => s.setPendingMilestones)
-  const pendingMilestones = useAppStore((s) => s.pendingMilestones)
-
   const handleComplete = async (id: string) => {
     try {
       const result = await invoke<{
         quest: Quest
         starchild_state: { hunger: number; mood: string; energy: number; bond: number; xp: number; level: number }
         levelled_up: boolean
-        milestones: string[]
       }>('complete_quest', { id })
 
       setStarchildState(result.starchild_state)
       loadQuests(filter === 'all' ? null : filter)
-
-      // If milestones were achieved, show them
-      if (result.milestones.length > 0) {
-        setPendingMilestones([...pendingMilestones, ...result.milestones])
-      }
     } catch (err) {
       console.error('Failed to complete quest:', err)
     }
@@ -435,23 +356,6 @@ export default function QuestBoard() {
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        {/* Milestone toasts */}
-        {pendingMilestones.length > 0 && (
-          <div className="flex flex-col gap-2 mb-4">
-            {pendingMilestones.map((m) => (
-              <MilestoneToast
-                key={m}
-                milestone={m}
-                onMint={() => {}}
-                onDismiss={() => {
-                  const dismissMilestone = useAppStore.getState().dismissMilestone
-                  dismissMilestone(m)
-                }}
-              />
-            ))}
-          </div>
-        )}
-
         {/* Starchild suggestions */}
         <div className="mb-4">
           <QuestSuggestions onQuestCreated={() => loadQuests(filter === 'all' ? null : filter)} />
