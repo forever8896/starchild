@@ -68,11 +68,15 @@ contract StarchildBurnGoals {
         _;
     }
 
-    constructor(address token_) {
+    /// @param token_ the $STARCHILD token to burn
+    /// @param owner_ the maintainer wallet (explicit, so ownership is independent
+    ///        of the deployer — e.g. when deployed via a CREATE2 factory).
+    constructor(address token_, address owner_) {
         require(token_ != address(0), "token=0");
+        require(owner_ != address(0), "owner=0");
         token = IERC20(token_);
-        owner = msg.sender;
-        emit OwnerTransferred(address(0), msg.sender);
+        owner = owner_;
+        emit OwnerTransferred(address(0), owner_);
     }
 
     // ─── Maintainer actions (never touch funds) ──────────────────────────────

@@ -13,11 +13,15 @@ import {
   fetchGoals,
   fetchTokenMeta,
   fetchTotalBurned,
+  fetchBurnStats,
   burnToward,
   fmt,
   isDeployed,
   BURN_GOALS_ADDRESS,
+  DEAD_ADDRESS,
+  STARCHILD_TOKEN,
   type Goal,
+  type BurnStats,
 } from '@/lib/burnGoals'
 
 const LAV = '#b8a0d8'
@@ -110,6 +114,7 @@ function GoalCard({
 export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([])
   const [totalBurned, setTotalBurned] = useState<bigint>(0n)
+  const [burn, setBurn] = useState<BurnStats | null>(null)
   const [meta, setMeta] = useState<{ decimals: number; symbol: string }>({ decimals: 18, symbol: 'STARCHILD' })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -117,9 +122,15 @@ export default function GoalsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [g, t, m] = await Promise.all([fetchGoals(), fetchTotalBurned(), fetchTokenMeta().catch(() => null)])
+      const [g, t, b, m] = await Promise.all([
+        fetchGoals(),
+        fetchTotalBurned(),
+        fetchBurnStats().catch(() => null),
+        fetchTokenMeta().catch(() => null),
+      ])
       setGoals(g)
       setTotalBurned(t)
+      if (b) setBurn(b)
       if (m) setMeta(m)
     } catch (e) {
       console.error(e)
@@ -166,14 +177,30 @@ export default function GoalsPage() {
           The founder profits nothing; the commons grows.
         </p>
 
-        {/* Total burned */}
+        {/* All-time burn — read from chain (founder burns + every contract burn) */}
         <div className="mt-8 mb-10 text-center">
-          <div style={{ fontSize: 'clamp(2rem,6vw,3.2rem)', fontWeight: 600, color: GOLD }}>
-            {fmt(totalBurned, meta.decimals)}
+          <div style={{ fontSize: 'clamp(2rem,6vw,3.4rem)', fontWeight: 600, color: GOLD }}>
+            {burn ? `${burn.pct.toFixed(2)}%` : '—'}
           </div>
           <div className="text-xs uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
-            ${meta.symbol} burned for the commons
+            of all ${meta.symbol} supply burned forever
           </div>
+          {burn && (
+            <div className="mt-3 text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              {fmt(burn.burned, burn.decimals)} of {fmt(burn.supply, burn.decimals)} ${burn.symbol} sent to{' '}
+              <a
+                href={`https://basescan.org/token/${STARCHILD_TOKEN}?a=${DEAD_ADDRESS}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: LAV, textDecoration: 'underline' }}
+              >
+                the dead address
+              </a>
+              {isDeployed && totalBurned > 0n && (
+                <> · {fmt(totalBurned, meta.decimals)} of it toward goals below</>
+              )}
+            </div>
+          )}
         </div>
 
         {msg && (

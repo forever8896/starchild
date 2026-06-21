@@ -17,9 +17,11 @@ contract Deploy is Script {
     // Amounts are in token wei (18 decimals). Tune targets to taste before deploy.
     function run() external {
         address token = vm.envOr("STARCHILD_TOKEN", address(0x980E9F2061487376ab1438E965Ad276a1D36Fba3));
+        // Owner defaults to the broadcaster; override with OWNER to set a different maintainer wallet.
+        address owner_ = vm.envOr("OWNER", msg.sender);
 
         vm.startBroadcast();
-        StarchildBurnGoals goals = new StarchildBurnGoals(token);
+        StarchildBurnGoals goals = new StarchildBurnGoals(token, owner_);
 
         // Starter goals — edit/replace these for your real roadmap.
         goals.addGoal("Spanish localization", "Full es-ES translation of the companion, shipped free to all", 5_000_000 ether);

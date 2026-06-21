@@ -37,7 +37,7 @@ contract StarchildBurnGoalsTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        goals = new StarchildBurnGoals(address(token));
+        goals = new StarchildBurnGoals(address(token), address(this));
         token.mint(alice, 1_000_000 ether);
         token.mint(bob, 1_000_000 ether);
     }
