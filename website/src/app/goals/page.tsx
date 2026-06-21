@@ -2,17 +2,16 @@
 
 /**
  * Burn-to-Unlock — crowd-patronage of the Starchild commons.
- *
- * Supporters burn $STARCHILD toward public goals. When a goal is funded, the
- * work ships free and open-source to everyone. Tokens are destroyed, not
- * collected. This page is the only place a wallet ever appears — the companion
- * app stays wallet-free and private.
+ * Supporters burn $STARCHILD toward public goals; when funded, the work ships
+ * free + open-source to everyone. Tokens are destroyed, not collected.
+ * A wallet only ever appears here — the companion app stays wallet-free.
  */
 import { useCallback, useEffect, useState } from 'react'
+import Navbar from '@/components/Navbar'
+import VideoPlayer from '@/components/VideoPlayer'
 import {
   fetchGoals,
   fetchTokenMeta,
-  fetchTotalBurned,
   fetchBurnStats,
   burnToward,
   fmt,
@@ -26,85 +25,87 @@ import {
 
 const LAV = '#b8a0d8'
 const GOLD = '#e8d8a8'
+const MINT = '#a8d8b8'
 
 function pct(raised: bigint, target: bigint): number {
   if (target === 0n) return 0
-  const p = Number((raised * 1000n) / target) / 10
-  return Math.min(100, p)
+  return Math.min(100, Number((raised * 10000n) / target) / 100)
 }
 
 function GoalCard({
-  goal,
-  index,
-  decimals,
-  symbol,
-  onBurn,
-  busy,
+  goal, index, decimals, symbol, onBurn, busyIndex,
 }: {
-  goal: Goal
-  index: number
-  decimals: number
-  symbol: string
-  onBurn: (i: number, amount: string) => void
-  busy: boolean
+  goal: Goal; index: number; decimals: number; symbol: string
+  onBurn: (i: number, amount: string) => void; busyIndex: number | null
 }) {
   const [amount, setAmount] = useState('')
+  const [hover, setHover] = useState(false)
   const funded = goal.raised >= goal.target
   const progress = pct(goal.raised, goal.target)
   const status = goal.shipped ? 'Shipped' : funded ? 'Funded' : 'Open'
-  const statusColor = goal.shipped ? GOLD : funded ? '#a8d8b8' : LAV
+  const sColor = goal.shipped ? GOLD : funded ? MINT : LAV
+  const busy = busyIndex === index
 
   return (
     <div
-      className="rounded-2xl p-6 flex flex-col gap-4"
-      style={{ background: 'rgba(20,16,32,0.6)', border: '1px solid rgba(184,160,216,0.18)' }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: 'linear-gradient(180deg, rgba(26,21,37,0.7), rgba(14,11,22,0.7))',
+        border: `1px solid ${hover ? 'rgba(184,160,216,0.45)' : 'rgba(184,160,216,0.18)'}`,
+        borderRadius: 24,
+        padding: '28px 30px',
+        transition: 'border-color .25s, transform .25s',
+        transform: hover ? 'translateY(-2px)' : 'none',
+        boxShadow: hover ? '0 20px 60px rgba(120,80,180,0.18)' : 'none',
+      }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-medium" style={{ color: '#fff' }}>{goal.title}</h3>
-          <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.6)' }}>{goal.detail}</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <h3 style={{ fontSize: '1.3rem', fontWeight: 500, lineHeight: 1.2 }}>{goal.title}</h3>
+        <span style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+          color: sColor, border: `1px solid ${sColor}55`, background: `${sColor}14`,
+          borderRadius: 999, padding: '5px 11px', whiteSpace: 'nowrap',
+        }}>{status}</span>
+      </div>
+      <p style={{ marginTop: 8, fontSize: '0.92rem', lineHeight: 1.55, color: 'rgba(255,255,255,0.6)' }}>{goal.detail}</p>
+
+      {/* progress */}
+      <div style={{ marginTop: 22 }}>
+        <div style={{ height: 10, width: '100%', borderRadius: 999, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', width: `${Math.max(progress, 1.5)}%`, borderRadius: 999,
+            background: `linear-gradient(90deg, ${LAV}, ${GOLD})`,
+            boxShadow: `0 0 14px ${LAV}80`, transition: 'width .6s ease',
+          }} />
         </div>
-        <span
-          className="text-[11px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full whitespace-nowrap"
-          style={{ color: statusColor, border: `1px solid ${statusColor}55`, background: `${statusColor}14` }}
-        >
-          {status}
-        </span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+          <span style={{ color: GOLD }}>{fmt(goal.raised, decimals)} {symbol}</span>
+          <span>{progress.toFixed(progress < 1 ? 2 : 0)}% of {fmt(goal.target, decimals)}</span>
+        </div>
       </div>
 
-      {/* Progress */}
-      <div>
-        <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${LAV}, ${GOLD})` }}
-          />
-        </div>
-        <div className="flex justify-between text-xs mt-2" style={{ color: 'rgba(255,255,255,0.55)' }}>
-          <span>{fmt(goal.raised, decimals)} {symbol} burned</span>
-          <span>{progress.toFixed(0)}% of {fmt(goal.target, decimals)}</span>
-        </div>
-      </div>
-
-      {/* Contribute */}
+      {/* contribute */}
       {!goal.shipped && (
-        <div className="flex gap-2">
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <input
-            inputMode="decimal"
-            placeholder={`Amount of ${symbol}`}
-            value={amount}
+            inputMode="decimal" placeholder={`Amount of ${symbol}`} value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-            className="flex-1 rounded-xl px-3 py-2 text-sm outline-none"
-            style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(184,160,216,0.25)', color: '#fff' }}
+            style={{
+              flex: 1, borderRadius: 12, padding: '11px 14px', fontSize: 14, color: '#fff',
+              background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(184,160,216,0.22)', outline: 'none',
+            }}
           />
           <button
             disabled={busy || !amount || Number(amount) <= 0}
             onClick={() => onBurn(index, amount)}
-            className="px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-40"
-            style={{ background: LAV, color: '#1a1525' }}
-          >
-            {busy ? 'Burning…' : 'Burn 🔥'}
-          </button>
+            style={{
+              padding: '11px 20px', borderRadius: 12, fontSize: 14, fontWeight: 600, border: 'none',
+              cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+              background: `linear-gradient(90deg, ${LAV}, ${GOLD})`, color: '#1a1525',
+              opacity: busy || !amount || Number(amount) <= 0 ? 0.4 : 1, transition: 'opacity .2s',
+            }}
+          >{busy ? 'Burning…' : 'Burn 🔥'}</button>
         </div>
       )}
     </div>
@@ -113,140 +114,115 @@ function GoalCard({
 
 export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([])
-  const [totalBurned, setTotalBurned] = useState<bigint>(0n)
   const [burn, setBurn] = useState<BurnStats | null>(null)
   const [meta, setMeta] = useState<{ decimals: number; symbol: string }>({ decimals: 18, symbol: 'STARCHILD' })
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
+  const [busyIndex, setBusyIndex] = useState<number | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    try {
-      const [g, t, b, m] = await Promise.all([
-        fetchGoals(),
-        fetchTotalBurned(),
-        fetchBurnStats().catch(() => null),
-        fetchTokenMeta().catch(() => null),
-      ])
-      setGoals(g)
-      setTotalBurned(t)
-      if (b) setBurn(b)
-      if (m) setMeta(m)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
+    const [g, b, m] = await Promise.all([
+      fetchGoals().catch(() => [] as Goal[]),
+      fetchBurnStats().catch(() => null),
+      fetchTokenMeta().catch(() => null),
+    ])
+    setGoals(g)
+    if (b) setBurn(b)
+    if (m) setMeta(m)
+    setLoading(false)
   }, [])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
-  const onBurn = useCallback(
-    async (i: number, amount: string) => {
-      setBusy(true)
-      setMsg(null)
-      try {
-        const hash = await burnToward(i, amount, meta.decimals)
-        setMsg(`Burned. tx ${hash.slice(0, 10)}… — thank you for funding the commons.`)
-        await load()
-      } catch (e) {
-        setMsg(e instanceof Error ? e.message : 'Transaction failed')
-      } finally {
-        setBusy(false)
-      }
-    },
-    [meta.decimals, load],
-  )
+  const onBurn = useCallback(async (i: number, amount: string) => {
+    setBusyIndex(i); setMsg(null)
+    try {
+      const hash = await burnToward(i, amount, meta.decimals)
+      setMsg(`Burned. tx ${hash.slice(0, 12)}… — thank you for funding the commons.`)
+      await load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Transaction failed')
+    } finally { setBusyIndex(null) }
+  }, [meta.decimals, load])
 
   return (
-    <main className="min-h-screen bg-black px-6 py-20" style={{ color: '#fff' }}>
-      <div
-        className="pointer-events-none fixed inset-0 z-0"
-        aria-hidden
-        style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 0%, rgba(120,80,180,0.16) 0%, transparent 70%)' }}
-      />
-      <div className="relative z-10 mx-auto max-w-2xl">
-        <h1 className="text-center" style={{ fontSize: 'clamp(1.8rem,4vw,2.8rem)', fontWeight: 300, fontStyle: 'italic' }}>
+    <main style={{ background: '#000', color: '#fff', minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
+      <Navbar />
+      <div aria-hidden style={{
+        position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse 70% 50% at 50% -5%, rgba(120,80,180,0.22) 0%, transparent 70%)',
+      }} />
+
+      {/* ── Hero ── */}
+      <section style={{
+        position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto',
+        padding: '150px 24px 40px', textAlign: 'center',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+          <VideoPlayer src="/videos/starchild5.webm" className="glow-lavender"
+            style={{ width: 'clamp(150px, 22vw, 230px)', height: 'auto' }} />
+        </div>
+
+        <h1 style={{ fontSize: 'clamp(2.1rem, 5vw, 3.4rem)', fontWeight: 300, fontStyle: 'italic', letterSpacing: '-0.01em' }}>
           Burn to unlock
         </h1>
-        <p className="text-center mt-4 mx-auto max-w-xl" style={{ color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
-          Burn $STARCHILD toward what gets built next. When a goal is funded, the work ships
-          <em> free and open-source to everyone</em>. Tokens are destroyed — not collected.
-          The founder profits nothing; the commons grows.
+        <p style={{ margin: '18px auto 0', maxWidth: 560, lineHeight: 1.65, color: 'rgba(255,255,255,0.62)', fontSize: '1.02rem' }}>
+          Burn $STARCHILD toward what gets built next. When a goal is funded, the work ships{' '}
+          <em style={{ color: 'rgba(255,255,255,0.85)' }}>free and open-source to everyone</em>. Tokens are
+          destroyed — never collected. The founder profits nothing; the commons grows.
         </p>
 
-        {/* All-time burn — read from chain (founder burns + every contract burn) */}
-        <div className="mt-8 mb-10 text-center">
-          <div style={{ fontSize: 'clamp(2rem,6vw,3.4rem)', fontWeight: 600, color: GOLD }}>
-            {burn ? `${burn.pct.toFixed(2)}%` : '—'}
+        {/* big burn stat */}
+        <div style={{ marginTop: 56 }}>
+          <div style={{
+            fontSize: 'clamp(3.4rem, 11vw, 6.5rem)', fontWeight: 700, lineHeight: 1, color: GOLD,
+            textShadow: `0 0 50px ${GOLD}66`,
+          }}>
+            {burn ? `${burn.pct.toFixed(2)}%` : <span style={{ opacity: 0.35 }}>···</span>}
           </div>
-          <div className="text-xs uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          <div style={{ marginTop: 14, fontSize: 12, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.5)' }}>
             of all ${meta.symbol} supply burned forever
           </div>
           {burn && (
-            <div className="mt-3 text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              {fmt(burn.burned, burn.decimals)} of {fmt(burn.supply, burn.decimals)} ${burn.symbol} sent to{' '}
-              <a
-                href={`https://basescan.org/token/${STARCHILD_TOKEN}?a=${DEAD_ADDRESS}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: LAV, textDecoration: 'underline' }}
-              >
-                the dead address
-              </a>
-              {isDeployed && totalBurned > 0n && (
-                <> · {fmt(totalBurned, meta.decimals)} of it toward goals below</>
-              )}
+            <div style={{ marginTop: 12, fontSize: 14, color: 'rgba(255,255,255,0.55)' }}>
+              {fmt(burn.burned, burn.decimals)} of {fmt(burn.supply, burn.decimals)} ${burn.symbol} ·{' '}
+              <a href={`https://basescan.org/token/${STARCHILD_TOKEN}?a=${DEAD_ADDRESS}`} target="_blank" rel="noreferrer"
+                style={{ color: LAV, textDecoration: 'underline', textUnderlineOffset: 3 }}>proof on BaseScan</a>
             </div>
           )}
         </div>
+      </section>
+
+      {/* ── Goals ── */}
+      <section style={{ position: 'relative', zIndex: 1, maxWidth: 620, margin: '0 auto', padding: '24px 24px 120px' }}>
+        <h2 style={{ textAlign: 'center', fontSize: 13, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 28 }}>
+          Fund what gets built next
+        </h2>
 
         {msg && (
-          <p className="mb-6 text-center text-sm rounded-xl px-4 py-3" style={{ background: 'rgba(184,160,216,0.1)', color: LAV }}>
-            {msg}
-          </p>
+          <p style={{ marginBottom: 22, textAlign: 'center', fontSize: 14, borderRadius: 12, padding: '12px 16px', background: 'rgba(184,160,216,0.1)', color: LAV }}>{msg}</p>
         )}
 
-        {!isDeployed ? (
-          <p className="text-center text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
-            The burn-goals contract isn’t deployed yet. Set <code>NEXT_PUBLIC_BURN_GOALS_ADDRESS</code> once it’s live.
-          </p>
-        ) : loading ? (
-          <p className="text-center text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>Loading goals…</p>
+        {loading ? (
+          <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>Loading goals…</p>
         ) : goals.length === 0 ? (
-          <p className="text-center text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>No goals yet — check back soon.</p>
+          <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>No goals yet — check back soon.</p>
         ) : (
-          <div className="flex flex-col gap-5">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             {goals.map((g, i) => (
-              <GoalCard
-                key={i}
-                goal={g}
-                index={i}
-                decimals={meta.decimals}
-                symbol={meta.symbol}
-                onBurn={onBurn}
-                busy={busy}
-              />
+              <GoalCard key={i} goal={g} index={i} decimals={meta.decimals} symbol={meta.symbol} onBurn={onBurn} busyIndex={busyIndex} />
             ))}
           </div>
         )}
 
-        <p className="mt-12 text-center text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
-          Contract burns straight to 0x…dEaD — it never holds your tokens.{' '}
+        <p style={{ marginTop: 40, textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>
+          Contributions burn straight to <span style={{ fontFamily: 'monospace' }}>0x…dEaD</span> — the contract never holds your tokens.{' '}
           {isDeployed && (
-            <a
-              href={`https://basescan.org/address/${BURN_GOALS_ADDRESS}`}
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: LAV, textDecoration: 'underline' }}
-            >
-              View on BaseScan
-            </a>
+            <a href={`https://basescan.org/address/${BURN_GOALS_ADDRESS}`} target="_blank" rel="noreferrer"
+              style={{ color: LAV, textDecoration: 'underline', textUnderlineOffset: 3 }}>View contract</a>
           )}
         </p>
-      </div>
+      </section>
     </main>
   )
 }
