@@ -27,6 +27,9 @@ export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000
 
 const RPC = 'https://mainnet.base.org'
 
+/** Canonical burn sink — every burn (past founder burns + contract burns) lands here. */
+export const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const
+
 export const publicClient = createPublicClient({ chain: base, transport: http(RPC) })
 
 export function getInjected(): EIP1193Provider | null {
@@ -84,6 +87,7 @@ export const burnGoalsAbi = [
 export const erc20Abi = [
   { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
   { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   {
     type: 'function',
@@ -133,6 +137,24 @@ export async function fetchGoals(): Promise<Goal[]> {
 export async function fetchTotalBurned(): Promise<bigint> {
   if (!isDeployed) return 0n
   return publicClient.readContract({ address: BURN_GOALS_ADDRESS, abi: burnGoalsAbi, functionName: 'totalBurned' })
+}
+
+export type BurnStats = { burned: bigint; supply: bigint; pct: number; decimals: number; symbol: string }
+
+/**
+ * All-time burn, read straight from chain: balanceOf(0x…dEaD) ÷ totalSupply.
+ * Captures every burn — the founder's existing burns AND every contract burn,
+ * since they all land at the dead address. Works before the goals contract exists.
+ */
+export async function fetchBurnStats(): Promise<BurnStats> {
+  const [supply, burned, decimals, symbol] = await Promise.all([
+    publicClient.readContract({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'totalSupply' }) as Promise<bigint>,
+    publicClient.readContract({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'balanceOf', args: [DEAD_ADDRESS] }) as Promise<bigint>,
+    publicClient.readContract({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'decimals' }) as Promise<number>,
+    publicClient.readContract({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'symbol' }) as Promise<string>,
+  ])
+  const pct = supply === 0n ? 0 : Number((burned * 1000000n) / supply) / 10000
+  return { burned, supply, pct, decimals: Number(decimals), symbol }
 }
 
 // ─── Write: approve (if needed) then contribute ───────────────────────────────
