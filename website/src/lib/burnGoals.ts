@@ -9,6 +9,7 @@ import {
   createWalletClient,
   custom,
   http,
+  fallback,
   formatUnits,
   parseUnits,
   type Address,
@@ -25,12 +26,21 @@ export const BURN_GOALS_ADDRESS = (process.env.NEXT_PUBLIC_BURN_GOALS_ADDRESS ??
 
 export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000000000000000'
 
-const RPC = 'https://mainnet.base.org'
-
 /** Canonical burn sink — every burn (past founder burns + contract burns) lands here. */
 export const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const
 
-export const publicClient = createPublicClient({ chain: base, transport: http(RPC) })
+// Multiple CORS-enabled Base RPCs with failover, and multicall batching so all
+// reads coalesce into 1–2 requests (avoids 429 rate-limits from bursts).
+export const publicClient = createPublicClient({
+  chain: base,
+  transport: fallback([
+    http('https://base-rpc.publicnode.com'),
+    http('https://base.drpc.org'),
+    http('https://1rpc.io/base'),
+    http('https://mainnet.base.org'),
+  ]),
+  batch: { multicall: { wait: 30 } },
+})
 
 export function getInjected(): EIP1193Provider | null {
   if (typeof window === 'undefined') return null
