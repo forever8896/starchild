@@ -19,9 +19,9 @@ import { base } from 'viem/chains'
 /** $STARCHILD on Base. */
 export const STARCHILD_TOKEN = '0x980e9f2061487376ab1438e965ad276a1d36fba3' as const
 
-/** Set after deploying contracts/script/Deploy.s.sol. */
+/** Live StarchildBurnGoals contract on Base (env var overrides for testing). */
 export const BURN_GOALS_ADDRESS = (process.env.NEXT_PUBLIC_BURN_GOALS_ADDRESS ??
-  '0x0000000000000000000000000000000000000000') as Address
+  '0x0c8D4Ad5f9e2211D0A57aBA9aF9Dbc8eb25Df879') as Address
 
 export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000000000000000'
 
