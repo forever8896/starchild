@@ -26,6 +26,97 @@ export const BURN_GOALS_ADDRESS = (process.env.NEXT_PUBLIC_BURN_GOALS_ADDRESS ??
 
 export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000000000000000'
 
+/** Live StarchildStaking contract (set after deploy via env). */
+export const STAKING_ADDRESS = (process.env.NEXT_PUBLIC_STAKING_ADDRESS ??
+  '0x0000000000000000000000000000000000000000') as Address
+
+export const stakingDeployed = STAKING_ADDRESS !== '0x0000000000000000000000000000000000000000'
+
+export const stakingAbi = [
+  { type: 'function', name: 'stake', stateMutability: 'nonpayable', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [] },
+  { type: 'function', name: 'unstake', stateMutability: 'nonpayable', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [] },
+  { type: 'function', name: 'stakedOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'convictionOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'totalStaked', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'function', name: 'stakeInfo', stateMutability: 'view', inputs: [{ type: 'address' }],
+    outputs: [{ name: 'amount', type: 'uint256' }, { name: 'since', type: 'uint64' }, { name: 'conviction', type: 'uint256' }],
+  },
+] as const
+
+// ── Governance: EIP-712 signing constants (client-safe — no server imports) ──
+export const PROPOSE_MIN = parseUnits('10000000', 18) // 10,000,000 $STARCHILD staked to propose
+export const EIP712_DOMAIN = { name: 'Starchild Governance', version: '1', chainId: 8453 } as const
+export const PROPOSAL_TYPES = {
+  Proposal: [{ name: 'title', type: 'string' }, { name: 'detail', type: 'string' }, { name: 'nonce', type: 'string' }],
+} as const
+export const VOTE_TYPES = {
+  Vote: [{ name: 'proposalId', type: 'string' }, { name: 'support', type: 'bool' }],
+} as const
+
+// ── Staking reads + writes (client) ──
+export async function fetchStakeInfo(addr: Address): Promise<{ amount: bigint; conviction: bigint }> {
+  const r = (await publicClient.readContract({
+    address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stakeInfo', args: [addr],
+  })) as readonly [bigint, bigint, bigint]
+  return { amount: r[0], conviction: r[2] }
+}
+
+export async function fetchTotalStaked(): Promise<bigint> {
+  return publicClient.readContract({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'totalStaked' }) as Promise<bigint>
+}
+
+export async function stakeTokens(amountHuman: string, decimals: number): Promise<`0x${string}`> {
+  const wallet = getWalletClient()
+  const [account] = await wallet.requestAddresses()
+  const amount = parseUnits(amountHuman, decimals)
+  const allowance = (await publicClient.readContract({
+    address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'allowance', args: [account, STAKING_ADDRESS],
+  })) as bigint
+  if (allowance < amount) {
+    const ah = await wallet.writeContract({ account, address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'approve', args: [STAKING_ADDRESS, amount] })
+    await publicClient.waitForTransactionReceipt({ hash: ah })
+  }
+  const hash = await wallet.writeContract({ account, address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stake', args: [amount] })
+  await publicClient.waitForTransactionReceipt({ hash })
+  return hash
+}
+
+export async function unstakeTokens(amountHuman: string, decimals: number): Promise<`0x${string}`> {
+  const wallet = getWalletClient()
+  const [account] = await wallet.requestAddresses()
+  const amount = parseUnits(amountHuman, decimals)
+  const hash = await wallet.writeContract({ account, address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'unstake', args: [amount] })
+  await publicClient.waitForTransactionReceipt({ hash })
+  return hash
+}
+
+// ── Governance signing + API (client) ──
+export type ProposalView = { id: string; title: string; detail: string; proposer: string; createdAt: number; support: string; voters: number }
+
+export async function fetchProposals(): Promise<ProposalView[]> {
+  const r = await fetch('/api/proposals', { cache: 'no-store' })
+  const d = await r.json()
+  return d.proposals ?? []
+}
+
+export async function signAndPropose(title: string, detail: string): Promise<void> {
+  const wallet = getWalletClient()
+  const [account] = await wallet.requestAddresses()
+  const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal', message: { title, detail, nonce } })
+  const r = await fetch('/api/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, detail, nonce, proposer: account, signature }) })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? 'failed to submit proposal')
+}
+
+export async function signAndVote(proposalId: string, support: boolean): Promise<void> {
+  const wallet = getWalletClient()
+  const [account] = await wallet.requestAddresses()
+  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: VOTE_TYPES, primaryType: 'Vote', message: { proposalId, support } })
+  const r = await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalId, support, voter: account, signature }) })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? 'failed to vote')
+}
+
 /** Canonical burn sink — every burn (past founder burns + contract burns) lands here. */
 export const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const
 
