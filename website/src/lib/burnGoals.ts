@@ -26,9 +26,9 @@ export const BURN_GOALS_ADDRESS = (process.env.NEXT_PUBLIC_BURN_GOALS_ADDRESS ??
 
 export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000000000000000'
 
-/** Live StarchildStaking contract (set after deploy via env). */
+/** Live StarchildStaking contract on Base (env overrides for testing). */
 export const STAKING_ADDRESS = (process.env.NEXT_PUBLIC_STAKING_ADDRESS ??
-  '0x0000000000000000000000000000000000000000') as Address
+  '0x666b7f5Db0cab9450d48332Dd427b55928293053') as Address
 
 export const stakingDeployed = STAKING_ADDRESS !== '0x0000000000000000000000000000000000000000'
 
