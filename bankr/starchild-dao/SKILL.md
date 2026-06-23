@@ -61,7 +61,7 @@ Sign this typed data with the user's wallet, then POST it. **No transaction is s
 - **domain:** `{ "name": "Starchild Governance", "version": "1", "chainId": 8453 }`
 - **types:** `{ "Vote": [ { "name": "proposalId", "type": "string" }, { "name": "support", "type": "bool" } ] }`
 - **primaryType:** `Vote`
-- **message:** `{ "proposalId": "<id from the list>", "support": true }`  (use `false` only if a future UI supports against-votes; today support is `true`)
+- **message:** `{ "proposalId": "<id from the list>", "support": true }`  (`true` = back it / for · `false` = against — both count, weighted by live stake)
 
 Then:
 `POST https://token.starchild.software/api/votes`
@@ -74,16 +74,19 @@ The backend verifies the signature and the voter's **live** on-chain stake; weig
 First confirm `stakedOf(user) >= 1e25`. Remind them of **the one rule**. Then sign + POST.
 
 - **domain:** `{ "name": "Starchild Governance", "version": "1", "chainId": 8453 }`
-- **types:** `{ "Proposal": [ { "name": "title", "type": "string" }, { "name": "detail", "type": "string" }, { "name": "nonce", "type": "string" } ] }`
+- **types:** `{ "Proposal": [ { "name": "title", "type": "string" }, { "name": "detail", "type": "string" }, { "name": "nonce", "type": "string" }, { "name": "quorumBps", "type": "uint256" } ] }`
 - **primaryType:** `Proposal`
-- **message:** `{ "title": "<one line>", "detail": "<how it works + why it never touches the core product>", "nonce": "<unique string, e.g. a timestamp + random suffix>" }`
+- **message:** `{ "title": "<one line>", "detail": "<how it works + why it never touches the core product>", "nonce": "<unique string>", "quorumBps": 0 }`
+  - `quorumBps` = `0` for a plain idea board (just accrues backing). For a **pass/fail yes-no vote**, set it to a % of total staked in **basis points** — e.g. `3000` = 30% (the proposal "passes" when its *for* weight ≥ that % of all staked **and** for > against).
 
 Then:
 `POST https://token.starchild.software/api/proposals`
 ```json
-{ "title": "<one line>", "detail": "<detail>", "nonce": "<same nonce you signed>", "proposer": "<user address>", "signature": "<the EIP-712 signature>" }
+{ "title": "<one line>", "detail": "<detail>", "nonce": "<same nonce>", "quorumBps": 0, "proposer": "<user address>", "signature": "<the EIP-712 signature>" }
 ```
-HTTP 200 = the proposal is live. HTTP 400 = bad signature or the 10M-staked requirement isn't met. The `title`/`detail`/`nonce` in the POST body must exactly match what was signed.
+HTTP 200 = the proposal is live. HTTP 400 = bad signature or the 10M-staked requirement isn't met. The `title`/`detail`/`nonce`/`quorumBps` in the POST body must exactly match what was signed (`quorumBps` is signed as a uint256, so pass the same integer).
+
+> **Official proposals:** the founder address `0x1f44d8655727bb26532c657bec8882154a01e170` holds zero $STARCHILD by design, so it's exempt from the 10M-stake gate (it can post "official" proposals) — but it also has zero vote weight, so it can ask a question and never sway it.
 
 ## Guardrails
 - Votes and proposals are **public** — never imply they're private.

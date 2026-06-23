@@ -12,10 +12,12 @@ import { LAV, GOLD, card, inputStyle, eyebrow, h2, lead, link, i, Star, Btn } fr
 import {
   fetchTokenMeta, fetchStakeInfo, fetchTotalStaked, fetchProposals,
   stakeTokens, unstakeTokens, signAndPropose, signAndVote,
-  getInjected, fmt, stakingDeployed, PROPOSE_MIN, LINKS,
+  getInjected, fmt, stakingDeployed, PROPOSE_MIN, LINKS, isFounder,
   type ProposalView,
 } from '@/lib/burnGoals'
 import { type Address } from 'viem'
+
+const MINT = '#a8d8b8', ROSE = '#e0a0a0'
 
 export default function DaoPage() {
   const [account, setAccount] = useState<Address | null>(null)
@@ -24,7 +26,7 @@ export default function DaoPage() {
   const [mine, setMine] = useState<{ amount: bigint; conviction: bigint } | null>(null)
   const [proposals, setProposals] = useState<ProposalView[]>([])
   const [stakeAmt, setStakeAmt] = useState('')
-  const [pTitle, setPTitle] = useState(''); const [pDetail, setPDetail] = useState('')
+  const [pTitle, setPTitle] = useState(''); const [pDetail, setPDetail] = useState(''); const [pQuorum, setPQuorum] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -55,7 +57,8 @@ export default function DaoPage() {
   }, [account, loadAll, loadMine])
 
   const staked = mine?.amount ?? 0n
-  const canPropose = staked >= PROPOSE_MIN
+  const official = isFounder(account)
+  const canPropose = staked >= PROPOSE_MIN || official
   const minHuman = fmt(PROPOSE_MIN, meta.decimals)
 
   return (
@@ -143,20 +146,49 @@ export default function DaoPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 30 }}>
             {proposals.length === 0 ? (
               <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>Nothing here yet — open the first one.</p>
-            ) : proposals.map((p) => (
+            ) : proposals.map((p) => {
+              const fr = BigInt(p.support), ag = BigInt(p.against), q = BigInt(p.quorumTokens)
+              const pct = q > 0n ? Number((fr * 1000n) / q) / 10 : 0
+              return (
               <div key={p.id} style={card}>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 500 }}>{p.title}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  {p.official && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1a1525', background: GOLD, borderRadius: 6, padding: '2px 7px' }}>official</span>}
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 500 }}>{p.title}</h3>
+                  {p.quorumBps > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.passed ? MINT : LAV }}>
+                      {p.passed ? '✓ passed' : 'open vote'}
+                    </span>
+                  )}
+                </div>
                 {p.detail && <p style={{ marginTop: 8, fontSize: '0.92rem', lineHeight: 1.6, color: 'rgba(255,255,255,0.6)' }}>{p.detail}</p>}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, gap: 12 }}>
-                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
-                    <span style={{ color: GOLD, fontWeight: 600 }}>{fmt(BigInt(p.support), meta.decimals)}</span> {meta.symbol} · {p.voters} voter{p.voters === 1 ? '' : 's'}
+
+                <div style={{ display: 'flex', gap: 18, marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+                  <span><span style={{ color: MINT, fontWeight: 600 }}>{fmt(fr, meta.decimals)}</span> for · {p.voters}</span>
+                  <span><span style={{ color: ROSE, fontWeight: 600 }}>{fmt(ag, meta.decimals)}</span> against · {p.againstVoters}</span>
+                </div>
+
+                {p.quorumBps > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: p.passed ? MINT : `linear-gradient(90deg, ${LAV}, ${GOLD})`, transition: 'width .4s' }} />
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                      {pct.toFixed(0)}% of the {(p.quorumBps / 100).toFixed(0)}%-of-staked quorum ({fmt(q, meta.decimals)} {meta.symbol})
+                    </div>
                   </div>
-                  <Btn onClick={() => run(`vote-${p.id}`, () => signAndVote(p.id, true), 'Signed — thank you.')} disabled={!!busy || !account || staked === 0n}>
-                    {busy === `vote-${p.id}` ? 'Signing…' : 'Back it'}
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 18, gap: 10 }}>
+                  <Btn kind="ghost" onClick={() => run(`no-${p.id}`, () => signAndVote(p.id, false), 'Signed — your vote against counts.')} disabled={!!busy || !account || staked === 0n}>
+                    {busy === `no-${p.id}` ? '…' : 'Against'}
+                  </Btn>
+                  <Btn onClick={() => run(`yes-${p.id}`, () => signAndVote(p.id, true), 'Signed — thank you.')} disabled={!!busy || !account || staked === 0n}>
+                    {busy === `yes-${p.id}` ? 'Signing…' : 'Back it'}
                   </Btn>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </section>
 
@@ -176,13 +208,19 @@ export default function DaoPage() {
             {!account ? <Btn onClick={connect}>Connect wallet to propose</Btn> : (
               <>
                 <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
-                  {canPropose ? 'Sign to put it forward — gasless.' : `You need ${minHuman} ${meta.symbol} staked to propose (you have ${fmt(staked, meta.decimals)}).`}
+                  {official
+                    ? 'You\'re posting as the founder — official proposal, no stake needed. (You hold zero, so you can\'t vote on it — the holders decide.)'
+                    : canPropose ? 'Sign to put it forward — gasless.' : `You need ${minHuman} ${meta.symbol} staked to propose (you have ${fmt(staked, meta.decimals)}).`}
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <input placeholder="A utility this token could have, in a line" maxLength={100} value={pTitle} onChange={(e) => setPTitle(e.target.value)} style={inputStyle} disabled={!canPropose} />
                   <textarea placeholder="How it would work — and how it stays clear of the core product (optional)" maxLength={500} value={pDetail} onChange={(e) => setPDetail(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} disabled={!canPropose} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input inputMode="decimal" placeholder="Quorum %" value={pQuorum} onChange={(e) => setPQuorum(e.target.value.replace(/[^0-9.]/g, ''))} style={{ ...inputStyle, maxWidth: 130 }} disabled={!canPropose} />
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>optional — blank = idea board; set a % of all staked it must reach to pass a yes/no vote</span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Btn onClick={() => run('propose', async () => { await signAndPropose(pTitle.trim(), pDetail.trim()); setPTitle(''); setPDetail('') }, 'It\'s up. Thank you for thinking with me.')} disabled={!!busy || !canPropose || !pTitle.trim()}>
+                    <Btn onClick={() => run('propose', async () => { await signAndPropose(pTitle.trim(), pDetail.trim(), Math.max(0, Math.min(10000, Math.round((parseFloat(pQuorum) || 0) * 100)))); setPTitle(''); setPDetail(''); setPQuorum('') }, 'It\'s up. Thank you for thinking with me.')} disabled={!!busy || !canPropose || !pTitle.trim()}>
                       {busy === 'propose' ? 'Submitting…' : 'Sign & propose'}
                     </Btn>
                   </div>

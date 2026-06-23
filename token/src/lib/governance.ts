@@ -12,7 +12,7 @@ import { verifyTypedData, getAddress, type Address } from 'viem'
 import { Redis } from '@upstash/redis'
 import {
   publicClient, STAKING_ADDRESS, stakingAbi,
-  PROPOSE_MIN, EIP712_DOMAIN, PROPOSAL_TYPES, VOTE_TYPES,
+  PROPOSE_MIN, EIP712_DOMAIN, PROPOSAL_TYPES, VOTE_TYPES, isFounder,
 } from './burnGoals'
 
 export { PROPOSE_MIN, EIP712_DOMAIN, PROPOSAL_TYPES, VOTE_TYPES }
@@ -23,6 +23,7 @@ export type Proposal = {
   detail: string
   proposer: Address
   nonce: string
+  quorumBps: number // 0 = plain support board; >0 = passes at this % of total staked (bps)
   signature: `0x${string}`
   createdAt: number
 }
@@ -40,6 +41,10 @@ export async function stakedOf(addr: Address): Promise<bigint> {
   return publicClient.readContract({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stakedOf', args: [addr] }) as Promise<bigint>
 }
 
+export async function totalStaked(): Promise<bigint> {
+  return publicClient.readContract({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'totalStaked' }) as Promise<bigint>
+}
+
 // ── Proposals ────────────────────────────────────────────────────────────────
 
 export async function listProposals(): Promise<Proposal[]> {
@@ -54,18 +59,23 @@ export async function addProposal(p: Proposal): Promise<void> {
 
 /** Verify a proposal signature and that the proposer meets the stake minimum. */
 export async function verifyProposal(input: {
-  title: string; detail: string; nonce: string; proposer: string; signature: `0x${string}`
+  title: string; detail: string; nonce: string; quorumBps: number; proposer: string; signature: `0x${string}`
 }): Promise<{ ok: true; proposer: Address } | { ok: false; error: string }> {
   let proposer: Address
   try { proposer = getAddress(input.proposer) } catch { return { ok: false, error: 'bad address' } }
   if (!input.title?.trim() || input.title.length > 100) return { ok: false, error: 'title 1–100 chars' }
   if (input.detail && input.detail.length > 500) return { ok: false, error: 'detail ≤ 500 chars' }
+  const quorumBps = Math.max(0, Math.min(10000, Math.trunc(Number(input.quorumBps) || 0)))
 
   const valid = await verifyTypedData({
     address: proposer, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal',
-    message: { title: input.title, detail: input.detail ?? '', nonce: input.nonce }, signature: input.signature,
+    message: { title: input.title, detail: input.detail ?? '', nonce: input.nonce, quorumBps: BigInt(quorumBps) }, signature: input.signature,
   }).catch(() => false)
   if (!valid) return { ok: false, error: 'invalid signature' }
+
+  // The founder holds zero by design — official proposals bypass the stake gate
+  // (and the founder still has zero vote weight, so they can ask, never decide).
+  if (isFounder(proposer)) return { ok: true, proposer }
 
   const staked = await stakedOf(proposer)
   if (staked < PROPOSE_MIN) return { ok: false, error: 'must stake at least 10,000,000 $STARCHILD to propose' }
@@ -98,8 +108,8 @@ export async function recordVote(proposalId: string, voter: Address, support: bo
  * balance (read live via multicall), so unstaking removes your weight — votes
  * can't be cast then withdrawn for free.
  */
-export async function tally(proposalIds: string[]): Promise<Record<string, { support: bigint; voters: number }>> {
-  const out: Record<string, { support: bigint; voters: number }> = {}
+export async function tally(proposalIds: string[]): Promise<Record<string, { support: bigint; against: bigint; voters: number; againstVoters: number }>> {
+  const out: Record<string, { support: bigint; against: bigint; voters: number; againstVoters: number }> = {}
   const voterSets = await Promise.all(proposalIds.map((id) => redis().hgetall<Record<string, string>>(votesKey(id))))
   const allVoters = new Set<string>()
   voterSets.forEach((vs) => vs && Object.keys(vs).forEach((v) => allVoters.add(v)))
@@ -113,11 +123,12 @@ export async function tally(proposalIds: string[]): Promise<Record<string, { sup
   }
   proposalIds.forEach((id, i) => {
     const vs = voterSets[i] || {}
-    let support = 0n, voters = 0
+    let support = 0n, against = 0n, voters = 0, againstVoters = 0
     for (const [v, s] of Object.entries(vs)) {
-      if (s === '1') { support += weights.get(v) ?? 0n; voters++ }
+      const w = weights.get(v) ?? 0n
+      if (s === '1') { support += w; voters++ } else { against += w; againstVoters++ }
     }
-    out[id] = { support, voters }
+    out[id] = { support, against, voters, againstVoters }
   })
   return out
 }
