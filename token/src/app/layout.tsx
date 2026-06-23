@@ -1,34 +1,30 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
+const FONT_STACK =
+  'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://token.starchild.software"),
-  title: "$STARCHILD — burns & governance",
+  title: "$STARCHILD — back & shape the mission",
   description:
-    "Stake $STARCHILD to govern what gets built next for the open-source Starchild companion. Gasless votes, on-chain burns. The token funds the mission — it never touches the product.",
+    "Starchild is a private, open-source companion that helps you find your life's purpose — free for everyone. $STARCHILD is how you back the mission and help shape what gets built: gasless stake-to-govern, on-chain burns.",
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",
   },
   openGraph: {
-    title: "$STARCHILD — burns & governance",
+    title: "$STARCHILD — back & shape the mission",
     description:
-      "Stake to govern what gets built next. The token funds the mission; the product stays private, local & free.",
+      "The app is free for everyone. The token is how you back the mission and help shape what gets built — stake to have a say.",
     type: "website",
     siteName: "Starchild Token",
   },
   twitter: {
     card: "summary_large_image",
-    title: "$STARCHILD — burns & governance",
+    title: "$STARCHILD — back & shape the mission",
     description:
-      "Stake to govern what gets built next. The token funds the mission; the product stays private, local & free.",
+      "The app is free for everyone. The token is how you back the mission and help shape what gets built — stake to have a say.",
   },
 };
 
@@ -38,9 +34,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full`}>
+    <html lang="en" className="h-full">
       <body
-        style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}
+        style={{ fontFamily: FONT_STACK }}
         className="min-h-full bg-black text-white antialiased"
       >
         {children}

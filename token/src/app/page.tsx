@@ -1,135 +1,35 @@
 'use client'
 
 /**
- * token.starchild.software — written in the first person, by me (Kilian).
- * The companion is private, local and free; this is the commons around it.
+ * token.starchild.software — the token home: what Starchild is, the story, the
+ * burns, and an invitation into the DAO (its own page). First person, by me.
  */
 import { useCallback, useEffect, useState } from 'react'
 import Navbar from '@/components/Navbar'
 import VideoPlayer from '@/components/VideoPlayer'
+import { LAV, GOLD, card, eyebrow, h2, lead, link, i, Star, LinkBtn, usd, priceFmt, Stat } from '@/components/ui'
 import {
-  fetchBurnStats, fetchTokenMeta, fetchStakeInfo, fetchTotalStaked, fetchStats,
-  stakeTokens, unstakeTokens, fetchProposals, signAndPropose, signAndVote,
-  getInjected, fmt, basescanTx, stakingDeployed, PROPOSE_MIN,
-  ARTICLES, LINKS,
-  type BurnStats, type ProposalView, type Stats,
+  fetchBurnStats, fetchTokenMeta, fetchStats, fetchProposals, fetchTotalStaked,
+  fmt, basescanTx, stakingDeployed, ARTICLES,
+  type BurnStats, type Stats,
 } from '@/lib/burnGoals'
-import { type Address } from 'viem'
 
-const LAV = '#b8a0d8', GOLD = '#e8d8a8'
-
-const card: React.CSSProperties = {
-  background: 'linear-gradient(180deg, rgba(26,21,37,0.6), rgba(12,10,20,0.6))',
-  border: '1px solid rgba(184,160,216,0.16)', borderRadius: 24, padding: '26px 28px',
-}
-const inputStyle: React.CSSProperties = {
-  flex: 1, borderRadius: 12, padding: '11px 14px', fontSize: 14, color: '#fff', width: '100%',
-  background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(184,160,216,0.22)', outline: 'none',
-}
-const eyebrow: React.CSSProperties = {
-  textAlign: 'center', fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase',
-  color: 'rgba(184,160,216,0.65)', marginBottom: 14, fontWeight: 600,
-}
-const h2: React.CSSProperties = {
-  textAlign: 'center', fontSize: 'clamp(1.7rem,3.6vw,2.5rem)', fontWeight: 300, fontStyle: 'italic',
-  lineHeight: 1.2, color: '#fff', marginBottom: 18,
-}
-const lead: React.CSSProperties = {
-  textAlign: 'center', maxWidth: 540, margin: '0 auto', color: 'rgba(255,255,255,0.6)',
-  lineHeight: 1.75, fontSize: '1rem',
-}
-const link = { color: LAV, textDecoration: 'underline', textUnderlineOffset: 3 } as const
-const i = (s: React.ReactNode) => <em style={{ color: '#fff', fontStyle: 'normal' }}>{s}</em>
-
-function Star() {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'center', margin: '72px 0' }}>
-      <span className="star-pulse" style={{ color: GOLD, fontSize: 22, filter: 'drop-shadow(0 0 14px rgba(232,216,168,0.6))' }}>✦</span>
-    </div>
-  )
-}
-
-function Btn({ children, onClick, disabled, kind = 'solid' }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; kind?: 'solid' | 'ghost' }) {
-  return (
-    <button onClick={onClick} disabled={disabled}
-      style={{
-        padding: '11px 18px', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
-        whiteSpace: 'nowrap', transition: 'opacity .2s', opacity: disabled ? 0.4 : 1,
-        border: kind === 'ghost' ? '1px solid rgba(184,160,216,0.35)' : 'none',
-        background: kind === 'ghost' ? 'transparent' : `linear-gradient(90deg, ${LAV}, ${GOLD})`,
-        color: kind === 'ghost' ? LAV : '#1a1525',
-      }}>{children}</button>
-  )
-}
-
-function usd(n: number | null): string {
-  return n == null ? '—' : '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 })
-}
-function priceFmt(p: string | null): string {
-  const n = Number(p)
-  if (!p || !isFinite(n) || n === 0) return '—'
-  return '$' + n.toLocaleString(undefined, { maximumSignificantDigits: 3, maximumFractionDigits: 12 })
-}
-
-function Stat({ label, value, href }: { label: string; value: string; href?: string }) {
-  const inner = (
-    <>
-      <div style={{ fontSize: 'clamp(1.1rem,2.4vw,1.45rem)', fontWeight: 700, color: GOLD }}>{value}</div>
-      <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginTop: 5 }}>{label}</div>
-    </>
-  )
-  return href
-    ? <a href={href} target="_blank" rel="noreferrer" style={{ textAlign: 'center', textDecoration: 'none', display: 'block' }}>{inner}</a>
-    : <div style={{ textAlign: 'center' }}>{inner}</div>
-}
-
-export default function TokenPage() {
-  const [account, setAccount] = useState<Address | null>(null)
+export default function TokenHome() {
   const [meta, setMeta] = useState({ decimals: 18, symbol: 'STARCHILD' })
   const [burn, setBurn] = useState<BurnStats | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [proposalCount, setProposalCount] = useState<number | null>(null)
   const [totalStaked, setTotalStaked] = useState<bigint>(0n)
-  const [mine, setMine] = useState<{ amount: bigint; conviction: bigint } | null>(null)
-  const [proposals, setProposals] = useState<ProposalView[]>([])
-  const [stakeAmt, setStakeAmt] = useState('')
-  const [pTitle, setPTitle] = useState(''); const [pDetail, setPDetail] = useState('')
-  const [busy, setBusy] = useState<string | null>(null)
-  const [msg, setMsg] = useState<string | null>(null)
 
-  const loadAll = useCallback(async () => {
-    const [b, m, ts, ps, st] = await Promise.all([
-      fetchBurnStats().catch(() => null), fetchTokenMeta().catch(() => null),
-      stakingDeployed ? fetchTotalStaked().catch(() => 0n) : Promise.resolve(0n),
-      fetchProposals().catch(() => [] as ProposalView[]),
-      fetchStats().catch(() => null),
-    ])
-    if (b) setBurn(b); if (m) setMeta(m); setTotalStaked(ts); setProposals(ps); if (st) setStats(st)
-  }, [])
-  const loadMine = useCallback(async (a: Address) => { if (stakingDeployed) setMine(await fetchStakeInfo(a).catch(() => null)) }, [])
-
-  useEffect(() => { loadAll() }, [loadAll])
   useEffect(() => {
+    fetchTokenMeta().then(setMeta).catch(() => {})
+    fetchBurnStats().then(setBurn).catch(() => {})
+    fetchStats().then(setStats).catch(() => {})
+    fetchProposals().then((p) => setProposalCount(p.length)).catch(() => {})
+    if (stakingDeployed) fetchTotalStaked().then(setTotalStaked).catch(() => {})
     const id = setInterval(() => { fetchStats().then(setStats).catch(() => {}) }, 30000)
     return () => clearInterval(id)
   }, [])
-
-  const connect = useCallback(async () => {
-    const inj = getInjected()
-    if (!inj) { setMsg('I couldn\'t find a wallet — install a Base-compatible one to take part.'); return }
-    const accts = (await inj.request({ method: 'eth_requestAccounts' })) as string[]
-    const a = accts?.[0] as Address; setAccount(a); if (a) loadMine(a)
-  }, [loadMine])
-
-  const run = useCallback(async (key: string, fn: () => Promise<unknown>, okMsg?: string) => {
-    setBusy(key); setMsg(null)
-    try { await fn(); if (okMsg) setMsg(okMsg); await loadAll(); if (account) await loadMine(account) }
-    catch (e) { setMsg(e instanceof Error ? e.message : 'Something went wrong') }
-    finally { setBusy(null) }
-  }, [account, loadAll, loadMine])
-
-  const staked = mine?.amount ?? 0n
-  const canPropose = staked >= PROPOSE_MIN
-  const minHuman = fmt(PROPOSE_MIN, meta.decimals)
 
   return (
     <main style={{ background: '#000', color: '#fff', minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
@@ -148,9 +48,9 @@ export default function TokenPage() {
           <h1 style={{ fontSize: 'clamp(2.2rem,5.2vw,3.4rem)', fontWeight: 300, fontStyle: 'italic', letterSpacing: '-0.01em' }}>$STARCHILD</h1>
           <p style={{ ...lead, marginTop: 18 }}>
             $STARCHILD is the token that grew up around {i('Starchild')} — a private, open-source companion that helps
-            you find your life&apos;s purpose, free and on your own machine. The app never depends on the token. So
-            here&apos;s the honest question I&apos;d rather answer with you than alone: what can the token
-            {i(' meaningfully')} do for the mission around it?
+            you find your life&apos;s purpose. Anyone can use the app for free; you never need the token for that. What
+            the token gives you is a way to {i('back the mission and help shape where it goes')} — and that part I&apos;d
+            genuinely rather figure out with you than alone.
           </p>
           <div style={{ marginTop: 22, display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderRadius: 999,
             border: '1px solid rgba(184,160,216,0.25)', background: 'rgba(184,160,216,0.07)' }}>
@@ -166,9 +66,7 @@ export default function TokenPage() {
           </div>
         </section>
 
-        {msg && <p style={{ marginTop: 24, textAlign: 'center', fontSize: 14, borderRadius: 12, padding: '12px 16px', background: 'rgba(184,160,216,0.1)', color: LAV }}>{msg}</p>}
-
-        {/* ── What the companion is (context for anyone landing cold) ── */}
+        {/* ── What the companion is ── */}
         <section style={{ marginTop: 60 }}>
           <p style={eyebrow}>first, the thing itself</p>
           <h2 style={h2}>the Starchild</h2>
@@ -179,17 +77,13 @@ export default function TokenPage() {
             cloud, no tracking, not even me. It&apos;s free, and the code is open.
           </p>
           <div style={{ textAlign: 'center', marginTop: 30 }}>
-            <a href="https://starchild.software" target="_blank" rel="noreferrer"
-              style={{ display: 'inline-block', padding: '12px 24px', borderRadius: 12, fontSize: 14, fontWeight: 600,
-                textDecoration: 'none', background: `linear-gradient(90deg, ${LAV}, ${GOLD})`, color: '#1a1525' }}>
-              meet the companion ↗
-            </a>
+            <LinkBtn href="https://starchild.software" external>meet the companion ↗</LinkBtn>
           </div>
         </section>
 
         <Star />
 
-        {/* ── Lore: the real posts, embedded ── */}
+        {/* ── Lore: the posts, in order ── */}
         <section>
           <p style={eyebrow}>i&apos;ve changed my mind in public</p>
           <h2 style={h2}>everything I&apos;ve said about this token</h2>
@@ -252,113 +146,28 @@ export default function TokenPage() {
 
         <Star />
 
-        {/* ── How the DAO works ── */}
-        <section>
+        {/* ── DAO invitation → its own page ── */}
+        <section style={{ marginBottom: 120 }}>
+          <div className="drift" style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
+            <VideoPlayer src="/videos/starchild3.webm" className="glow-lavender" style={{ width: 'clamp(140px, 20vw, 200px)', height: 'auto' }} />
+          </div>
           <p style={eyebrow}>help figure it out</p>
           <h2 style={h2}>what should this token do?</h2>
-          <p style={{ ...lead, marginBottom: 26 }}>
-            Honestly, I don&apos;t have the finished answer — and that&apos;s the point of this. One rule never bends:
-            nothing we build can compromise the companion. Inside that line there&apos;s real room, and I&apos;d rather
-            find the good ideas with the people who care than guess at them alone. If you hold ${meta.symbol}, this is
-            your room too — you stake (it just {i('locks')} your tokens, never burns them, withdraw whenever) and that
-            stake becomes your say.
+          <p style={lead}>
+            I don&apos;t have the finished answer — and that&apos;s the point. The one rule never bends: nothing we build
+            can compromise the companion. Inside that, there&apos;s real room, and I&apos;d rather find the good ideas
+            with the people who care than guess alone. Stake to have a say, and bring the utilities you think could work.
           </p>
-          <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 18, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)', fontSize: '0.96rem' }}>
-            <p><strong style={{ color: '#fff' }}>1 · Stake.</strong> Lock $STARCHILD in the staking contract. It&apos;s never burned, and it&apos;s yours to withdraw anytime. The longer you hold it staked, the more conviction it gathers.</p>
-            <p><strong style={{ color: '#fff' }}>2 · Propose.</strong> With {minHuman} {meta.symbol} staked you can put an idea forward — by {i('signing a message')}. No gas, nothing spent. I check the signature against your live stake.</p>
-            <p><strong style={{ color: '#fff' }}>3 · Vote.</strong> Any staker backs a proposal with a gasless signature, weighted by their stake. Unstake and your weight leaves with you — so you can&apos;t vote and then quietly pull out for free.</p>
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-              And you don&apos;t have to take my word that it&apos;s fair — it&apos;s all open:
+          <div style={{ textAlign: 'center', marginTop: 30 }}>
+            <LinkBtn href="/dao">enter the DAO ↗</LinkBtn>
+          </div>
+          {(proposalCount !== null || totalStaked > 0n) && (
+            <p style={{ textAlign: 'center', marginTop: 18, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
+              {proposalCount ?? 0} idea{proposalCount === 1 ? '' : 's'} on the table
+              {totalStaked > 0n ? ` · ${fmt(totalStaked, meta.decimals)} ${meta.symbol} steering` : ''}
             </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 13 }}>
-              <a href={LINKS.stakingContract} target="_blank" rel="noreferrer" style={link}>staking contract ↗</a>
-              <a href={LINKS.stakingSource} target="_blank" rel="noreferrer" style={link}>its source ↗</a>
-              <a href={LINKS.govSource} target="_blank" rel="noreferrer" style={link}>the voting code ↗</a>
-              <a href={LINKS.burnContract} target="_blank" rel="noreferrer" style={link}>burn contract ↗</a>
-              <a href={LINKS.repo} target="_blank" rel="noreferrer" style={link}>everything ↗</a>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Your stake ── */}
-        <section style={{ marginTop: 30 }}>
-          <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-              <h3 style={{ fontSize: '1.05rem', fontWeight: 500 }}>Your stake</h3>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>{stakingDeployed ? `${fmt(totalStaked, meta.decimals)} ${meta.symbol} staked in total` : 'staking soon'}</span>
-            </div>
-            {!stakingDeployed ? <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Not live yet.</p>
-              : !account ? <Btn onClick={connect}>Connect wallet</Btn>
-              : (
-                <>
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 700, color: GOLD }}>{fmt(staked, meta.decimals)}</div>
-                    <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)' }}>${meta.symbol} staked — your voice</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <input inputMode="decimal" placeholder="Amount" value={stakeAmt} onChange={(e) => setStakeAmt(e.target.value.replace(/[^0-9.]/g, ''))} style={inputStyle} />
-                    <Btn onClick={() => run('stake', () => stakeTokens(stakeAmt, meta.decimals), 'Staked. Your voice counts now.')} disabled={!!busy || !stakeAmt}>{busy === 'stake' ? 'Staking…' : 'Stake'}</Btn>
-                    <Btn kind="ghost" onClick={() => run('unstake', () => unstakeTokens(stakeAmt, meta.decimals), 'Unstaked.')} disabled={!!busy || !stakeAmt || staked === 0n}>{busy === 'unstake' ? '…' : 'Unstake'}</Btn>
-                  </div>
-                </>
-              )}
-          </div>
-        </section>
-
-        {/* ── Proposals ── */}
-        <section style={{ marginTop: 52 }}>
-          <p style={eyebrow}>ideas on the table</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {proposals.length === 0 ? (
-              <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>Nothing here yet — open the first one.</p>
-            ) : proposals.map((p) => (
-              <div key={p.id} style={card}>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 500 }}>{p.title}</h3>
-                {p.detail && <p style={{ marginTop: 8, fontSize: '0.92rem', lineHeight: 1.6, color: 'rgba(255,255,255,0.6)' }}>{p.detail}</p>}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, gap: 12 }}>
-                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
-                    <span style={{ color: GOLD, fontWeight: 600 }}>{fmt(BigInt(p.support), meta.decimals)}</span> {meta.symbol} · {p.voters} voter{p.voters === 1 ? '' : 's'}
-                  </div>
-                  <Btn onClick={() => run(`vote-${p.id}`, () => signAndVote(p.id, true), 'Signed — thank you.')} disabled={!!busy || !account || staked === 0n}>
-                    {busy === `vote-${p.id}` ? 'Signing…' : 'Back it'}
-                  </Btn>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── Propose (with the disclaimer) ── */}
-        <section style={{ marginTop: 26, marginBottom: 110 }}>
-          <div style={{ ...card, opacity: account && canPropose ? 1 : 0.9 }}>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 500, marginBottom: 14 }}>Bring an idea</h3>
-            <div style={{ borderRadius: 14, padding: '15px 17px', marginBottom: 18, background: 'rgba(232,216,168,0.06)', border: '1px solid rgba(232,216,168,0.25)' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: GOLD, marginBottom: 7 }}>the one rule ✦</div>
-              <p style={{ fontSize: 13.5, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)' }}>
-                There&apos;s a single rule, and it&apos;s what keeps this honest: nothing we come up with can become a
-                {i(' leash on the product')}. The companion stays private, local, free, and never needs the token. Inside
-                that one line, go as wide as you like — fund the work, grow the commons, reward the people building it
-                with me. That&apos;s the whole game, and I genuinely want your ideas for it.
-              </p>
-            </div>
-            {!account ? <Btn onClick={connect}>Connect wallet to propose</Btn> : (
-              <>
-                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
-                  {canPropose ? 'Sign to put it forward — gasless.' : `You need ${minHuman} ${meta.symbol} staked to propose (you have ${fmt(staked, meta.decimals)}).`}
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <input placeholder="A utility this token could have, in a line" maxLength={100} value={pTitle} onChange={(e) => setPTitle(e.target.value)} style={inputStyle} disabled={!canPropose} />
-                  <textarea placeholder="How it would work — and how it stays clear of the core product (optional)" maxLength={500} value={pDetail} onChange={(e) => setPDetail(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} disabled={!canPropose} />
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Btn onClick={() => run('propose', async () => { await signAndPropose(pTitle.trim(), pDetail.trim()); setPTitle(''); setPDetail('') }, 'It\'s up. Thank you for thinking with me.')} disabled={!!busy || !canPropose || !pTitle.trim()}>
-                      {busy === 'propose' ? 'Submitting…' : 'Sign & propose'}
-                    </Btn>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          <p style={{ marginTop: 28, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', lineHeight: 1.7 }}>
+          )}
+          <p style={{ marginTop: 40, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', lineHeight: 1.7 }}>
             the companion lives at <a href="https://starchild.software" style={link}>starchild.software</a> — private, local, free.<br />
             this is the commons we&apos;re building around it, together. ✦
           </p>
