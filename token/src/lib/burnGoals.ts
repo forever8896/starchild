@@ -48,11 +48,17 @@ export const stakingAbi = [
 export const PROPOSE_MIN = parseUnits('10000000', 18) // 10,000,000 $STARCHILD staked to propose
 export const EIP712_DOMAIN = { name: 'Starchild Governance', version: '1', chainId: 8453 } as const
 export const PROPOSAL_TYPES = {
-  Proposal: [{ name: 'title', type: 'string' }, { name: 'detail', type: 'string' }, { name: 'nonce', type: 'string' }],
+  Proposal: [{ name: 'title', type: 'string' }, { name: 'detail', type: 'string' }, { name: 'nonce', type: 'string' }, { name: 'quorumBps', type: 'uint256' }],
 } as const
 export const VOTE_TYPES = {
   Vote: [{ name: 'proposalId', type: 'string' }, { name: 'support', type: 'bool' }],
 } as const
+
+// The founder holds zero $STARCHILD by design (burned it all) — so "official"
+// proposals from this address bypass the stake-to-propose gate. The founder still
+// has zero vote weight, so they can pose a question but can never sway it.
+export const FOUNDER_ADDRESS = (process.env.NEXT_PUBLIC_FOUNDER_ADDRESS ?? '0x1f44d8655727bb26532c657bec8882154a01e170').toLowerCase()
+export const isFounder = (addr?: string | null): boolean => !!addr && addr.toLowerCase() === FOUNDER_ADDRESS
 
 // ── Staking reads + writes (client) ──
 export async function fetchStakeInfo(addr: Address): Promise<{ amount: bigint; conviction: bigint }> {
@@ -92,7 +98,11 @@ export async function unstakeTokens(amountHuman: string, decimals: number): Prom
 }
 
 // ── Governance signing + API (client) ──
-export type ProposalView = { id: string; title: string; detail: string; proposer: string; createdAt: number; support: string; voters: number }
+export type ProposalView = {
+  id: string; title: string; detail: string; proposer: string; createdAt: number
+  support: string; against: string; voters: number; againstVoters: number
+  quorumBps: number; quorumTokens: string; official: boolean; passed: boolean
+}
 
 export async function fetchProposals(): Promise<ProposalView[]> {
   const r = await fetch('/api/proposals', { cache: 'no-store' })
@@ -100,12 +110,12 @@ export async function fetchProposals(): Promise<ProposalView[]> {
   return d.proposals ?? []
 }
 
-export async function signAndPropose(title: string, detail: string): Promise<void> {
+export async function signAndPropose(title: string, detail: string, quorumBps = 0): Promise<void> {
   const wallet = getWalletClient()
   const [account] = await wallet.requestAddresses()
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal', message: { title, detail, nonce } })
-  const r = await fetch('/api/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, detail, nonce, proposer: account, signature }) })
+  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal', message: { title, detail, nonce, quorumBps: BigInt(quorumBps) } })
+  const r = await fetch('/api/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, detail, nonce, quorumBps, proposer: account, signature }) })
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? 'failed to submit proposal')
 }
 
