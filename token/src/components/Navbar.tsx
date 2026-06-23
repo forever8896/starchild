@@ -19,8 +19,8 @@ export default function Navbar() {
       className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between"
       style={{ padding: "32px" }}
     >
-      {/* Logo leads back to the product — the token world is separate, but always points home */}
-      <Link href="https://starchild.software">
+      {/* Logo → the token home */}
+      <Link href="/">
         <Image
           src="/starchild-logo.png"
           alt="Starchild"
@@ -33,7 +33,17 @@ export default function Navbar() {
 
       <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
         <Link
+          href="/dao"
+          style={linkStyle}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+          title="help shape what gets built"
+        >
+          dao
+        </Link>
+        <Link
           href="https://starchild.software"
+          target="_blank"
           style={linkStyle}
           onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
           onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
