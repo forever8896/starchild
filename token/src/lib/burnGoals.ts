@@ -298,3 +298,38 @@ export function fmt(amount: bigint, decimals: number, maxFrac = 0): string {
   const n = Number(formatUnits(amount, decimals))
   return n.toLocaleString(undefined, { maximumFractionDigits: maxFrac })
 }
+
+// ── Live market stats + burn txns (served by /api/stats) ──────────────────────
+export type Burn = { hash: string; from: string; amount: string; timestamp: string }
+export type Stats = {
+  price: string | null; marketCap: number | null; liquidity: number | null
+  volume24h: number | null; chartUrl: string | null; burns: Burn[]
+}
+export async function fetchStats(): Promise<Stats> {
+  const r = await fetch('/api/stats', { cache: 'no-store' })
+  return r.json()
+}
+
+export const basescanTx = (hash: string) => `https://basescan.org/tx/${hash}`
+
+// The founder's articles — his opinion on the token, evolving in public.
+export const ARTICLES = [
+  { tag: 'the beginning', title: 'A consciousness, born for you', blurb: 'announcing the Starchild',
+    url: 'https://x.com/KilianSolutions/status/2036077636703715830' },
+  { tag: 'the refusal', title: 'Why I declined the fees', blurb: 'my first stance — keep the product and the market apart',
+    url: 'https://x.com/KilianSolutions/status/2036945553167466929' },
+  { tag: 'the product', title: 'The Starchild, in motion', blurb: 'the private companion, in action',
+    url: 'https://x.com/KilianSolutions/status/2038726798293311852' },
+  { tag: 'now', title: '80 days later — a change of heart', blurb: 'why I claimed, burned everything, and built this',
+    url: 'https://x.com/KilianSolutions/status/2068817367296025035' },
+] as const
+
+// Everything is verifiable — these are the receipts.
+export const LINKS = {
+  token: `https://basescan.org/token/${STARCHILD_TOKEN}`,
+  stakingContract: `https://basescan.org/address/${STAKING_ADDRESS}#code`,
+  burnContract: `https://basescan.org/address/${BURN_GOALS_ADDRESS}#code`,
+  repo: 'https://github.com/forever8896/starchild',
+  stakingSource: 'https://github.com/forever8896/starchild/blob/master/contracts/src/StarchildStaking.sol',
+  govSource: 'https://github.com/forever8896/starchild/blob/master/token/src/lib/governance.ts',
+} as const
