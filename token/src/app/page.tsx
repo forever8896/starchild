@@ -9,8 +9,8 @@ import Navbar from '@/components/Navbar'
 import VideoPlayer from '@/components/VideoPlayer'
 import { LAV, GOLD, card, eyebrow, h2, lead, link, i, Star, LinkBtn, usd, priceFmt, Stat } from '@/components/ui'
 import {
-  fetchBurnStats, fetchTokenMeta, fetchStats, fetchProposals, fetchTotalStaked,
-  fmt, basescanTx, stakingDeployed, ARTICLES,
+  fetchBurnStats, fetchTokenMeta, fetchStats, fetchProposals,
+  fmt, basescanTx, ARTICLES,
   type BurnStats, type Stats,
 } from '@/lib/burnGoals'
 
@@ -19,14 +19,12 @@ export default function TokenHome() {
   const [burn, setBurn] = useState<BurnStats | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [proposalCount, setProposalCount] = useState<number | null>(null)
-  const [totalStaked, setTotalStaked] = useState<bigint>(0n)
 
   useEffect(() => {
     fetchTokenMeta().then(setMeta).catch(() => {})
     fetchBurnStats().then(setBurn).catch(() => {})
     fetchStats().then(setStats).catch(() => {})
     fetchProposals().then((p) => setProposalCount(p.length)).catch(() => {})
-    if (stakingDeployed) fetchTotalStaked().then(setTotalStaked).catch(() => {})
     const id = setInterval(() => { fetchStats().then(setStats).catch(() => {}) }, 30000)
     return () => clearInterval(id)
   }, [])
@@ -161,10 +159,9 @@ export default function TokenHome() {
           <div style={{ textAlign: 'center', marginTop: 30 }}>
             <LinkBtn href="/dao">enter the DAO ↗</LinkBtn>
           </div>
-          {(proposalCount !== null || totalStaked > 0n) && (
+          {proposalCount !== null && (
             <p style={{ textAlign: 'center', marginTop: 18, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
-              {proposalCount ?? 0} idea{proposalCount === 1 ? '' : 's'} on the table
-              {totalStaked > 0n ? ` · ${fmt(totalStaked, meta.decimals)} ${meta.symbol} steering` : ''}
+              {proposalCount} idea{proposalCount === 1 ? '' : 's'} on the table · your $STARCHILD is your vote
             </p>
           )}
           <p style={{ marginTop: 40, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', lineHeight: 1.7 }}>

@@ -2,43 +2,36 @@
 
 /**
  * token.starchild.software/dao — the governance experience as its own page.
- * Cinematic, video-rich, matching the main site; the collaborative search for
- * what the token can meaningfully do, with the product always protected.
+ * Weight = how much $STARCHILD you hold (live), proposals/votes are gasless
+ * EIP-712 signatures. No staking, no locking, no contract. Public by design.
  */
 import { useCallback, useEffect, useState } from 'react'
 import Navbar from '@/components/Navbar'
 import VideoPlayer from '@/components/VideoPlayer'
 import { LAV, GOLD, card, inputStyle, eyebrow, h2, lead, link, i, Star, Btn } from '@/components/ui'
 import {
-  fetchTokenMeta, fetchStakeInfo, fetchTotalStaked, fetchProposals,
-  stakeTokens, unstakeTokens, signAndPropose, signAndVote,
-  getInjected, fmt, stakingDeployed, PROPOSE_MIN, LINKS, isFounder,
+  fetchTokenMeta, fetchBalance, fetchProposals, signAndPropose, signAndVote,
+  getInjected, fmt, PROPOSE_MIN, LINKS, isFounder,
   type ProposalView,
 } from '@/lib/burnGoals'
-import { type Address } from 'viem'
+import { type Address, parseUnits } from 'viem'
 
 const MINT = '#a8d8b8', ROSE = '#e0a0a0'
 
 export default function DaoPage() {
   const [account, setAccount] = useState<Address | null>(null)
   const [meta, setMeta] = useState({ decimals: 18, symbol: 'STARCHILD' })
-  const [totalStaked, setTotalStaked] = useState<bigint>(0n)
-  const [mine, setMine] = useState<{ amount: bigint; conviction: bigint } | null>(null)
+  const [bal, setBal] = useState<bigint>(0n)
   const [proposals, setProposals] = useState<ProposalView[]>([])
-  const [stakeAmt, setStakeAmt] = useState('')
-  const [pTitle, setPTitle] = useState(''); const [pDetail, setPDetail] = useState(''); const [pQuorum, setPQuorum] = useState('')
+  const [pTitle, setPTitle] = useState(''); const [pDetail, setPDetail] = useState(''); const [pThresh, setPThresh] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
   const loadAll = useCallback(async () => {
-    const [m, ts, ps] = await Promise.all([
-      fetchTokenMeta().catch(() => null),
-      stakingDeployed ? fetchTotalStaked().catch(() => 0n) : Promise.resolve(0n),
-      fetchProposals().catch(() => [] as ProposalView[]),
-    ])
-    if (m) setMeta(m); setTotalStaked(ts); setProposals(ps)
+    const [m, ps] = await Promise.all([fetchTokenMeta().catch(() => null), fetchProposals().catch(() => [] as ProposalView[])])
+    if (m) setMeta(m); setProposals(ps)
   }, [])
-  const loadMine = useCallback(async (a: Address) => { if (stakingDeployed) setMine(await fetchStakeInfo(a).catch(() => null)) }, [])
+  const loadBal = useCallback(async (a: Address) => { setBal(await fetchBalance(a).catch(() => 0n)) }, [])
 
   useEffect(() => { loadAll() }, [loadAll])
 
@@ -46,19 +39,18 @@ export default function DaoPage() {
     const inj = getInjected()
     if (!inj) { setMsg('I couldn\'t find a wallet — install a Base-compatible one to take part.'); return }
     const accts = (await inj.request({ method: 'eth_requestAccounts' })) as string[]
-    const a = accts?.[0] as Address; setAccount(a); if (a) loadMine(a)
-  }, [loadMine])
+    const a = accts?.[0] as Address; setAccount(a); if (a) loadBal(a)
+  }, [loadBal])
 
   const run = useCallback(async (key: string, fn: () => Promise<unknown>, okMsg?: string) => {
     setBusy(key); setMsg(null)
-    try { await fn(); if (okMsg) setMsg(okMsg); await loadAll(); if (account) await loadMine(account) }
+    try { await fn(); if (okMsg) setMsg(okMsg); await loadAll(); if (account) await loadBal(account) }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Something went wrong') }
     finally { setBusy(null) }
-  }, [account, loadAll, loadMine])
+  }, [account, loadAll, loadBal])
 
-  const staked = mine?.amount ?? 0n
   const official = isFounder(account)
-  const canPropose = staked >= PROPOSE_MIN || official
+  const canPropose = bal >= PROPOSE_MIN || official
   const minHuman = fmt(PROPOSE_MIN, meta.decimals)
 
   return (
@@ -74,17 +66,15 @@ export default function DaoPage() {
           <div className="drift" style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
             <VideoPlayer src="/videos/starchild1.webm" className="glow-lavender" style={{ width: 'clamp(170px, 26vw, 280px)', height: 'auto' }} />
           </div>
-          <p style={{ ...eyebrow, marginBottom: 16 }}>the commons · stake to steer, nothing burns</p>
+          <p style={{ ...eyebrow, marginBottom: 16 }}>the commons · hold $STARCHILD, have a say</p>
           <h1 style={{ fontSize: 'clamp(2rem,5vw,3.1rem)', fontWeight: 300, fontStyle: 'italic', lineHeight: 1.15 }}>what should this token do?</h1>
           <p style={{ ...lead, marginTop: 20 }}>
             Honestly, I don&apos;t have the finished answer — and that&apos;s the whole point of this place. One rule
             never bends: nothing we build can compromise the companion. Inside that line there&apos;s real room, and
-            I&apos;d rather find the good ideas with the people who care than guess at them alone. If you hold
-            ${meta.symbol}, this is {i('your')} room too.
+            I&apos;d rather find the good ideas with the people who care than guess alone. If you hold ${meta.symbol},
+            this is {i('your')} room too — your balance is your voice, no staking, no lock-up.
           </p>
-          <p style={{ marginTop: 18, fontSize: 13 }}>
-            <a href="/" style={link}>← back to the token</a>
-          </p>
+          <p style={{ marginTop: 18, fontSize: 13 }}><a href="/" style={link}>← back to the token</a></p>
         </section>
 
         {msg && <p style={{ marginTop: 28, textAlign: 'center', fontSize: 14, borderRadius: 12, padding: '12px 16px', background: 'rgba(184,160,216,0.1)', color: LAV }}>{msg}</p>}
@@ -94,43 +84,37 @@ export default function DaoPage() {
         {/* ── How it works ── */}
         <section>
           <p style={eyebrow}>how it works — and how to check it</p>
-          <h2 style={h2}>stake to steer. nothing burns.</h2>
+          <h2 style={h2}>hold to steer. nothing locked.</h2>
           <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 18, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)', fontSize: '0.96rem' }}>
-            <p><strong style={{ color: '#fff' }}>1 · Stake.</strong> Lock $STARCHILD in the staking contract. It&apos;s never burned, and it&apos;s yours to withdraw anytime. The longer you hold it staked, the more conviction it gathers.</p>
-            <p><strong style={{ color: '#fff' }}>2 · Propose.</strong> With {minHuman} {meta.symbol} staked you can put an idea forward — by {i('signing a message')}. No gas, nothing spent. The signature is checked against your live stake.</p>
-            <p><strong style={{ color: '#fff' }}>3 · Vote.</strong> Any staker backs a proposal with a gasless signature, weighted by their stake. Unstake and your weight leaves with you.</p>
+            <p><strong style={{ color: '#fff' }}>1 · Hold.</strong> Your weight is simply how much $STARCHILD you hold — read live, on-chain. No staking, no locking, nothing to approve. Your tokens stay in your wallet, yours to move anytime.</p>
+            <p><strong style={{ color: '#fff' }}>2 · Propose.</strong> Hold at least {minHuman} {meta.symbol} and you can put an idea forward by {i('signing a message')}. No gas, nothing spent.</p>
+            <p><strong style={{ color: '#fff' }}>3 · Vote.</strong> Any holder backs or opposes a proposal with a gasless signature, weighted by their live balance. Sell, and your weight leaves with you — so you can&apos;t vote and then dump for free.</p>
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>You don&apos;t have to take my word that it&apos;s fair — it&apos;s all open:</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 13 }}>
-              <a href={LINKS.stakingContract} target="_blank" rel="noreferrer" style={link}>staking contract ↗</a>
-              <a href={LINKS.stakingSource} target="_blank" rel="noreferrer" style={link}>its source ↗</a>
+              <a href={LINKS.token} target="_blank" rel="noreferrer" style={link}>the token ↗</a>
               <a href={LINKS.govSource} target="_blank" rel="noreferrer" style={link}>the voting code ↗</a>
               <a href={LINKS.repo} target="_blank" rel="noreferrer" style={link}>everything ↗</a>
             </div>
           </div>
         </section>
 
-        {/* ── Your stake ── */}
+        {/* ── Your weight ── */}
         <section style={{ marginTop: 30 }}>
-          <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-              <h3 style={{ fontSize: '1.05rem', fontWeight: 500 }}>Your stake</h3>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>{stakingDeployed ? `${fmt(totalStaked, meta.decimals)} ${meta.symbol} staked in total` : 'staking soon'}</span>
-            </div>
-            {!stakingDeployed ? <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Not live yet.</p>
-              : !account ? <Btn onClick={connect}>Connect wallet</Btn>
-              : (
-                <>
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 700, color: GOLD }}>{fmt(staked, meta.decimals)}</div>
-                    <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)' }}>${meta.symbol} staked — your voice</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <input inputMode="decimal" placeholder="Amount" value={stakeAmt} onChange={(e) => setStakeAmt(e.target.value.replace(/[^0-9.]/g, ''))} style={inputStyle} />
-                    <Btn onClick={() => run('stake', () => stakeTokens(stakeAmt, meta.decimals), 'Staked. Your voice counts now.')} disabled={!!busy || !stakeAmt}>{busy === 'stake' ? 'Staking…' : 'Stake'}</Btn>
-                    <Btn kind="ghost" onClick={() => run('unstake', () => unstakeTokens(stakeAmt, meta.decimals), 'Unstaked.')} disabled={!!busy || !stakeAmt || staked === 0n}>{busy === 'unstake' ? '…' : 'Unstake'}</Btn>
-                  </div>
-                </>
-              )}
+          <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            {!account ? (
+              <>
+                <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>Connect to see your weight and take part.</span>
+                <Btn onClick={connect}>Connect wallet</Btn>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: GOLD }}>{fmt(bal, meta.decimals)}</div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)' }}>${meta.symbol} you hold — your weight</div>
+                </div>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>nothing to stake — just hold &amp; sign</span>
+              </>
+            )}
           </div>
         </section>
 
@@ -147,14 +131,14 @@ export default function DaoPage() {
             {proposals.length === 0 ? (
               <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>Nothing here yet — open the first one.</p>
             ) : proposals.map((p) => {
-              const fr = BigInt(p.support), ag = BigInt(p.against), q = BigInt(p.quorumTokens)
+              const fr = BigInt(p.support), ag = BigInt(p.against), q = BigInt(p.threshold)
               const pct = q > 0n ? Number((fr * 1000n) / q) / 10 : 0
               return (
               <div key={p.id} style={card}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   {p.official && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1a1525', background: GOLD, borderRadius: 6, padding: '2px 7px' }}>official</span>}
                   <h3 style={{ fontSize: '1.15rem', fontWeight: 500 }}>{p.title}</h3>
-                  {p.quorumBps > 0 && (
+                  {q > 0n && (
                     <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.passed ? MINT : LAV }}>
                       {p.passed ? '✓ passed' : 'open vote'}
                     </span>
@@ -167,22 +151,22 @@ export default function DaoPage() {
                   <span><span style={{ color: ROSE, fontWeight: 600 }}>{fmt(ag, meta.decimals)}</span> against · {p.againstVoters}</span>
                 </div>
 
-                {p.quorumBps > 0 && (
+                {q > 0n && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: p.passed ? MINT : `linear-gradient(90deg, ${LAV}, ${GOLD})`, transition: 'width .4s' }} />
                     </div>
                     <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                      {pct.toFixed(0)}% of the {(p.quorumBps / 100).toFixed(0)}%-of-staked quorum ({fmt(q, meta.decimals)} {meta.symbol})
+                      {pct.toFixed(0)}% of the {fmt(q, meta.decimals)} {meta.symbol} needed to pass
                     </div>
                   </div>
                 )}
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 18, gap: 10 }}>
-                  <Btn kind="ghost" onClick={() => run(`no-${p.id}`, () => signAndVote(p.id, false), 'Signed — your vote against counts.')} disabled={!!busy || !account || staked === 0n}>
+                  <Btn kind="ghost" onClick={() => run(`no-${p.id}`, () => signAndVote(p.id, false), 'Signed — your vote against counts.')} disabled={!!busy || !account || bal === 0n}>
                     {busy === `no-${p.id}` ? '…' : 'Against'}
                   </Btn>
-                  <Btn onClick={() => run(`yes-${p.id}`, () => signAndVote(p.id, true), 'Signed — thank you.')} disabled={!!busy || !account || staked === 0n}>
+                  <Btn onClick={() => run(`yes-${p.id}`, () => signAndVote(p.id, true), 'Signed — thank you.')} disabled={!!busy || !account || bal === 0n}>
                     {busy === `yes-${p.id}` ? 'Signing…' : 'Back it'}
                   </Btn>
                 </div>
@@ -209,18 +193,18 @@ export default function DaoPage() {
               <>
                 <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
                   {official
-                    ? 'You\'re posting as the founder — official proposal, no stake needed. (You hold zero, so you can\'t vote on it — the holders decide.)'
-                    : canPropose ? 'Sign to put it forward — gasless.' : `You need ${minHuman} ${meta.symbol} staked to propose (you have ${fmt(staked, meta.decimals)}).`}
+                    ? 'You\'re posting as the founder — official proposal, no holdings needed. (You hold zero, so you can\'t vote on it — the holders decide.)'
+                    : canPropose ? 'Sign to put it forward — gasless.' : `You need to hold ${minHuman} ${meta.symbol} to propose (you hold ${fmt(bal, meta.decimals)}).`}
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <input placeholder="A utility this token could have, in a line" maxLength={100} value={pTitle} onChange={(e) => setPTitle(e.target.value)} style={inputStyle} disabled={!canPropose} />
                   <textarea placeholder="How it would work — and how it stays clear of the core product (optional)" maxLength={500} value={pDetail} onChange={(e) => setPDetail(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} disabled={!canPropose} />
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <input inputMode="decimal" placeholder="Quorum %" value={pQuorum} onChange={(e) => setPQuorum(e.target.value.replace(/[^0-9.]/g, ''))} style={{ ...inputStyle, maxWidth: 130 }} disabled={!canPropose} />
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>optional — blank = idea board; set a % of all staked it must reach to pass a yes/no vote</span>
+                    <input inputMode="numeric" placeholder="Pass threshold" value={pThresh} onChange={(e) => setPThresh(e.target.value.replace(/[^0-9]/g, ''))} style={{ ...inputStyle, maxWidth: 150 }} disabled={!canPropose} />
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>optional — blank = idea board; or set how much &quot;for&quot; weight (in {meta.symbol}) it must reach to pass a yes/no vote</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Btn onClick={() => run('propose', async () => { await signAndPropose(pTitle.trim(), pDetail.trim(), Math.max(0, Math.min(10000, Math.round((parseFloat(pQuorum) || 0) * 100)))); setPTitle(''); setPDetail(''); setPQuorum('') }, 'It\'s up. Thank you for thinking with me.')} disabled={!!busy || !canPropose || !pTitle.trim()}>
+                    <Btn onClick={() => run('propose', async () => { await signAndPropose(pTitle.trim(), pDetail.trim(), pThresh ? parseUnits(pThresh, meta.decimals) : 0n); setPTitle(''); setPDetail(''); setPThresh('') }, 'It\'s up. Thank you for thinking with me.')} disabled={!!busy || !canPropose || !pTitle.trim()}>
                       {busy === 'propose' ? 'Submitting…' : 'Sign & propose'}
                     </Btn>
                   </div>

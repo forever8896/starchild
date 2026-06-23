@@ -26,29 +26,15 @@ export const BURN_GOALS_ADDRESS = (process.env.NEXT_PUBLIC_BURN_GOALS_ADDRESS ??
 
 export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000000000000000'
 
-/** Live StarchildStaking contract on Base (env overrides for testing). */
-export const STAKING_ADDRESS = (process.env.NEXT_PUBLIC_STAKING_ADDRESS ??
-  '0x666b7f5Db0cab9450d48332Dd427b55928293053') as Address
-
-export const stakingDeployed = STAKING_ADDRESS !== '0x0000000000000000000000000000000000000000'
-
-export const stakingAbi = [
-  { type: 'function', name: 'stake', stateMutability: 'nonpayable', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [] },
-  { type: 'function', name: 'unstake', stateMutability: 'nonpayable', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [] },
-  { type: 'function', name: 'stakedOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { type: 'function', name: 'convictionOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { type: 'function', name: 'totalStaked', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  {
-    type: 'function', name: 'stakeInfo', stateMutability: 'view', inputs: [{ type: 'address' }],
-    outputs: [{ name: 'amount', type: 'uint256' }, { name: 'since', type: 'uint64' }, { name: 'conviction', type: 'uint256' }],
-  },
-] as const
+// Governance weight = how much $STARCHILD you simply HOLD (read live via the
+// token's balanceOf). No staking, no locking, no contract — just hold + sign.
+// (The old StarchildStaking contract is retired; nothing references it now.)
 
 // ── Governance: EIP-712 signing constants (client-safe — no server imports) ──
-export const PROPOSE_MIN = parseUnits('10000000', 18) // 10,000,000 $STARCHILD staked to propose
+export const PROPOSE_MIN = parseUnits('10000000', 18) // hold 10,000,000 $STARCHILD to propose
 export const EIP712_DOMAIN = { name: 'Starchild Governance', version: '1', chainId: 8453 } as const
 export const PROPOSAL_TYPES = {
-  Proposal: [{ name: 'title', type: 'string' }, { name: 'detail', type: 'string' }, { name: 'nonce', type: 'string' }, { name: 'quorumBps', type: 'uint256' }],
+  Proposal: [{ name: 'title', type: 'string' }, { name: 'detail', type: 'string' }, { name: 'nonce', type: 'string' }, { name: 'threshold', type: 'uint256' }],
 } as const
 export const VOTE_TYPES = {
   Vote: [{ name: 'proposalId', type: 'string' }, { name: 'support', type: 'bool' }],
@@ -60,48 +46,16 @@ export const VOTE_TYPES = {
 export const FOUNDER_ADDRESS = (process.env.NEXT_PUBLIC_FOUNDER_ADDRESS ?? '0x1f44d8655727bb26532c657bec8882154a01e170').toLowerCase()
 export const isFounder = (addr?: string | null): boolean => !!addr && addr.toLowerCase() === FOUNDER_ADDRESS
 
-// ── Staking reads + writes (client) ──
-export async function fetchStakeInfo(addr: Address): Promise<{ amount: bigint; conviction: bigint }> {
-  const r = (await publicClient.readContract({
-    address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stakeInfo', args: [addr],
-  })) as readonly [bigint, bigint, bigint]
-  return { amount: r[0], conviction: r[2] }
-}
-
-export async function fetchTotalStaked(): Promise<bigint> {
-  return publicClient.readContract({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'totalStaked' }) as Promise<bigint>
-}
-
-export async function stakeTokens(amountHuman: string, decimals: number): Promise<`0x${string}`> {
-  const wallet = getWalletClient()
-  const [account] = await wallet.requestAddresses()
-  const amount = parseUnits(amountHuman, decimals)
-  const allowance = (await publicClient.readContract({
-    address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'allowance', args: [account, STAKING_ADDRESS],
-  })) as bigint
-  if (allowance < amount) {
-    const ah = await wallet.writeContract({ account, address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'approve', args: [STAKING_ADDRESS, amount] })
-    await publicClient.waitForTransactionReceipt({ hash: ah })
-  }
-  const hash = await wallet.writeContract({ account, address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stake', args: [amount] })
-  await publicClient.waitForTransactionReceipt({ hash })
-  return hash
-}
-
-export async function unstakeTokens(amountHuman: string, decimals: number): Promise<`0x${string}`> {
-  const wallet = getWalletClient()
-  const [account] = await wallet.requestAddresses()
-  const amount = parseUnits(amountHuman, decimals)
-  const hash = await wallet.writeContract({ account, address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'unstake', args: [amount] })
-  await publicClient.waitForTransactionReceipt({ hash })
-  return hash
+// ── Governance weight = live $STARCHILD balance (just hold + sign) ──
+export async function fetchBalance(addr: Address): Promise<bigint> {
+  return publicClient.readContract({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'balanceOf', args: [addr] }) as Promise<bigint>
 }
 
 // ── Governance signing + API (client) ──
 export type ProposalView = {
   id: string; title: string; detail: string; proposer: string; createdAt: number
   support: string; against: string; voters: number; againstVoters: number
-  quorumBps: number; quorumTokens: string; official: boolean; passed: boolean
+  threshold: string; official: boolean; passed: boolean
 }
 
 export async function fetchProposals(): Promise<ProposalView[]> {
@@ -110,12 +64,12 @@ export async function fetchProposals(): Promise<ProposalView[]> {
   return d.proposals ?? []
 }
 
-export async function signAndPropose(title: string, detail: string, quorumBps = 0): Promise<void> {
+export async function signAndPropose(title: string, detail: string, threshold = 0n): Promise<void> {
   const wallet = getWalletClient()
   const [account] = await wallet.requestAddresses()
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal', message: { title, detail, nonce, quorumBps: BigInt(quorumBps) } })
-  const r = await fetch('/api/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, detail, nonce, quorumBps, proposer: account, signature }) })
+  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal', message: { title, detail, nonce, threshold } })
+  const r = await fetch('/api/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, detail, nonce, threshold: threshold.toString(), proposer: account, signature }) })
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? 'failed to submit proposal')
 }
 
@@ -334,9 +288,7 @@ export const ARTICLES = [
 // Everything is verifiable — these are the receipts.
 export const LINKS = {
   token: `https://basescan.org/token/${STARCHILD_TOKEN}`,
-  stakingContract: `https://basescan.org/address/${STAKING_ADDRESS}#code`,
   burnContract: `https://basescan.org/address/${BURN_GOALS_ADDRESS}#code`,
   repo: 'https://github.com/forever8896/starchild',
-  stakingSource: 'https://github.com/forever8896/starchild/blob/master/contracts/src/StarchildStaking.sol',
   govSource: 'https://github.com/forever8896/starchild/blob/master/token/src/lib/governance.ts',
 } as const
