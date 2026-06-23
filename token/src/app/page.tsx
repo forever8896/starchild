@@ -147,9 +147,10 @@ export default function TokenPage() {
           <p style={{ ...eyebrow, marginBottom: 16 }}>the commons around the starchild</p>
           <h1 style={{ fontSize: 'clamp(2.2rem,5.2vw,3.4rem)', fontWeight: 300, fontStyle: 'italic', letterSpacing: '-0.01em' }}>$STARCHILD</h1>
           <p style={{ ...lead, marginTop: 18 }}>
-            I&apos;ll be honest with you first: this token is {i('not')} the product. The companion is private, local,
-            and free, and it always will be. What lives here is everything that grew up {i('around')} it — the burns,
-            the things I&apos;ve written, and a real say in what I build next. None of it can ever reach into the app.
+            I&apos;m still working out what this token should be — and I&apos;d rather do that with you than alone. The
+            companion stays exactly as it is: private, local, free, {i('untouched')}. But around it sits a real, open
+            question — what can this token {i('meaningfully')} do for the mission? This is the room where we figure that
+            out, together.
           </p>
           <div style={{ marginTop: 22, display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderRadius: 999,
             border: '1px solid rgba(184,160,216,0.25)', background: 'rgba(184,160,216,0.07)' }}>
@@ -234,18 +235,21 @@ export default function TokenPage() {
 
         {/* ── How the DAO works ── */}
         <section>
-          <p style={eyebrow}>have a say</p>
-          <h2 style={h2}>stake to steer. nothing burns.</h2>
+          <p style={eyebrow}>help figure it out</p>
+          <h2 style={h2}>what should this token do?</h2>
           <p style={{ ...lead, marginBottom: 26 }}>
-            If you&apos;re holding, you can help decide what I build next. You stake — which just {i('locks')} your
-            tokens, never burns them, and you can pull them back whenever you like — and that stake becomes your voice.
+            Honestly, I don&apos;t have the finished answer — and that&apos;s the point of this. One rule never bends:
+            nothing we build can compromise the companion. Inside that line there&apos;s real room, and I&apos;d rather
+            find the good ideas with the people who care than guess at them alone. If you hold ${meta.symbol}, this is
+            your room too — you stake (it just {i('locks')} your tokens, never burns them, withdraw whenever) and that
+            stake becomes your say.
           </p>
           <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 18, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)', fontSize: '0.96rem' }}>
             <p><strong style={{ color: '#fff' }}>1 · Stake.</strong> Lock $STARCHILD in the staking contract. It&apos;s never burned, and it&apos;s yours to withdraw anytime. The longer you hold it staked, the more conviction it gathers.</p>
             <p><strong style={{ color: '#fff' }}>2 · Propose.</strong> With {minHuman} {meta.symbol} staked you can put an idea forward — by {i('signing a message')}. No gas, nothing spent. I check the signature against your live stake.</p>
             <p><strong style={{ color: '#fff' }}>3 · Vote.</strong> Any staker backs a proposal with a gasless signature, weighted by their stake. Unstake and your weight leaves with you — so you can&apos;t vote and then quietly pull out for free.</p>
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-              I&apos;d honestly rather you didn&apos;t trust me. Read it:
+              And you don&apos;t have to take my word that it&apos;s fair — it&apos;s all open:
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 13 }}>
               <a href={LINKS.stakingContract} target="_blank" rel="noreferrer" style={link}>staking contract ↗</a>
@@ -284,10 +288,10 @@ export default function TokenPage() {
 
         {/* ── Proposals ── */}
         <section style={{ marginTop: 52 }}>
-          <p style={eyebrow}>what I build next</p>
+          <p style={eyebrow}>ideas on the table</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {proposals.length === 0 ? (
-              <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>Nothing proposed yet — you could be first.</p>
+              <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>Nothing here yet — open the first one.</p>
             ) : proposals.map((p) => (
               <div key={p.id} style={card}>
                 <h3 style={{ fontSize: '1.15rem', fontWeight: 500 }}>{p.title}</h3>
@@ -308,14 +312,14 @@ export default function TokenPage() {
         {/* ── Propose (with the disclaimer) ── */}
         <section style={{ marginTop: 26, marginBottom: 110 }}>
           <div style={{ ...card, opacity: account && canPropose ? 1 : 0.9 }}>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 500, marginBottom: 14 }}>Put an idea forward</h3>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 500, marginBottom: 14 }}>Bring an idea</h3>
             <div style={{ borderRadius: 14, padding: '15px 17px', marginBottom: 18, background: 'rgba(232,216,168,0.06)', border: '1px solid rgba(232,216,168,0.25)' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: GOLD, marginBottom: 7 }}>one thing I ask ✦</div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: GOLD, marginBottom: 7 }}>the one rule ✦</div>
               <p style={{ fontSize: 13.5, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)' }}>
-                Before you propose, make sure your idea couldn&apos;t quietly become a {i('leash on the product')}. The
-                companion stays private, local, free, and never needs the token. The best ideas extend the mission from
-                the {i('outside')} — they fund it, grow it, give back to the people building with me. They never make the
-                app depend on this.
+                There&apos;s a single rule, and it&apos;s what keeps this honest: nothing we come up with can become a
+                {i(' leash on the product')}. The companion stays private, local, free, and never needs the token. Inside
+                that one line, go as wide as you like — fund the work, grow the commons, reward the people building it
+                with me. That&apos;s the whole game, and I genuinely want your ideas for it.
               </p>
             </div>
             {!account ? <Btn onClick={connect}>Connect wallet to propose</Btn> : (
@@ -324,8 +328,8 @@ export default function TokenPage() {
                   {canPropose ? 'Sign to put it forward — gasless.' : `You need ${minHuman} ${meta.symbol} staked to propose (you have ${fmt(staked, meta.decimals)}).`}
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <input placeholder="Your idea, in a line" maxLength={100} value={pTitle} onChange={(e) => setPTitle(e.target.value)} style={inputStyle} disabled={!canPropose} />
-                  <textarea placeholder="How it works — and why it never touches the core product (optional)" maxLength={500} value={pDetail} onChange={(e) => setPDetail(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} disabled={!canPropose} />
+                  <input placeholder="A utility this token could have, in a line" maxLength={100} value={pTitle} onChange={(e) => setPTitle(e.target.value)} style={inputStyle} disabled={!canPropose} />
+                  <textarea placeholder="How it would work — and how it stays clear of the core product (optional)" maxLength={500} value={pDetail} onChange={(e) => setPDetail(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} disabled={!canPropose} />
                   <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                     <Btn onClick={() => run('propose', async () => { await signAndPropose(pTitle.trim(), pDetail.trim()); setPTitle(''); setPDetail('') }, 'It\'s up. Thank you for thinking with me.')} disabled={!!busy || !canPropose || !pTitle.trim()}>
                       {busy === 'propose' ? 'Submitting…' : 'Sign & propose'}
@@ -337,7 +341,7 @@ export default function TokenPage() {
           </div>
           <p style={{ marginTop: 28, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', lineHeight: 1.7 }}>
             the companion lives at <a href="https://starchild.software" style={link}>starchild.software</a> — private, local, free.<br />
-            this is only the commons around it. ✦
+            this is the commons we&apos;re building around it, together. ✦
           </p>
         </section>
       </div>
