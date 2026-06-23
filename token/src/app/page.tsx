@@ -162,7 +162,6 @@ export default function TokenPage() {
             <Stat label="market cap" value={usd(stats?.marketCap ?? null)} href={stats?.chartUrl ?? undefined} />
             <Stat label="liquidity" value={usd(stats?.liquidity ?? null)} />
             <Stat label="24h volume" value={usd(stats?.volume24h ?? null)} />
-            <Stat label="i&apos;ve burned" value={burn ? `${burn.pct.toFixed(2)}%` : '—'} href={LINKS.token} />
           </div>
         </section>
 
@@ -195,20 +194,12 @@ export default function TokenPage() {
 
         {/* ── The burns ── */}
         <section>
-          <p style={eyebrow}>the receipts</p>
-          <h2 style={h2}>I hold zero.</h2>
-          <div style={{ textAlign: 'center', margin: '8px 0 22px' }}>
-            <div style={{ fontSize: 'clamp(3.2rem,11vw,5.5rem)', fontWeight: 700, lineHeight: 1, color: GOLD,
-              filter: 'drop-shadow(0 0 34px rgba(232,216,168,0.32))' }}>
-              {burn ? `${burn.pct.toFixed(2)}%` : '—'}
-            </div>
-            <div style={{ fontSize: 12, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginTop: 12 }}>
-              of all ${meta.symbol}, burned forever
-            </div>
-          </div>
+          <p style={eyebrow}>the burns</p>
+          <h2 style={h2}>what I was given, I burned</h2>
           <p style={{ ...lead, marginBottom: 28 }}>
-            Every token I was handed, I sent to a dead address. I keep only the ETH from trading fees, to keep building —
-            and I never sell. You don&apos;t have to take my word for any of it. Here&apos;s every burn:
+            I didn&apos;t make this token and I don&apos;t hold any of it. Whatever I was handed went to a dead address;
+            I keep only the ETH from fees, to keep the work going. Nothing here needs to be taken on faith — every line
+            is a transaction you can open:
           </p>
           <div style={card}>
             {!stats || stats.burns.length === 0 ? (
@@ -220,9 +211,9 @@ export default function TokenPage() {
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 4px',
                       borderTop: idx ? '1px solid rgba(255,255,255,0.06)' : 'none', textDecoration: 'none', color: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <span style={{ filter: 'drop-shadow(0 0 8px rgba(232,140,80,0.6))' }}>🔥</span>
+                      <span style={{ opacity: 0.7 }}>🔥</span>
                       <div>
-                        <div style={{ fontWeight: 600, color: GOLD }}>{fmt(BigInt(b.amount), meta.decimals)} {meta.symbol}</div>
+                        <div style={{ fontWeight: 500 }}>{fmt(BigInt(b.amount), meta.decimals)} {meta.symbol}</div>
                         <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)' }}>{b.timestamp?.slice(0, 10)}</div>
                       </div>
                     </div>
@@ -232,6 +223,11 @@ export default function TokenPage() {
               </div>
             )}
           </div>
+          {burn && (
+            <p style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
+              {fmt(burn.burned, burn.decimals)} {meta.symbol} burned so far · {burn.pct.toFixed(2)}% of supply
+            </p>
+          )}
         </section>
 
         <Star />
