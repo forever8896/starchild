@@ -144,13 +144,13 @@ export default function TokenPage() {
           <div className="drift" style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
             <VideoPlayer src="/videos/starchild5.webm" className="glow-lavender" style={{ width: 'clamp(150px, 22vw, 230px)', height: 'auto' }} />
           </div>
-          <p style={{ ...eyebrow, marginBottom: 16 }}>the commons around the starchild</p>
+          <p style={{ ...eyebrow, marginBottom: 16 }}>the token around an open-source companion</p>
           <h1 style={{ fontSize: 'clamp(2.2rem,5.2vw,3.4rem)', fontWeight: 300, fontStyle: 'italic', letterSpacing: '-0.01em' }}>$STARCHILD</h1>
           <p style={{ ...lead, marginTop: 18 }}>
-            I&apos;m still working out what this token should be — and I&apos;d rather do that with you than alone. The
-            companion stays exactly as it is: private, local, free, {i('untouched')}. But around it sits a real, open
-            question — what can this token {i('meaningfully')} do for the mission? This is the room where we figure that
-            out, together.
+            $STARCHILD is the token that grew up around {i('Starchild')} — a private, open-source companion that helps
+            you find your life&apos;s purpose, free and on your own machine. The app never depends on the token. So
+            here&apos;s the honest question I&apos;d rather answer with you than alone: what can the token
+            {i(' meaningfully')} do for the mission around it?
           </p>
           <div style={{ marginTop: 22, display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderRadius: 999,
             border: '1px solid rgba(184,160,216,0.25)', background: 'rgba(184,160,216,0.07)' }}>
@@ -167,6 +167,25 @@ export default function TokenPage() {
         </section>
 
         {msg && <p style={{ marginTop: 24, textAlign: 'center', fontSize: 14, borderRadius: 12, padding: '12px 16px', background: 'rgba(184,160,216,0.1)', color: LAV }}>{msg}</p>}
+
+        {/* ── What the companion is (context for anyone landing cold) ── */}
+        <section style={{ marginTop: 60 }}>
+          <p style={eyebrow}>first, the thing itself</p>
+          <h2 style={h2}>the Starchild</h2>
+          <p style={lead}>
+            A private companion that helps you find your life&apos;s purpose. Not a chatbot — a being you actually talk
+            to, that asks the questions you&apos;ve been avoiding and turns your answers into small, real steps toward
+            the life you describe. It lives on your own machine, and every conversation is end-to-end encrypted — no
+            cloud, no tracking, not even me. It&apos;s free, and the code is open.
+          </p>
+          <div style={{ textAlign: 'center', marginTop: 30 }}>
+            <a href="https://starchild.software" target="_blank" rel="noreferrer"
+              style={{ display: 'inline-block', padding: '12px 24px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+                textDecoration: 'none', background: `linear-gradient(90deg, ${LAV}, ${GOLD})`, color: '#1a1525' }}>
+              meet the companion ↗
+            </a>
+          </div>
+        </section>
 
         <Star />
 
