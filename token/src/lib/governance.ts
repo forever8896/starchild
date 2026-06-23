@@ -11,7 +11,7 @@
 import { verifyTypedData, getAddress, type Address } from 'viem'
 import { Redis } from '@upstash/redis'
 import {
-  publicClient, STAKING_ADDRESS, stakingAbi,
+  publicClient, STARCHILD_TOKEN, erc20Abi,
   PROPOSE_MIN, EIP712_DOMAIN, PROPOSAL_TYPES, VOTE_TYPES, isFounder,
 } from './burnGoals'
 
@@ -23,7 +23,7 @@ export type Proposal = {
   detail: string
   proposer: Address
   nonce: string
-  quorumBps: number // 0 = plain support board; >0 = passes at this % of total staked (bps)
+  threshold: string // absolute $STARCHILD (base units) of "for" weight needed to pass; "0" = idea board
   signature: `0x${string}`
   createdAt: number
 }
@@ -37,12 +37,9 @@ function redis(): Redis {
 const PROPOSAL_KEY = 'gov:proposals' // list of proposal JSON
 const votesKey = (id: string) => `gov:votes:${id}` // hash voter(lc) -> support('1'|'0')
 
-export async function stakedOf(addr: Address): Promise<bigint> {
-  return publicClient.readContract({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stakedOf', args: [addr] }) as Promise<bigint>
-}
-
-export async function totalStaked(): Promise<bigint> {
-  return publicClient.readContract({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'totalStaked' }) as Promise<bigint>
+/** Governance weight = how much $STARCHILD the address holds, live. */
+export async function weightOf(addr: Address): Promise<bigint> {
+  return publicClient.readContract({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'balanceOf', args: [addr] }) as Promise<bigint>
 }
 
 // ── Proposals ────────────────────────────────────────────────────────────────
@@ -59,26 +56,27 @@ export async function addProposal(p: Proposal): Promise<void> {
 
 /** Verify a proposal signature and that the proposer meets the stake minimum. */
 export async function verifyProposal(input: {
-  title: string; detail: string; nonce: string; quorumBps: number; proposer: string; signature: `0x${string}`
+  title: string; detail: string; nonce: string; threshold: string; proposer: string; signature: `0x${string}`
 }): Promise<{ ok: true; proposer: Address } | { ok: false; error: string }> {
   let proposer: Address
   try { proposer = getAddress(input.proposer) } catch { return { ok: false, error: 'bad address' } }
   if (!input.title?.trim() || input.title.length > 100) return { ok: false, error: 'title 1–100 chars' }
   if (input.detail && input.detail.length > 500) return { ok: false, error: 'detail ≤ 500 chars' }
-  const quorumBps = Math.max(0, Math.min(10000, Math.trunc(Number(input.quorumBps) || 0)))
+  let threshold: bigint
+  try { threshold = BigInt(input.threshold ?? '0'); if (threshold < 0n) threshold = 0n } catch { return { ok: false, error: 'bad threshold' } }
 
   const valid = await verifyTypedData({
     address: proposer, domain: EIP712_DOMAIN, types: PROPOSAL_TYPES, primaryType: 'Proposal',
-    message: { title: input.title, detail: input.detail ?? '', nonce: input.nonce, quorumBps: BigInt(quorumBps) }, signature: input.signature,
+    message: { title: input.title, detail: input.detail ?? '', nonce: input.nonce, threshold }, signature: input.signature,
   }).catch(() => false)
   if (!valid) return { ok: false, error: 'invalid signature' }
 
-  // The founder holds zero by design — official proposals bypass the stake gate
+  // The founder holds zero by design — official proposals bypass the hold gate
   // (and the founder still has zero vote weight, so they can ask, never decide).
   if (isFounder(proposer)) return { ok: true, proposer }
 
-  const staked = await stakedOf(proposer)
-  if (staked < PROPOSE_MIN) return { ok: false, error: 'must stake at least 10,000,000 $STARCHILD to propose' }
+  const weight = await weightOf(proposer)
+  if (weight < PROPOSE_MIN) return { ok: false, error: 'must hold at least 10,000,000 $STARCHILD to propose' }
   return { ok: true, proposer }
 }
 
@@ -94,8 +92,8 @@ export async function verifyVote(input: {
     message: { proposalId: input.proposalId, support: input.support }, signature: input.signature,
   }).catch(() => false)
   if (!valid) return { ok: false, error: 'invalid signature' }
-  const staked = await stakedOf(voter)
-  if (staked <= 0n) return { ok: false, error: 'stake $STARCHILD to vote' }
+  const weight = await weightOf(voter)
+  if (weight <= 0n) return { ok: false, error: 'hold $STARCHILD to vote' }
   return { ok: true, voter }
 }
 
@@ -117,7 +115,7 @@ export async function tally(proposalIds: string[]): Promise<Record<string, { sup
   const weights = new Map<string, bigint>()
   if (voterList.length) {
     const res = await publicClient.multicall({
-      contracts: voterList.map((v) => ({ address: STAKING_ADDRESS, abi: stakingAbi, functionName: 'stakedOf', args: [getAddress(v)] })),
+      contracts: voterList.map((v) => ({ address: STARCHILD_TOKEN, abi: erc20Abi, functionName: 'balanceOf', args: [getAddress(v)] })),
     })
     voterList.forEach((v, i) => weights.set(v, res[i].status === 'success' ? (res[i].result as bigint) : 0n))
   }
