@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "slug": "starchild-dao",
+  "provider": "Starchild",
+  "providerUrl": "https://starchild.software",
+  "logo": null,
+  "demo": {
+    "title": "starchild-dao.sh",
+    "language": "bash",
+    "code": "# See what's on the table\nbankr prompt \"using the starchild-dao skill, show me the proposals\"\n\n# Stake to get a voice (never burned, withdraw anytime)\nbankr prompt \"using the starchild-dao skill, stake 5,000,000 STARCHILD\"\n\n# Back a proposal — gasless signature, no fee\nbankr prompt \"using the starchild-dao skill, vote for the mobile app proposal\"\n\n# Put a new idea forward (needs 10M staked)\nbankr prompt \"using the starchild-dao skill, propose: fund a contributor bounty pool, paid from fees, never touching the app\""
+  },
+  "setup": [
+    "Install: `install the starchild-dao skill from https://github.com/forever8896/starchild/tree/main/bankr/starchild-dao`",
+    "Hold and stake $STARCHILD on Base to vote; 10,000,000 staked to propose",
+    "Votes and proposals are gasless EIP-712 signatures — no transaction fees",
+    "The app stays private, local & free — proposals must never gate or compromise it",
+    "Source: https://github.com/forever8896/starchild/tree/main/bankr/starchild-dao"
+  ],
+  "install": {
+    "type": "bankr",
+    "repoPath": "bankr/starchild-dao",
+    "command": "install the starchild-dao skill from https://github.com/forever8896/starchild/tree/main/bankr/starchild-dao"
+  }
+}
