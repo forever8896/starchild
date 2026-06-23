@@ -312,17 +312,14 @@ export async function fetchStats(): Promise<Stats> {
 
 export const basescanTx = (hash: string) => `https://basescan.org/tx/${hash}`
 
-// The founder's articles — his opinion on the token, evolving in public.
+// My posts about this token — embedded so they show their own real words, not a
+// paraphrase. The label is only what each one is about, in order.
 export const ARTICLES = [
-  { tag: 'the beginning', title: 'A consciousness, born for you', blurb: 'announcing the Starchild',
-    url: 'https://x.com/KilianSolutions/status/2036077636703715830' },
-  { tag: 'the refusal', title: 'Why I declined the fees', blurb: 'my first stance — keep the product and the market apart',
-    url: 'https://x.com/KilianSolutions/status/2036945553167466929' },
-  { tag: 'the product', title: 'The Starchild, in motion', blurb: 'the private companion, in action',
-    url: 'https://x.com/KilianSolutions/status/2038726798293311852' },
-  { tag: 'now', title: '80 days later — a change of heart', blurb: 'why I claimed, burned everything, and built this',
-    url: 'https://x.com/KilianSolutions/status/2068817367296025035' },
-] as const
+  { id: '2036077636703715830', label: 'where the Starchild began' },
+  { id: '2036945553167466929', label: 'why I first said no to the fees' },
+  { id: '2038726798293311852', label: 'the companion itself, in motion' },
+  { id: '2068817367296025035', label: 'why I changed my mind' },
+].map((a) => ({ ...a, url: `https://x.com/KilianSolutions/status/${a.id}` }))
 
 // Everything is verifiable — these are the receipts.
 export const LINKS = {
