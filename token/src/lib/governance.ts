@@ -101,6 +101,13 @@ export async function recordVote(proposalId: string, voter: Address, support: bo
   await redis().hset(votesKey(proposalId), { [voter.toLowerCase()]: support ? '1' : '0' })
 }
 
+/** The voter's current recorded stance on a proposal: '1' (for), '0' (against), or null (hasn't voted). */
+export async function getVote(proposalId: string, voter: Address): Promise<'1' | '0' | null> {
+  const v = await redis().hget(votesKey(proposalId), voter.toLowerCase())
+  const s = v == null ? null : String(v) // Upstash may deserialize '1'/'0' as numbers
+  return s === '1' ? '1' : s === '0' ? '0' : null
+}
+
 /**
  * Live, stake-weighted tally per proposal. Weight = the voter's CURRENT staked
  * balance (read live via multicall), so unstaking removes your weight — votes
@@ -124,7 +131,8 @@ export async function tally(proposalIds: string[]): Promise<Record<string, { sup
     let support = 0n, against = 0n, voters = 0, againstVoters = 0
     for (const [v, s] of Object.entries(vs)) {
       const w = weights.get(v) ?? 0n
-      if (s === '1') { support += w; voters++ } else { against += w; againstVoters++ }
+      // Upstash may hand back '1'/'0' as numbers — normalize before comparing.
+      if (String(s) === '1') { support += w; voters++ } else { against += w; againstVoters++ }
     }
     out[id] = { support, against, voters, againstVoters }
   })
