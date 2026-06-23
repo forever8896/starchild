@@ -52,7 +52,9 @@ Then `POST https://token.starchild.software/api/votes`:
 ```json
 { "proposalId": "<id>", "support": true, "voter": "<user address>", "signature": "<the EIP-712 signature>" }
 ```
-The backend verifies the signature and the voter's **live** $STARCHILD balance; weight = current `balanceOf`. HTTP 200 = recorded. HTTP 400 = bad signature or zero balance. (Sell your tokens and your weight leaves with you — votes can't be cast then dumped for free.)
+The backend verifies the signature and the voter's **live** $STARCHILD balance; weight = current `balanceOf`. **One vote per wallet, counted once at your live balance.** HTTP 200 = recorded. HTTP 400 = bad signature or zero balance. **HTTP 409 (`alreadyVoted`) = this wallet already voted this exact way** — voting again NEVER adds weight, so there is nothing to re-cast. Voting the *opposite* way changes the stance (last-write-wins). (Sell your tokens and your weight leaves with you — votes can't be cast then dumped for free.)
+
+> **On "vote again" — do not silently re-send or flip.** If the wallet has already voted, tell them their vote already stands; re-casting the same way is blocked by the backend. Only submit a new vote if they *explicitly* ask to **change** their stance to the other side, and say clearly that you're changing it from for→against (or vice-versa).
 
 ## 4 · Propose (gasless EIP-712 signature; needs holding ≥ 10M)
 First confirm `balanceOf(user) >= 1e25`. Remind them of **the one rule**. Then sign + POST.
@@ -75,6 +77,7 @@ HTTP 200 = the proposal is live. HTTP 400 = bad signature or the 10M-hold requir
 - Votes and proposals are **public** — never imply otherwise.
 - **Never** tell anyone to buy the token, and never talk price. This is about participation, not speculation.
 - Holding is enough — there's nothing to stake or lock; say so.
+- **One vote per wallet.** Re-voting the same way is rejected (409) and never adds weight — never describe voting again as "counting your holdings again" or stacking. Only a deliberate flip to the other side changes anything.
 - Hold proposals to **the one rule**; surface conflicts before submitting.
 
 ## Examples
