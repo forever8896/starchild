@@ -40,7 +40,7 @@ export function Star({ margin = '72px 0' }: { margin?: string }) {
 
 export function Btn({ children, onClick, disabled, kind = 'solid' }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; kind?: 'solid' | 'ghost' }) {
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button onClick={onClick} disabled={disabled} className="btn-shine"
       style={{
         padding: '11px 18px', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
         whiteSpace: 'nowrap', transition: 'opacity .2s', opacity: disabled ? 0.4 : 1,
