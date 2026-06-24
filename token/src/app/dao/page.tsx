@@ -56,14 +56,19 @@ export default function DaoPage() {
   return (
     <main style={{ background: '#000', color: '#fff', minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
       <Navbar />
+      {/* layered cosmic backdrop */}
       <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
         background: 'radial-gradient(ellipse 85% 55% at 50% -6%, rgba(120,80,180,0.30) 0%, transparent 66%)' }} />
+      <div aria-hidden className="starfield slow" />
+      <div aria-hidden className="starfield" />
+      <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse 70% 40% at 50% 108%, rgba(232,216,168,0.10) 0%, transparent 60%)' }} />
 
       <div style={{ position: 'relative', zIndex: 1, maxWidth: 660, margin: '0 auto', padding: '0 24px' }}>
 
         {/* ── Hero ── */}
         <section className="fade-up" style={{ paddingTop: 128, textAlign: 'center' }}>
-          <div className="drift" style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
+          <div className="drift aura" style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
             <VideoPlayer src="/videos/starchild1.webm" className="glow-lavender" style={{ width: 'clamp(170px, 26vw, 280px)', height: 'auto' }} />
           </div>
           <p style={{ ...eyebrow, marginBottom: 16 }}>the commons · hold $STARCHILD, have a say</p>
@@ -85,7 +90,7 @@ export default function DaoPage() {
         <section>
           <p style={eyebrow}>how it works — and how to check it</p>
           <h2 style={h2}>hold to steer. nothing locked.</h2>
-          <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 18, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)', fontSize: '0.96rem' }}>
+          <div className="card-lift" style={{ ...card, display: 'flex', flexDirection: 'column', gap: 18, lineHeight: 1.7, color: 'rgba(255,255,255,0.72)', fontSize: '0.96rem' }}>
             <p><strong style={{ color: '#fff' }}>1 · Hold.</strong> Your weight is simply how much $STARCHILD you hold — read live, on-chain. No staking, no locking, nothing to approve. Your tokens stay in your wallet, yours to move anytime.</p>
             <p><strong style={{ color: '#fff' }}>2 · Propose.</strong> Hold at least {minHuman} {meta.symbol} and you can put an idea forward by {i('signing a message')}. No gas, nothing spent.</p>
             <p><strong style={{ color: '#fff' }}>3 · Vote.</strong> Any holder backs or opposes a proposal with a gasless signature, weighted by their live balance. Sell, and your weight leaves with you — so you can&apos;t vote and then dump for free.</p>
@@ -100,7 +105,8 @@ export default function DaoPage() {
 
         {/* ── Your weight ── */}
         <section style={{ marginTop: 30 }}>
-          <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div className="card-lift" style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap',
+            background: account ? 'linear-gradient(180deg, rgba(40,33,58,0.6), rgba(14,11,24,0.6))' : card.background }}>
             {!account ? (
               <>
                 <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>Connect to see your weight and take part.</span>
@@ -109,10 +115,13 @@ export default function DaoPage() {
             ) : (
               <>
                 <div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: GOLD }}>{fmt(bal, meta.decimals)}</div>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)' }}>${meta.symbol} you hold — your weight</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 9 }}>
+                    <span style={{ fontSize: '2rem', fontWeight: 700, color: GOLD, letterSpacing: '-0.01em', textShadow: '0 0 26px rgba(232,216,168,0.45)' }}>{fmt(bal, meta.decimals)}</span>
+                    <span className="star-pulse" style={{ color: GOLD, fontSize: 15 }}>✦</span>
+                  </div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.5)', marginTop: 3 }}>${meta.symbol} you hold — your voting weight</div>
                 </div>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>nothing to stake — just hold &amp; sign</span>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', maxWidth: 150, textAlign: 'right', lineHeight: 1.5 }}>nothing to stake or lock — just hold &amp; sign</span>
               </>
             )}
           </div>
@@ -133,8 +142,10 @@ export default function DaoPage() {
             ) : proposals.map((p) => {
               const fr = BigInt(p.support), ag = BigInt(p.against), q = BigInt(p.threshold)
               const pct = q > 0n ? Number((fr * 1000n) / q) / 10 : 0
+              const total = fr + ag
+              const forPct = total > 0n ? Number((fr * 1000n) / total) / 10 : 50
               return (
-              <div key={p.id} style={card}>
+              <div key={p.id} className="card-lift" style={card}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   {p.official && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1a1525', background: GOLD, borderRadius: 6, padding: '2px 7px' }}>official</span>}
                   <h3 style={{ fontSize: '1.15rem', fontWeight: 500 }}>{p.title}</h3>
@@ -151,16 +162,29 @@ export default function DaoPage() {
                   <span><span style={{ color: ROSE, fontWeight: 600 }}>{fmt(ag, meta.decimals)}</span> against · {p.againstVoters}</span>
                 </div>
 
-                {q > 0n && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: p.passed ? MINT : `linear-gradient(90deg, ${LAV}, ${GOLD})`, transition: 'width .4s' }} />
+                {/* tally bar — progress-to-pass for threshold votes; for/against split for idea boards */}
+                {q > 0n ? (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, pct)}%`,
+                        background: p.passed ? `linear-gradient(90deg, ${MINT}, #cdebd6)` : `linear-gradient(90deg, ${LAV}, ${GOLD})`,
+                        boxShadow: p.passed ? `0 0 16px ${MINT}66` : '0 0 16px rgba(184,160,216,0.5)', transition: 'width .5s' }} />
                     </div>
-                    <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                    <div style={{ marginTop: 7, fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>
                       {pct.toFixed(0)}% of the {fmt(q, meta.decimals)} {meta.symbol} needed to pass
                     </div>
                   </div>
-                )}
+                ) : total > 0n ? (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', background: 'rgba(255,255,255,0.07)' }}>
+                      <div style={{ width: `${forPct}%`, background: `linear-gradient(90deg, ${MINT}, #cdebd6)`, boxShadow: `0 0 14px ${MINT}55`, transition: 'width .5s' }} />
+                      <div style={{ width: `${100 - forPct}%`, background: `linear-gradient(90deg, #e6b0b0, ${ROSE})`, transition: 'width .5s' }} />
+                    </div>
+                    <div style={{ marginTop: 7, fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>
+                      {forPct.toFixed(0)}% of the weight cast is backing this
+                    </div>
+                  </div>
+                ) : null}
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 18, gap: 10 }}>
                   <Btn kind="ghost" onClick={() => run(`no-${p.id}`, () => signAndVote(p.id, false), 'Signed — your vote against counts.')} disabled={!!busy || !account || bal === 0n}>
@@ -178,7 +202,7 @@ export default function DaoPage() {
 
         {/* ── Propose ── */}
         <section style={{ marginTop: 26, marginBottom: 110 }}>
-          <div style={{ ...card, opacity: account && canPropose ? 1 : 0.9 }}>
+          <div className="card-lift" style={{ ...card, opacity: account && canPropose ? 1 : 0.9 }}>
             <h3 style={{ fontSize: '1.05rem', fontWeight: 500, marginBottom: 14 }}>Bring an idea</h3>
             <div style={{ borderRadius: 14, padding: '15px 17px', marginBottom: 18, background: 'rgba(232,216,168,0.06)', border: '1px solid rgba(232,216,168,0.25)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: GOLD, marginBottom: 7 }}>the one rule ✦</div>

@@ -71,6 +71,49 @@ body {
 .tweet-embed { display: flex; justify-content: center; }
 .tweet-embed .twitter-tweet { margin: 0 auto !important; }
 
+/* ─── Cosmic polish (DAO + beyond) ──────────────────────────────────── */
+@keyframes twinkle { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+@keyframes auraPulse { 0%, 100% { opacity: 0.45; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.07); } }
+@keyframes drift2 { 0%, 100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(0,-22px,0); } }
+
+/* tiling twinkling starfield — a faint field of dust behind everything */
+.starfield {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 25% 25%, rgba(255,255,255,0.85), transparent),
+    radial-gradient(1px 1px at 70% 65%, rgba(184,160,216,0.7), transparent),
+    radial-gradient(1.4px 1.4px at 50% 88%, rgba(232,216,168,0.6), transparent),
+    radial-gradient(1px 1px at 88% 18%, rgba(255,255,255,0.55), transparent),
+    radial-gradient(1px 1px at 12% 72%, rgba(184,160,216,0.55), transparent);
+  background-size: 260px 260px;
+  animation: twinkle 7s ease-in-out infinite;
+}
+.starfield.slow { background-size: 400px 400px; opacity: 0.7; animation: drift2 26s ease-in-out infinite, twinkle 11s ease-in-out infinite; }
+
+/* card hover: lift + lavender edge + soft cast */
+.card-lift { transition: transform .35s cubic-bezier(.2,.7,.2,1), border-color .35s, box-shadow .35s; }
+.card-lift:hover {
+  transform: translateY(-3px);
+  border-color: rgba(184,160,216,0.42) !important;
+  box-shadow: 0 16px 54px -14px rgba(120,80,180,0.5);
+}
+
+/* glowing aura behind the hero creature */
+.aura { position: relative; }
+.aura::before {
+  content: ''; position: absolute; inset: -20% -12%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(circle, rgba(184,160,216,0.4) 0%, rgba(232,216,168,0.12) 42%, transparent 70%);
+  filter: blur(30px); animation: auraPulse 6s ease-in-out infinite;
+}
+
+/* primary buttons lift + glow on hover */
+.btn-shine { transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease !important; }
+.btn-shine:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 10px 26px -6px rgba(184,160,216,0.55); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up, .star-pulse, .drift, .starfield, .starfield.slow, .aura::before { animation: none !important; }
+}
+
 /* ─── Mobile responsiveness ─────────────────────────────────────────── */
 
 @media (max-width: 768px) {
