@@ -36,6 +36,8 @@ function redis(): Redis {
 }
 const PROPOSAL_KEY = 'gov:proposals' // list of proposal JSON
 const votesKey = (id: string) => `gov:votes:${id}` // hash voter(lc) -> support('1'|'0')
+const nonceKey = (id: string) => `gov:vnonce:${id}` // hash voter(lc) -> last vote nonce used (replay guard)
+const PNONCE_KEY = 'gov:pnonce' // set of used "proposer(lc):nonce" (proposal replay guard)
 
 /** Governance weight = how much $STARCHILD the address holds, live. */
 export async function weightOf(addr: Address): Promise<bigint> {
@@ -71,6 +73,9 @@ export async function verifyProposal(input: {
   }).catch(() => false)
   if (!valid) return { ok: false, error: 'invalid signature' }
 
+  // Replay guard: a proposal signature can only be used once.
+  if (await proposalNonceUsed(proposer, input.nonce)) return { ok: false, error: 'proposal signature already used' }
+
   // The founder holds zero by design — official proposals bypass the hold gate
   // (and the founder still has zero vote weight, so they can ask, never decide).
   if (isFounder(proposer)) return { ok: true, proposer }
@@ -83,22 +88,51 @@ export async function verifyProposal(input: {
 // ── Votes ────────────────────────────────────────────────────────────────────
 
 export async function verifyVote(input: {
-  proposalId: string; support: boolean; voter: string; signature: `0x${string}`
-}): Promise<{ ok: true; voter: Address } | { ok: false; error: string }> {
+  proposalId: string; support: boolean; voter: string; nonce: string; deadline: string; signature: `0x${string}`
+}): Promise<{ ok: true; voter: Address; nonce: bigint } | { ok: false; error: string }> {
   let voter: Address
   try { voter = getAddress(input.voter) } catch { return { ok: false, error: 'bad address' } }
+  let nonce: bigint, deadline: bigint
+  try { nonce = BigInt(input.nonce); deadline = BigInt(input.deadline) } catch { return { ok: false, error: 'bad nonce/deadline' } }
+  if (nonce <= 0n) return { ok: false, error: 'bad nonce' }
+  // Short-lived signature: a captured one expires.
+  if (deadline < BigInt(Math.floor(Date.now() / 1000))) return { ok: false, error: 'vote signature expired — sign again' }
+
   const valid = await verifyTypedData({
     address: voter, domain: EIP712_DOMAIN, types: VOTE_TYPES, primaryType: 'Vote',
-    message: { proposalId: input.proposalId, support: input.support }, signature: input.signature,
+    message: { proposalId: input.proposalId, support: input.support, voter, nonce, deadline }, signature: input.signature,
   }).catch(() => false)
   if (!valid) return { ok: false, error: 'invalid signature' }
+
+  // Replay guard: each new vote must carry a strictly larger nonce than the last
+  // one recorded for this (proposal, voter). An old captured signature has a
+  // smaller nonce and is rejected — so it can't flip a changed vote back.
+  const last = await getVoteNonce(input.proposalId, voter)
+  if (last !== null && nonce <= last) return { ok: false, error: 'stale vote signature (replay rejected)' }
+
   const weight = await weightOf(voter)
   if (weight <= 0n) return { ok: false, error: 'hold $STARCHILD to vote' }
-  return { ok: true, voter }
+  return { ok: true, voter, nonce }
 }
 
-export async function recordVote(proposalId: string, voter: Address, support: boolean): Promise<void> {
+export async function recordVote(proposalId: string, voter: Address, support: boolean, nonce: bigint): Promise<void> {
   await redis().hset(votesKey(proposalId), { [voter.toLowerCase()]: support ? '1' : '0' })
+  await redis().hset(nonceKey(proposalId), { [voter.toLowerCase()]: nonce.toString() })
+}
+
+/** Last vote nonce recorded for a (proposal, voter), or null if they haven't voted. */
+export async function getVoteNonce(proposalId: string, voter: Address): Promise<bigint | null> {
+  const v = await redis().hget(nonceKey(proposalId), voter.toLowerCase())
+  if (v == null) return null
+  try { return BigInt(String(v)) } catch { return null }
+}
+
+/** Proposal replay guard — has this (proposer, nonce) signature been used already? */
+export async function proposalNonceUsed(proposer: Address, nonce: string): Promise<boolean> {
+  return (await redis().sismember(PNONCE_KEY, `${proposer.toLowerCase()}:${nonce}`)) === 1
+}
+export async function markProposalNonce(proposer: Address, nonce: string): Promise<void> {
+  await redis().sadd(PNONCE_KEY, `${proposer.toLowerCase()}:${nonce}`)
 }
 
 /** The voter's current recorded stance on a proposal: '1' (for), '0' (against), or null (hasn't voted). */

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import crypto from 'node:crypto'
-import { listProposals, addProposal, verifyProposal, tally, type Proposal } from '@/lib/governance'
+import { listProposals, addProposal, verifyProposal, markProposalNonce, tally, type Proposal } from '@/lib/governance'
 import { isFounder } from '@/lib/burnGoals'
 
 export const runtime = 'nodejs'
@@ -57,6 +57,7 @@ export async function POST(req: Request) {
       signature, createdAt: Date.now(),
     }
     await addProposal(proposal)
+    await markProposalNonce(v.proposer, String(nonce)) // burn the nonce so the signature can't be replayed
     return NextResponse.json({ ok: true, id: proposal.id })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'failed' }, { status: 500 })

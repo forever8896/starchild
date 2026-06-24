@@ -32,12 +32,27 @@ export const isDeployed = BURN_GOALS_ADDRESS !== '0x0000000000000000000000000000
 
 // ── Governance: EIP-712 signing constants (client-safe — no server imports) ──
 export const PROPOSE_MIN = parseUnits('10000000', 18) // hold 10,000,000 $STARCHILD to propose
-export const EIP712_DOMAIN = { name: 'Starchild Governance', version: '1', chainId: 8453 } as const
+// A fixed `salt` binds these signatures to THIS app + API. Without it, another
+// service that copied the same typed-data shape could reuse a signature; with it,
+// the domain separator is unique to Starchild governance.
+// salt = keccak256("starchild-dao:governance:v2:token.starchild.software")
+export const GOV_SALT = '0xc9255544d668fd6ddb88c3888cf6abcd94afa1daa5acbff52e3b2903780f059f' as const
+export const EIP712_DOMAIN = { name: 'Starchild Governance', version: '2', chainId: 8453, salt: GOV_SALT } as const
 export const PROPOSAL_TYPES = {
   Proposal: [{ name: 'title', type: 'string' }, { name: 'detail', type: 'string' }, { name: 'nonce', type: 'string' }, { name: 'threshold', type: 'uint256' }],
 } as const
+// Vote carries `voter`, `nonce` and `deadline` so an old captured signature can't
+// be replayed to flip a wallet back to a previous stance (votes are last-write-wins).
+// The nonce is a millisecond timestamp; the backend requires each new vote to use a
+// strictly larger nonce than the last one it recorded for that (proposal, voter).
 export const VOTE_TYPES = {
-  Vote: [{ name: 'proposalId', type: 'string' }, { name: 'support', type: 'bool' }],
+  Vote: [
+    { name: 'proposalId', type: 'string' },
+    { name: 'support', type: 'bool' },
+    { name: 'voter', type: 'address' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
 } as const
 
 // The founder holds zero $STARCHILD by design (burned it all) — so "official"
@@ -76,8 +91,10 @@ export async function signAndPropose(title: string, detail: string, threshold = 
 export async function signAndVote(proposalId: string, support: boolean): Promise<void> {
   const wallet = getWalletClient()
   const [account] = await wallet.requestAddresses()
-  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: VOTE_TYPES, primaryType: 'Vote', message: { proposalId, support } })
-  const r = await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalId, support, voter: account, signature }) })
+  const nonce = BigInt(Date.now())                                  // monotonic — an older sig has a smaller nonce and is rejected
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)     // signature only valid for ~1 hour
+  const signature = await wallet.signTypedData({ account, domain: EIP712_DOMAIN, types: VOTE_TYPES, primaryType: 'Vote', message: { proposalId, support, voter: account, nonce, deadline } })
+  const r = await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalId, support, voter: account, nonce: nonce.toString(), deadline: deadline.toString(), signature }) })
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? 'failed to vote')
 }
 

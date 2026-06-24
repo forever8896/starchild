@@ -10,11 +10,11 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { proposalId, support, voter, signature } = body ?? {}
-    if (!proposalId || typeof support !== 'boolean' || !voter || !signature) {
+    const { proposalId, support, voter, nonce, deadline, signature } = body ?? {}
+    if (!proposalId || typeof support !== 'boolean' || !voter || !nonce || !deadline || !signature) {
       return NextResponse.json({ error: 'missing fields' }, { status: 400 })
     }
-    const v = await verifyVote({ proposalId, support, voter, signature })
+    const v = await verifyVote({ proposalId, support, voter, nonce: String(nonce), deadline: String(deadline), signature })
     if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
 
     const current = await getVote(proposalId, v.voter)
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       )
     }
 
-    await recordVote(proposalId, v.voter, support)
+    await recordVote(proposalId, v.voter, support, v.nonce)
     return NextResponse.json({ ok: true, changed: current !== null })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'failed' }, { status: 500 })
