@@ -1,3 +1,6 @@
+[workspace]
+members = ["core"]
+
 [package]
 name = "starchild"
 version = "0.2.0"
@@ -15,6 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.3", features = [] }
 
 [dependencies]
+starchild_core = { path = "core" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
@@ -24,6 +28,7 @@ tauri-plugin-notification = "2"
 rusqlite = { version = "0.35", features = ["bundled", "serde_json"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"], default-features = false }
 futures-util = "0.3"
+async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }

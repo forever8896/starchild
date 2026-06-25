@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 // ---------------------------------------------------------------------------
@@ -32,72 +31,12 @@ pub type Result<T> = std::result::Result<T, DbError>;
 // Data structs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub id: String,
-    pub platform: String,
-    pub role: String,
-    pub content: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StarchildState {
-    pub id: i64,
-    pub hunger: f64,
-    pub mood: String,
-    pub energy: f64,
-    pub bond: f64,
-    pub xp: i64,
-    pub level: i64,
-    pub last_decay_at: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Memory {
-    pub id: String,
-    pub content: String,
-    pub importance: f64,
-    pub category: Option<String>,
-    pub created_at: String,
-    pub last_accessed_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Quest {
-    pub id: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub quest_type: String,
-    pub category: Option<String>,
-    pub status: String,
-    pub xp_reward: i64,
-    pub streak_count: i64,
-    pub created_at: String,
-    pub completed_at: Option<String>,
-    pub due_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Personality {
-    pub warmth: f64,
-    pub intensity: f64,
-    pub humor: f64,
-    pub mysticism: f64,
-    pub directness: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExportedData {
-    pub exported_at: String,
-    pub messages: Vec<Message>,
-    pub memories: Vec<Memory>,
-    pub quests: Vec<Quest>,
-    pub personality: Option<Personality>,
-    pub settings: Vec<(String, String)>,
-}
+// The serializable row types are shared with the web shell, so they live in
+// `starchild_core::db_types` and are re-exported here at the original
+// `crate::db` path.
+pub use starchild_core::db_types::{
+    ExportedData, Memory, Message, Personality, Quest, StarchildState,
+};
 
 // ---------------------------------------------------------------------------
 // Database wrapper
@@ -734,6 +673,155 @@ impl Database {
             params![key, value],
         )?;
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Storage trait — the platform-agnostic surface (core), backed here by SQLite
+// ---------------------------------------------------------------------------
+
+use starchild_core::storage::{Result as StoreResult, Storage, StorageError};
+
+impl From<DbError> for StorageError {
+    fn from(e: DbError) -> Self {
+        match e {
+            DbError::NotFound(s) => StorageError::NotFound(s),
+            other => StorageError::Backend(other.to_string()),
+        }
+    }
+}
+
+// Each method delegates to the inherent SQLite method (called via fully
+// qualified `Database::…` to avoid resolving back into the trait) and maps
+// `DbError` into the core `StorageError`. `search_memories` is the FTS5 impl.
+#[async_trait::async_trait]
+impl Storage for Database {
+    async fn save_message(
+        &self,
+        id: &str,
+        platform: &str,
+        role: &str,
+        content: &str,
+    ) -> StoreResult<()> {
+        Ok(Database::save_message(self, id, platform, role, content)?)
+    }
+
+    async fn get_messages(&self, limit: i64) -> StoreResult<Vec<Message>> {
+        Ok(Database::get_messages(self, limit)?)
+    }
+
+    async fn count_messages(&self) -> StoreResult<i64> {
+        Ok(Database::count_messages(self)?)
+    }
+
+    async fn delete_message(&self, id: &str) -> StoreResult<()> {
+        Ok(Database::delete_message(self, id)?)
+    }
+
+    async fn get_state(&self) -> StoreResult<StarchildState> {
+        Ok(Database::get_state(self)?)
+    }
+
+    async fn save_state(&self, state: &StarchildState) -> StoreResult<()> {
+        Ok(Database::save_state(self, state)?)
+    }
+
+    async fn save_memory(
+        &self,
+        id: &str,
+        content: &str,
+        importance: f64,
+        category: Option<&str>,
+    ) -> StoreResult<()> {
+        Ok(Database::save_memory(self, id, content, importance, category)?)
+    }
+
+    async fn search_memories(&self, query: &str, limit: i64) -> StoreResult<Vec<Memory>> {
+        Ok(Database::search_memories(self, query, limit)?)
+    }
+
+    async fn get_all_memories(&self, limit: i64) -> StoreResult<Vec<Memory>> {
+        Ok(Database::get_all_memories(self, limit)?)
+    }
+
+    async fn delete_memory(&self, id: &str) -> StoreResult<()> {
+        Ok(Database::delete_memory(self, id)?)
+    }
+
+    async fn save_knowing_fact(
+        &self,
+        id: &str,
+        category: &str,
+        fact: &str,
+        importance: f64,
+        confidence: f64,
+    ) -> StoreResult<()> {
+        Ok(Database::save_knowing_fact(
+            self, id, category, fact, importance, confidence,
+        )?)
+    }
+
+    async fn get_knowing_facts(&self) -> StoreResult<Vec<crate::knowing::KnownFact>> {
+        Ok(Database::get_knowing_facts(self)?)
+    }
+
+    async fn get_knowing_fact_count(&self) -> StoreResult<usize> {
+        Ok(Database::get_knowing_fact_count(self)?)
+    }
+
+    async fn create_quest(
+        &self,
+        id: &str,
+        title: &str,
+        description: Option<&str>,
+        quest_type: &str,
+        category: Option<&str>,
+        xp_reward: i64,
+        due_at: Option<&str>,
+    ) -> StoreResult<Quest> {
+        Ok(Database::create_quest(
+            self, id, title, description, quest_type, category, xp_reward, due_at,
+        )?)
+    }
+
+    async fn get_quests(&self, status: Option<&str>) -> StoreResult<Vec<Quest>> {
+        Ok(Database::get_quests(self, status)?)
+    }
+
+    async fn complete_quest(&self, id: &str) -> StoreResult<Quest> {
+        Ok(Database::complete_quest(self, id)?)
+    }
+
+    async fn delete_quest(&self, id: &str) -> StoreResult<()> {
+        Ok(Database::delete_quest(self, id)?)
+    }
+
+    async fn get_quests_due_soon(&self, hours: f64) -> StoreResult<Vec<Quest>> {
+        Ok(Database::get_quests_due_soon(self, hours)?)
+    }
+
+    async fn get_personality(&self) -> StoreResult<Personality> {
+        Ok(Database::get_personality(self)?)
+    }
+
+    async fn save_personality(&self, p: &Personality) -> StoreResult<()> {
+        Ok(Database::save_personality(self, p)?)
+    }
+
+    async fn get_setting(&self, key: &str) -> StoreResult<Option<String>> {
+        Ok(Database::get_setting(self, key)?)
+    }
+
+    async fn set_setting(&self, key: &str, value: &str) -> StoreResult<()> {
+        Ok(Database::set_setting(self, key, value)?)
+    }
+
+    async fn export_all_data(&self) -> StoreResult<ExportedData> {
+        Ok(Database::export_all_data(self)?)
+    }
+
+    async fn clear_all_data(&self) -> StoreResult<()> {
+        Ok(Database::clear_all_data(self)?)
     }
 }
 

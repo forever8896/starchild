@@ -1,0 +1,25 @@
+:root {
+  --bg-deep: #0e0b1a;
+  --text-soft: #e8e4f0;
+  --text-muted: #9a93b0;
+  --accent-lavender: #b8a0d8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--text-soft);
+  font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod db;
 pub mod e2ee;
+pub mod e2ee_net;
 pub mod game;
 pub mod knowing;
 pub mod memory;

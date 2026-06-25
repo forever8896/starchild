@@ -9,7 +9,19 @@ permissions:
   contents: write
 
 jobs:
+  # Golden Rule guard: the shared `starchild_core` crate must stay free of the
+  # desktop-only stack (Tauri/SQLite/tokio/reqwest) so it can compile to wasm.
+  core-purity:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check core dependency purity
+        run: ./scripts/check-core-purity.sh
+
   build:
+    needs: core-purity
     strategy:
       fail-fast: false
       matrix:
