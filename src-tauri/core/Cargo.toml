@@ -6,6 +6,12 @@ license = "MIT"
 edition = "2021"
 rust-version = "1.77.2"
 
+# `cdylib` is required for the wasm32 build — wasm-bindgen/wasm-pack emit the
+# `.wasm` from a cdylib. `lib` keeps the native rlib the desktop crate links,
+# so the desktop build is unaffected.
+[lib]
+crate-type = ["lib", "cdylib"]
+
 # The shared core: NO tauri, NO rusqlite, NO tokio, NO reqwest.
 # Pure logic + types only, so it can compile to native AND wasm32.
 [dependencies]
@@ -22,10 +28,15 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 rand = "0.8"
 
-# WASM randomness: getrandom needs the `js` backend in the browser.
-# Native targets pull getrandom transitively through `rand` without it.
+# WASM-only deps. These pull in `wasm-bindgen`/`js-sys` and so must NEVER be
+# in the native dependency set — keeping them target-gated leaves the desktop
+# build (and the core-purity guard) untouched.
+#   - getrandom `js`: entropy backend for `rand` in the browser.
+#   - wasm-bindgen + serde-wasm-bindgen: the JS<->Rust struct boundary.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
 
 [dev-dependencies]
 serde_json = "1.0"

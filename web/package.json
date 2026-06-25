@@ -6,6 +6,7 @@
   "description": "Starchild web shell — the full experience in the browser, local-first (PRD: docs/web-app-prd.md).",
   "scripts": {
     "dev": "vite",
+    "build:wasm": "wasm-pack build ../src-tauri/core --target web --out-dir ../../web/src/wasm",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

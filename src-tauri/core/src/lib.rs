@@ -18,3 +18,9 @@ pub mod game;
 pub mod inference;
 pub mod knowing;
 pub mod storage;
+
+// The WASM bridge exposes the PURE engine functions to JS. It compiles only for
+// wasm32, so the desktop/native build (and the core-purity guard) never see
+// `wasm-bindgen`/`js-sys`.
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
