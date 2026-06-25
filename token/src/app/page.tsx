@@ -123,7 +123,7 @@ export default function TokenHome() {
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 4px',
                       borderTop: idx ? '1px solid rgba(255,255,255,0.06)' : 'none', textDecoration: 'none', color: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <span style={{ opacity: 0.7 }}>🔥</span>
+                      <span style={{ opacity: 0.7 }}></span>
                       <div>
                         <div style={{ fontWeight: 500 }}>{fmt(BigInt(b.amount), meta.decimals)} {meta.symbol}</div>
                         <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)' }}>{b.timestamp?.slice(0, 10)}</div>

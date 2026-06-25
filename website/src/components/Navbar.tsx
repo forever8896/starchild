@@ -46,6 +46,15 @@ export default function Navbar() {
         </Link>
 
         <Link
+          href="/contributors"
+          style={linkStyle}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+        >
+          contributors
+        </Link>
+
+        <Link
           href="https://github.com/forever8896/starchild"
           target="_blank"
           style={linkStyle}
