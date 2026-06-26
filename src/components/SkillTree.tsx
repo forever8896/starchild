@@ -25,9 +25,8 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { type Quest } from '../store'
+import { usePlatform } from '../platform/usePlatform'
 import starchildLogo from '../assets/starchild-logo.png'
 // @ts-ignore
 import videoSkillTree from '../assets/videos/skilltree.webm'
@@ -621,6 +620,7 @@ function QuestPopup({
 // ─── Main SkillTree Component ───────────────────────────────────────────────
 
 export default function SkillTree({ onBack, showIntro = false }: { onBack: () => void; showIntro?: boolean }) {
+  const platform = usePlatform()
   const [quests, setQuests] = useState<Quest[]>([])
   const [preferentialReality, setPreferentialReality] = useState('')
   const [selectedQuest, setSelectedQuest] = useState<{ quest: Quest; color: string } | null>(null)
@@ -663,21 +663,21 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
     async function load() {
       try {
         const [active, completed] = await Promise.all([
-          invoke<Quest[]>('get_quests', { status: 'active' }),
-          invoke<Quest[]>('get_quests', { status: 'completed' }),
+          platform.getQuests('active'),
+          platform.getQuests('completed'),
         ])
         if (!cancelled) setQuests([...active, ...completed])
       } catch {
-        // ignore
+        // ignore — web ships an empty quest set until the quest engine is ported
       }
 
       try {
         // Prefer the AI-synthesized vision, fall back to raw preferential reality
-        const vision = await invoke<string | null>('get_setting', { key: 'vision_statement' })
+        const vision = await platform.getSetting('vision_statement')
         if (!cancelled && vision) {
           setPreferentialReality(vision)
         } else {
-          const pr = await invoke<string | null>('get_setting', { key: 'preferential_reality' })
+          const pr = await platform.getSetting('preferential_reality')
           if (!cancelled && pr) setPreferentialReality(pr)
         }
       } catch {
@@ -686,19 +686,20 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
     }
 
     load()
-    // Reload when quests change (accepted from conversation or completed)
-    let ul1: (() => void) | null = null
-    let ul2: (() => void) | null = null
-    listen('quest-accepted', () => { load() }).then((fn) => { ul1 = fn })
-    listen<{ quest_id: string; xp_reward?: number }>('quest-celebration', (event) => {
+    // Reload when quests change (accepted from conversation or completed).
+    // On web `subscribe` is a no-op, so these simply never fire — the tree still
+    // renders from the initial `load()` with a graceful empty state.
+    const unsubAccepted = platform.subscribe('quest-accepted', () => { load() })
+    const unsubCelebration = platform.subscribe('quest-celebration', (payload) => {
       load()
       // Trigger celebration animation
-      setCelebratingQuestId(event.payload.quest_id)
-      if (event.payload.xp_reward) setCelebrationXp(event.payload.xp_reward)
+      const p = payload as { quest_id: string; xp_reward?: number }
+      setCelebratingQuestId(p.quest_id)
+      if (p.xp_reward) setCelebrationXp(p.xp_reward)
       setTimeout(() => { setCelebratingQuestId(null); setCelebrationXp(null) }, 3000)
-    }).then((fn) => { ul2 = fn })
-    return () => { cancelled = true; ul1?.(); ul2?.() }
-  }, [])
+    })
+    return () => { cancelled = true; unsubAccepted(); unsubCelebration() }
+  }, [platform])
 
   // Group quests by category
   const questsByCategory = useMemo(() => {
