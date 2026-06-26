@@ -1,38 +1,64 @@
 /**
- * App.tsx — thin web shell wrapper.
+ * App.tsx — web shell root.
  *
- * Skeleton only. The real experience (onboarding, conversation, creature, skill
- * tree) is shared UI that moves into `src/components/*` and mounts here once the
- * platform seam and WASM core land (PRD §4, Phases 2–4). For now this renders a
- * placeholder and proves the platform is wired through context.
+ * Mounts the real shared experience: first-run Onboarding, then the live
+ * Conversation (ChatWindow). Gating mirrors desktop — we read the
+ * `onboarding_complete` setting (IndexedDB on web) and hold an invisible frame
+ * until that check resolves, then render Onboarding or the chat. All data and
+ * inference flow through the shared `Platform` seam via `usePlatform()`.
  */
 
-import { usePlatform } from './platform'
+import { useEffect } from 'react'
+import { useAppStore } from '../../src/store'
+import { usePlatform } from '../../src/platform/usePlatform'
+import Onboarding from '../../src/components/Onboarding'
+import ChatWindow from '../../src/components/ChatWindow'
+import ErrorBoundary from '../../src/components/ErrorBoundary'
 
 export default function App() {
   const platform = usePlatform()
+  const onboardingComplete = useAppStore((s) => s.onboardingComplete)
+  const setOnboardingComplete = useAppStore((s) => s.setOnboardingComplete)
+  const onboardingChecked = useAppStore((s) => s.onboardingChecked)
+  const setOnboardingChecked = useAppStore((s) => s.setOnboardingChecked)
+  const setStarchildState = useAppStore((s) => s.setStarchildState)
+
+  useEffect(() => {
+    let cancelled = false
+    async function bootstrap() {
+      try {
+        const value = await platform.getSetting('onboarding_complete')
+        if (!cancelled) setOnboardingComplete(value === 'true')
+      } catch {
+        // First run / empty store — treat as not onboarded.
+      } finally {
+        if (!cancelled) setOnboardingChecked(true)
+      }
+      try {
+        const state = await platform.getState()
+        if (!cancelled) setStarchildState(state)
+      } catch {
+        // Non-critical — the creature state initializes lazily.
+      }
+    }
+    bootstrap()
+    return () => { cancelled = true }
+  }, [platform, setOnboardingComplete, setOnboardingChecked, setStarchildState])
+
+  // Invisible hold while we check onboarding state.
+  if (!onboardingChecked) {
+    return <div style={{ width: '100vw', height: '100vh', backgroundColor: 'var(--bg-deep)' }} />
+  }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '100%',
-        height: '100%',
-        gap: '0.75rem',
-        textAlign: 'center',
-        padding: '2rem',
-      }}
-    >
-      <h1 style={{ margin: 0, fontWeight: 700, color: 'var(--accent-lavender)' }}>
-        Starchild
-      </h1>
-      <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: '28rem' }}>
-        Web shell scaffolded. Platform: <code>{platform.name}</code>. The shared
-        experience mounts here once the WASM core is built.
-      </p>
-    </div>
+    <ErrorBoundary>
+      {!onboardingComplete ? (
+        <Onboarding />
+      ) : (
+        <div style={{ width: '100vw', height: '100vh' }}>
+          <ChatWindow />
+        </div>
+      )}
+    </ErrorBoundary>
   )
 }

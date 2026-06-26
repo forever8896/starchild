@@ -84,6 +84,10 @@ async function* streamMessage(text: string): AsyncIterable<string> {
 export const desktopPlatform: Platform = {
   name: 'desktop',
 
+  // Desktop has the full native feature set.
+  supportsTts: true,
+  supportsVoice: true,
+
   // ── Inference ──────────────────────────────────────────────────────────────
   hasInferenceKey() {
     return invoke<boolean>('has_api_key')
@@ -110,6 +114,31 @@ export const desktopPlatform: Platform = {
   },
   generateFirstMessage() {
     return invoke<Message>('generate_first_message')
+  },
+  async deleteMessage(id: string): Promise<void> {
+    await invoke('delete_message', { id })
+  },
+
+  // ── Voice ────────────────────────────────────────────────────────────────────
+  ttsSpeak(text: string) {
+    return invoke<string>('venice_tts_speak', { text })
+  },
+  transcribe(audioBase64: string) {
+    return invoke<string>('venice_transcribe', { audioBase64 })
+  },
+
+  // ── Events ───────────────────────────────────────────────────────────────────
+  subscribe(event: string, handler: (payload: unknown) => void): () => void {
+    let unlisten: UnlistenFn | null = null
+    let cancelled = false
+    listen(event, (e) => handler(e.payload)).then((fn) => {
+      if (cancelled) fn()
+      else unlisten = fn
+    })
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
   },
 
   // ── Creature ────────────────────────────────────────────────────────────────

@@ -8,9 +8,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { useAppStore, type Message } from '../store'
+import { useAppStore, type Message, type StarchildState } from '../store'
+import { usePlatform } from '../platform/usePlatform'
+import type { Platform } from '../platform'
 import StarchildAvatar from './StarchildAvatar'
 import ActiveQuest from './ActiveQuest'
 import starchildLogo from '../assets/starchild-logo.png'
@@ -40,9 +40,13 @@ function SpeakerIcon() {
 }
 
 function PlayButton({ message }: { message: Message }) {
+  const platform = usePlatform()
   const ttsPlaying = useAppStore((s) => s.ttsPlaying)
   const setTtsPlaying = useAppStore((s) => s.setTtsPlaying)
   const isPlaying = ttsPlaying === message.id
+
+  // No speech synthesis on this platform — hide the control entirely.
+  if (!platform.supportsTts) return null
 
   async function handlePlay() {
     if (isPlaying) {
@@ -56,7 +60,7 @@ function PlayButton({ message }: { message: Message }) {
     }
     try {
       setTtsPlaying(message.id)
-      const b64 = await invoke<string>('venice_tts_speak', { text: message.content })
+      const b64 = await platform.ttsSpeak(message.content)
       const audio = new Audio(`data:audio/mp3;base64,${b64}`)
       ;(window as any).__ttsAudio = audio
       audio.onended = () => { setTtsPlaying(null); (window as any).__ttsAudio = null }
@@ -223,10 +227,11 @@ function MicIcon() {
 // ─── Auto-play TTS helper ────────────────────────────────────────────────────
 // Returns the audio duration in seconds (or 0 if TTS disabled/failed)
 
-async function autoPlayTts(text: string) {
+async function autoPlayTts(platform: Platform, text: string) {
   try {
+    if (!platform.supportsTts) return
     if (!useAppStore.getState().ttsEnabled) return
-    const b64 = await invoke<string>('venice_tts_speak', { text })
+    const b64 = await platform.ttsSpeak(text)
     const audio = new Audio(`data:audio/mp3;base64,${b64}`)
     // Store globally so useCharReveal can read currentTime/duration
     ;(window as any).__ttsAudio = audio
@@ -242,11 +247,11 @@ async function autoPlayTts(text: string) {
 // ─── ChatWindow ──────────────────────────────────────────────────────────────
 
 export default function ChatWindow() {
+  const platform          = usePlatform()
   const messages          = useAppStore((s) => s.messages)
   const addMessage        = useAppStore((s) => s.addMessage)
   const setMessages       = useAppStore((s) => s.setMessages)
   const updateLastMessage = useAppStore((s) => s.updateLastMessage)
-  const replaceLastMessage = useAppStore((s) => s.replaceLastMessage)
   const isLoading         = useAppStore((s) => s.isLoading)
   const setIsLoading      = useAppStore((s) => s.setIsLoading)
   const setStarchildState = useAppStore((s) => s.setStarchildState)
@@ -271,32 +276,35 @@ export default function ChatWindow() {
 
   const handleDeleteMessage = useCallback(async (id: string) => {
     try {
-      await invoke('delete_message', { id })
+      await platform.deleteMessage(id)
       setMessages(messages.filter((m) => m.id !== id))
     } catch (err) {
       console.error('Failed to delete message:', err)
     }
-  }, [messages, setMessages])
+  }, [platform, messages, setMessages])
 
   useEffect(() => {
     let cancelled = false
     async function init() {
       try {
-        const msgs = await invoke<Message[]>('get_messages', { limit: 50 })
+        const msgs = await platform.getMessages(50)
         if (cancelled) return
         setMessages(msgs)
 
-        // If no messages yet, generate the first message (the magic wand question)
-        // Use 'first-' prefix so MessageBubble triggers word-by-word reveal
+        // If no messages yet, generate the first message (the magic wand question).
+        // When TTS is available, prefix with 'first-' so MessageBubble reveals the
+        // text in sync with the voice; without TTS, show it immediately.
         if (msgs.length === 0) {
           setIsTyping(true)
           try {
-            const firstMsg = await invoke<Message>('generate_first_message')
+            const firstMsg = await platform.generateFirstMessage()
             if (!cancelled) {
-              const revealMsg = { ...firstMsg, id: `first-${firstMsg.id}` }
+              const revealMsg = platform.supportsTts
+                ? { ...firstMsg, id: `first-${firstMsg.id}` }
+                : firstMsg
               addMessage(revealMsg)
               // Start TTS simultaneously — voice plays while words reveal
-              autoPlayTts(firstMsg.content)
+              autoPlayTts(platform, firstMsg.content)
             }
           } catch (err) {
             console.error('Failed to generate first message:', err)
@@ -315,7 +323,7 @@ export default function ChatWindow() {
     }
     init()
     return () => { cancelled = true }
-  }, [setMessages, addMessage])
+  }, [platform, setMessages, addMessage])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -342,89 +350,52 @@ export default function ChatWindow() {
 
     streamAccRef.current = ''
     let firstChunk = true
-    const unlisteners: UnlistenFn[] = []
 
     try {
-      const unlistenChunk = await listen<{ token: string }>('stream-chunk', (event) => {
+      for await (const token of platform.sendMessage(text)) {
         if (firstChunk) {
           firstChunk = false
           setIsTyping(false)
           addMessage({
             id: `streaming-${Date.now()}`,
             role: 'assistant',
-            content: event.payload.token,
+            content: token,
             created_at: new Date().toISOString(),
           })
-          streamAccRef.current = event.payload.token
+          streamAccRef.current = token
         } else {
-          streamAccRef.current += event.payload.token
+          streamAccRef.current += token
           updateLastMessage(streamAccRef.current)
-        }
-      })
-      unlisteners.push(unlistenChunk)
-
-      interface StreamDonePayload {
-        message: Message
-        starchild_state: {
-          hunger: number
-          mood: string
-          energy: number
-          bond: number
-          xp: number
-          level: number
         }
       }
 
-      const unlistenDone = await listen<StreamDonePayload>('stream-done', (event) => {
-        setIsTyping(false)
-        setIsLoading(false)
-        replaceLastMessage(event.payload.message)
-        if (event.payload.starchild_state) {
-          setStarchildState(event.payload.starchild_state)
-        }
-        autoPlayTts(event.payload.message.content)
-        unlisteners.forEach((fn) => fn())
-        inputRef.current?.focus()
-      })
-      unlisteners.push(unlistenDone)
-
-      const unlistenError = await listen<{ error: string }>('stream-error', (event) => {
-        setIsTyping(false)
-        setIsLoading(false)
-        setError(event.payload.error)
-        unlisteners.forEach((fn) => fn())
-        inputRef.current?.focus()
-      })
-      unlisteners.push(unlistenError)
-
-      invoke('send_message_stream', { message: text }).catch((err) => {
-        setIsTyping(false)
-        setIsLoading(false)
-        console.error('Failed to send message:', err)
-        setError(
-          typeof err === 'string'
-            ? err
-            : 'Failed to send message. Check your API key in Settings.'
-        )
-        unlisteners.forEach((fn) => fn())
-        inputRef.current?.focus()
-      })
+      setIsTyping(false)
+      setIsLoading(false)
+      // Refresh the creature after the exchange.
+      try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
+      autoPlayTts(platform, streamAccRef.current)
+      inputRef.current?.focus()
     } catch (err) {
       setIsTyping(false)
       setIsLoading(false)
-      console.error('Failed to set up streaming:', err)
-      setError('Failed to send message. Check your API key in Settings.')
-      unlisteners.forEach((fn) => fn())
+      console.error('Failed to send message:', err)
+      setError(
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : 'Failed to send message. Check your API key in Settings.'
+      )
       inputRef.current?.focus()
     }
-  }, [input, isLoading, addMessage, updateLastMessage, replaceLastMessage, setIsLoading, setStarchildState])
+  }, [platform, input, isLoading, addMessage, updateLastMessage, setIsLoading, setStarchildState])
 
   // Quest accept: extract from conversation, save to DB, show skill tree
   const handleAcceptQuest = useCallback(async () => {
     setAcceptingQuest(true)
     setShowQuestOffer(false)
     try {
-      await invoke('accept_quest_from_conversation')
+      await platform.acceptQuest()
       // Brief switch to tree view to show the new quest (no video)
       setCurrentView('tree')
     } catch (err) {
@@ -432,7 +403,7 @@ export default function ChatWindow() {
     } finally {
       setAcceptingQuest(false)
     }
-  }, [setCurrentView])
+  }, [platform, setShowQuestOffer, setCurrentView])
 
   // Quest decline: focus input, let user type their objection
   const handleDeclineQuest = useCallback(() => {
@@ -461,68 +432,46 @@ export default function ChatWindow() {
     // Trigger the AI response via streaming
     streamAccRef.current = ''
     let firstChunk = true
-    const unlisteners: UnlistenFn[] = []
 
     ;(async () => {
       try {
-        const unlistenChunk = await listen<{ token: string }>('stream-chunk', (event) => {
+        for await (const token of platform.sendMessage(text)) {
           if (firstChunk) {
             firstChunk = false
             setIsTyping(false)
-            addMessage({ id: `streaming-${Date.now()}`, role: 'assistant', content: event.payload.token, created_at: new Date().toISOString() })
-            streamAccRef.current = event.payload.token
+            addMessage({ id: `streaming-${Date.now()}`, role: 'assistant', content: token, created_at: new Date().toISOString() })
+            streamAccRef.current = token
           } else {
-            streamAccRef.current += event.payload.token
+            streamAccRef.current += token
             updateLastMessage(streamAccRef.current)
           }
-        })
-        unlisteners.push(unlistenChunk)
-
-        const unlistenDone = await listen<{ message: Message; starchild_state: { hunger: number; mood: string; energy: number; bond: number; xp: number; level: number } }>('stream-done', (event) => {
-          setIsTyping(false)
-          setIsLoading(false)
-          replaceLastMessage(event.payload.message)
-          if (event.payload.starchild_state) setStarchildState(event.payload.starchild_state)
-          autoPlayTts(event.payload.message.content)
-          unlisteners.forEach((fn) => fn())
-          inputRef.current?.focus()
-        })
-        unlisteners.push(unlistenDone)
-
-        const unlistenError = await listen<{ error: string }>('stream-error', (event) => {
-          setIsTyping(false)
-          setIsLoading(false)
-          setError(event.payload.error)
-          unlisteners.forEach((fn) => fn())
-        })
-        unlisteners.push(unlistenError)
-
-        invoke('send_message_stream', { message: text }).catch(() => {
-          setIsTyping(false)
-          setIsLoading(false)
-          unlisteners.forEach((fn) => fn())
-        })
-      } catch {
+        }
         setIsTyping(false)
         setIsLoading(false)
+        try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
+        autoPlayTts(platform, streamAccRef.current)
+        inputRef.current?.focus()
+      } catch (err) {
+        setIsTyping(false)
+        setIsLoading(false)
+        setError(err instanceof Error ? err.message : 'Failed to send message.')
       }
     })()
-  }, [addMessage, updateLastMessage, replaceLastMessage, setIsLoading, setStarchildState])
+  }, [platform, addMessage, updateLastMessage, setIsLoading, setStarchildState])
 
   // Listen for quest-completed events (proof flow completes quest in backend)
   useEffect(() => {
-    let unlisten: (() => void) | null = null
-    listen<any>('quest-completed', (event) => {
-      if (event.payload?.starchild_state) {
-        setStarchildState(event.payload.starchild_state)
+    return platform.subscribe('quest-completed', (payload) => {
+      const p = payload as { starchild_state?: StarchildState; xp_reward?: number } | null
+      if (p?.starchild_state) {
+        setStarchildState(p.starchild_state)
       }
-      if (event.payload?.xp_reward) {
-        setXpGain(event.payload.xp_reward)
+      if (p?.xp_reward) {
+        setXpGain(p.xp_reward)
         setTimeout(() => setXpGain(null), 3000)
       }
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
-  }, [setStarchildState])
+    })
+  }, [platform, setStarchildState])
 
   const handleMicToggle = useCallback(async () => {
     if (isRecording && micStreamRef.current) {
@@ -577,7 +526,7 @@ export default function ChatWindow() {
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
         const base64 = btoa(binary)
 
-        const text = await invoke<string>('venice_transcribe', { audioBase64: base64 })
+        const text = await platform.transcribe(base64)
         if (text) {
           setInput((prev) => (prev ? prev + ' ' + text : text))
           if (inputRef.current) {
@@ -614,7 +563,7 @@ export default function ChatWindow() {
       console.error('Microphone access failed:', err)
       setError('Could not access microphone. Please allow microphone access.')
     }
-  }, [isRecording])
+  }, [isRecording, platform])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -809,24 +758,26 @@ export default function ChatWindow() {
               className="flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none min-h-[24px] max-h-[120px] disabled:opacity-50"
               style={{ color: 'var(--text-primary)' }}
             />
-            <motion.button
-              onClick={handleMicToggle}
-              disabled={isLoading || isTranscribing}
-              aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-              className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-xl transition-colors duration-150 ${isRecording ? 'mic-recording' : ''}`}
-              style={
-                isRecording
-                  ? { backgroundColor: 'var(--accent-rose)', color: '#fff' }
-                  : isTranscribing
-                    ? { backgroundColor: 'var(--bg-card)', color: 'var(--accent-lavender)', cursor: 'wait' }
-                    : { backgroundColor: 'var(--bg-card)', color: 'var(--text-muted)' }
-              }
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.92 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-            >
-              <MicIcon />
-            </motion.button>
+            {platform.supportsVoice && (
+              <motion.button
+                onClick={handleMicToggle}
+                disabled={isLoading || isTranscribing}
+                aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
+                className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-xl transition-colors duration-150 ${isRecording ? 'mic-recording' : ''}`}
+                style={
+                  isRecording
+                    ? { backgroundColor: 'var(--accent-rose)', color: '#fff' }
+                    : isTranscribing
+                      ? { backgroundColor: 'var(--bg-card)', color: 'var(--accent-lavender)', cursor: 'wait' }
+                      : { backgroundColor: 'var(--bg-card)', color: 'var(--text-muted)' }
+                }
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.92 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+              >
+                <MicIcon />
+              </motion.button>
+            )}
             <motion.button
               onClick={handleSend}
               disabled={!canSend}

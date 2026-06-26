@@ -8,10 +8,10 @@
  *   - Glassmorphism card fills the window
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
+import { usePlatform } from '../platform/usePlatform'
 import starchildLogo from '../assets/starchild-logo.png'
 // @ts-ignore — WebM VP9 with alpha channel
 import videoIntro from '../assets/videos/starchild1.webm'
@@ -72,6 +72,7 @@ function AnimatedLine({
 // ─── Main Onboarding component ──────────────────────────────────────────────
 
 export default function Onboarding() {
+  const platform = usePlatform()
   const setOnboardingComplete = useAppStore((s) => s.setOnboardingComplete)
   const setApiKeySet = useAppStore((s) => s.setApiKeySet)
 
@@ -95,13 +96,17 @@ export default function Onboarding() {
     ;(window as any).__bgMusic = audio
   }, [])
 
-  // Check if an API key is already available (e.g. via VENICE_API_KEY env var)
-  useState(() => {
-    invoke<boolean>('has_api_key').then((has) => {
+  // Check if an inference key is already available (desktop: env/local key;
+  // web: the bounded trial is available by default, so no key is required).
+  useEffect(() => {
+    let cancelled = false
+    platform.hasInferenceKey().then((has) => {
+      if (cancelled) return
       setManagedKey(has)
       if (has) setApiKeySet(true)
-    }).catch(() => setManagedKey(false))
-  })
+    }).catch(() => { if (!cancelled) setManagedKey(false) })
+    return () => { cancelled = true }
+  }, [platform, setApiKeySet])
 
   const needsApiKey = managedKey === false
 
@@ -113,23 +118,19 @@ export default function Onboarding() {
     setError(null)
 
     try {
-      if (needsApiKey && apiKey.trim()) {
-        await invoke('save_settings', { key: 'venice_api_key', value: apiKey.trim() })
-        try { await invoke('get_state') } catch { /* non-critical */ }
-        setApiKeySet(true)
-      }
-
-      if (userName.trim()) {
-        await invoke('save_settings', { key: 'user_name', value: userName.trim() })
-      }
-
-      await invoke('save_settings', { key: 'onboarding_complete', value: 'true' })
+      await platform.completeOnboarding({
+        userName: userName.trim() || undefined,
+        apiKey: needsApiKey && apiKey.trim() ? apiKey.trim() : undefined,
+      })
+      if (needsApiKey && apiKey.trim()) setApiKeySet(true)
+      // Warm the creature state (non-critical).
+      try { await platform.getState() } catch { /* non-critical */ }
       setOnboardingComplete(true)
     } catch (err) {
       setError(typeof err === 'string' ? err : 'Something went wrong. Please try again.')
       setIsFinishing(false)
     }
-  }, [canSubmit, needsApiKey, apiKey, userName, setApiKeySet, setOnboardingComplete])
+  }, [platform, canSubmit, needsApiKey, apiKey, userName, setApiKeySet, setOnboardingComplete])
 
   return (
     <div

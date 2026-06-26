@@ -38,6 +38,12 @@ export interface Platform {
   /** Which shell this implementation targets. */
   readonly name: PlatformName
 
+  // ── Capabilities (queried, never branched on by platform name) ──────────────
+  /** Text-to-speech available? (desktop: Venice TTS · web: not yet). */
+  readonly supportsTts: boolean
+  /** Voice input / transcription available? (desktop only for now). */
+  readonly supportsVoice: boolean
+
   // ── Inference ──────────────────────────────────────────────────────────────
   /** desktop: local key present? · web: trial/BYOK/locked key available? */
   hasInferenceKey(): Promise<boolean>
@@ -54,6 +60,22 @@ export interface Platform {
   getMessages(limit: number): Promise<Message[]>
   /** Generate the Starchild's awakening message (first run, empty chat). */
   generateFirstMessage(): Promise<Message>
+  /** Delete a single message from local storage. */
+  deleteMessage(id: string): Promise<void>
+
+  // ── Voice (capability-gated; throw/no-op where unsupported) ──────────────────
+  /** Synthesize speech for `text`; resolves to base64-encoded MP3 audio. */
+  ttsSpeak(text: string): Promise<string>
+  /** Transcribe base64-encoded WAV audio to text. */
+  transcribe(audioBase64: string): Promise<string>
+
+  // ── Events ───────────────────────────────────────────────────────────────────
+  /**
+   * Subscribe to a backend/runtime event (e.g. `quest-celebration`). Returns an
+   * unsubscribe function. Desktop wires this to Tauri events; web is a no-op
+   * until the web shell emits its own events.
+   */
+  subscribe(event: string, handler: (payload: unknown) => void): () => void
 
   // ── Creature ────────────────────────────────────────────────────────────────
   getState(): Promise<StarchildState>

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
 
@@ -10,7 +11,7 @@ import topLevelAwait from 'vite-plugin-top-level-await'
 // integration and top-level await, which need esnext output to pass through
 // untouched. The core is built in a later phase; this config is ready for it.
 export default defineConfig({
-  plugins: [react(), wasm(), topLevelAwait()],
+  plugins: [react(), tailwindcss(), wasm(), topLevelAwait()],
   clearScreen: false,
   server: {
     port: 5174,

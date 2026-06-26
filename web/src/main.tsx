@@ -1,25 +1,24 @@
 /**
- * main.tsx — platform bootstrapper.
+ * main.tsx — web shell bootstrapper.
  *
- * The web shell always selects the web platform implementation and hands it to
- * the app through `PlatformContext`. The Tauri shell has its own bootstrapper
- * that selects the desktop impl; components below this point never know which
- * shell they run in (PRD §4.4, the Golden Rule).
+ * The web shell mounts the SHARED platform seam (`src/platform/*`). With no
+ * `platform` override, `PlatformProvider` auto-detects the runtime: in the
+ * browser `window.isTauri` is unset, so it selects the web implementation
+ * (`src/platform/web.ts` — WASM core + IndexedDB + Venice proxy/BYOK). Shared
+ * components below reach platform features only through `usePlatform()`, exactly
+ * as they do on desktop (PRD §4.4, the Golden Rule).
  */
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
-import { PlatformContext, type Platform } from './platform'
-import { createWebPlatform } from './platform/web'
-
-const platform: Platform = createWebPlatform()
+import { PlatformProvider } from '../../src/platform/usePlatform'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <PlatformContext.Provider value={platform}>
+    <PlatformProvider>
       <App />
-    </PlatformContext.Provider>
+    </PlatformProvider>
   </StrictMode>,
 )
