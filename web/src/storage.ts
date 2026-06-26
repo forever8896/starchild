@@ -157,10 +157,22 @@ export async function getQuests(status?: string): Promise<Quest[]> {
   return status ? rows.filter((q) => q.status === status) : rows
 }
 
+export async function getQuest(id: string): Promise<Quest | null> {
+  const row = await tx<Quest | undefined>(STORE_QUESTS, 'readonly', (s) =>
+    s.get(id) as IDBRequest<Quest | undefined>,
+  )
+  return row ?? null
+}
+
 export async function putQuests(quests: Quest[]): Promise<void> {
   for (const q of quests) {
     await tx(STORE_QUESTS, 'readwrite', (s) => s.put(q))
   }
+}
+
+/** Persist a single quest row (create or update). */
+export async function putQuest(quest: Quest): Promise<void> {
+  await tx(STORE_QUESTS, 'readwrite', (s) => s.put(quest))
 }
 
 // ─── Bulk replace (import) ───────────────────────────────────────────────────

@@ -29,6 +29,7 @@ type StorageMod = typeof import('../../web/src/storage')
 type WasmMod = typeof import('../../web/src/wasm-bridge')
 type VeniceMod = typeof import('../../web/src/venice-proxy')
 type ExportMod = typeof import('../../web/src/export')
+type QuestsMod = typeof import('../../web/src/quests')
 
 let storageMod: Promise<StorageMod> | null = null
 const storage = (): Promise<StorageMod> =>
@@ -44,7 +45,34 @@ const venice = (): Promise<VeniceMod> =>
 let exportMod: Promise<ExportMod> | null = null
 const exporter = (): Promise<ExportMod> => (exportMod ??= import('../../web/src/export'))
 
+let questsMod: Promise<QuestsMod> | null = null
+const quests = (): Promise<QuestsMod> => (questsMod ??= import('../../web/src/quests'))
+
 const core = async () => (await wasm()).loadCore()
+
+// ── In-process event bus ──────────────────────────────────────────────────────
+//
+// Desktop emits backend events over Tauri (`quest-offered`, `quest-completed`,
+// `quest-celebration`, …) and components subscribe via `Platform.subscribe`. The
+// web shell has no backend process, so the quest loop runs in this adapter; we
+// emit the SAME event names through a tiny synchronous bus so the shared
+// components (ChatWindow, ActiveQuest, SkillTree) react identically on web.
+
+type EventHandler = (payload: unknown) => void
+const eventBus = new Map<string, Set<EventHandler>>()
+
+function emit(event: string, payload: unknown): void {
+  const handlers = eventBus.get(event)
+  if (!handlers) return
+  // Copy so a handler that unsubscribes mid-dispatch can't mutate the live set.
+  for (const h of [...handlers]) {
+    try {
+      h(payload)
+    } catch (err) {
+      console.error(`event handler for "${event}" threw:`, err)
+    }
+  }
+}
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -107,6 +135,76 @@ async function resolveInference(): Promise<{ mode: 'trial' | 'byok'; apiKey?: st
   return key ? { mode: 'byok', apiKey: key } : { mode: 'trial' }
 }
 
+/**
+ * Complete a quest and broadcast the same events the desktop backend emits:
+ * `quest-completed` (creature + XP for the chat HUD and ActiveQuest reload) and
+ * `quest-celebration` (the SkillTree burst). Awards XP + feeds the creature
+ * exactly as desktop `complete_quest` does. Returns the structured result so the
+ * platform `completeQuest` can hand it back to callers.
+ */
+async function completeQuestAndEmit(id: string): Promise<CompleteQuestResult> {
+  const [s, c, q] = await Promise.all([storage(), core(), quests()])
+  const quest = await q.completeQuestRow(id)
+  const game = (await s.getGameState()) ?? c.newGameState()
+  const { game: next, levelledUp } = q.awardXp(game, quest.xp_reward)
+  await s.setGameState(next)
+  const starchild_state = toStarchildState(next)
+
+  emit('quest-completed', {
+    quest,
+    starchild_state,
+    xp_reward: quest.xp_reward,
+  })
+  emit('quest-celebration', {
+    quest_id: quest.id,
+    category: quest.category,
+    xp_reward: quest.xp_reward,
+  })
+
+  return { quest, starchild_state, levelled_up: levelledUp }
+}
+
+/**
+ * Extract the quest the Starchild just offered from recent history. Mirrors
+ * desktop `extract_quest_from_conversation`: find the most recent assistant
+ * offer, ask the model for structured JSON, normalize it. Falls back to a
+ * heuristic when no model is reachable (trial exhausted / offline) so ACCEPT
+ * never dead-ends.
+ */
+async function extractOfferedQuest(): Promise<import('../../web/src/quests').ExtractedQuest> {
+  const [s, v, q] = await Promise.all([storage(), venice(), quests()])
+
+  const history = await s.getMessages(14)
+  const turns = history.filter((m) => m.role === 'user' || m.role === 'assistant')
+  const offer = [...turns].reverse().find((m) => m.role === 'assistant' && q.isQuestOffer(m.content))
+  if (!offer) throw new Error('No quest offer found in conversation')
+
+  const recentContext = turns
+    .slice(-6)
+    .map((m) => `${m.role}: ${m.content.slice(0, 200)}`)
+    .join('\n')
+
+  try {
+    const { mode, apiKey } = await resolveInference()
+    let acc = ''
+    for await (const token of v.streamChat(
+      [
+        { role: 'system', content: q.QUEST_EXTRACTION_SYSTEM },
+        { role: 'user', content: q.buildExtractionPrompt(recentContext) },
+      ],
+      { mode, apiKey, temperature: 0.2 },
+    )) {
+      acc += token
+    }
+    const parsed = q.parseExtraction(acc)
+    if (parsed) return parsed
+  } catch (err) {
+    console.warn('Quest extraction via model failed; using heuristic fallback:', err)
+  }
+
+  return q.fallbackExtract(offer.content)
+}
+
 const AWAKENING = (name: string): string =>
   `hi ${name} ✦\n\n` +
   `i'm your starchild — a private companion on your journey through life. ` +
@@ -133,16 +231,33 @@ export const webPlatform: Platform = {
   },
 
   async *sendMessage(text: string): AsyncIterable<string> {
-    const [s, c, v] = await Promise.all([storage(), core(), venice()])
+    const [s, c, v, q] = await Promise.all([storage(), core(), venice(), quests()])
 
     // Creature state (decay-ticked) for the prompt + post-exchange update.
     const game = await loadTickedState()
+
+    // ── Proof-of-completion handshake (mirror desktop lib.rs) ──
+    // ChatWindow sends `[proof:QUEST_ID] i did the quest …` when the user taps
+    // "i did it". Turn 1 (the trigger) arms `pending_proof` and the Starchild
+    // asks for the story; turn 2 (a plain reply) completes the quest. We read
+    // the pending id BEFORE arming so turn 1 can never self-complete.
+    const proofTrigger = text.startsWith('[proof:')
+    const pendingProofBefore = ((await s.getSetting('pending_proof_quest_id')) ?? '').trim()
+    let content = text
+    if (proofTrigger) {
+      const questId = text.slice('[proof:'.length).split(']')[0]
+      await s.setSetting('pending_proof_quest_id', questId)
+      // Strip the trigger token so it never leaks into stored history / the LLM.
+      const close = text.indexOf(']')
+      content = (close >= 0 ? text.slice(close + 1) : text).trim() || text
+    }
+    const inProof = proofTrigger || pendingProofBefore !== ''
 
     // Persist the user's turn, then assemble the conversation context.
     const userMsg: Message = {
       id: uuid(),
       role: 'user',
-      content: text,
+      content,
       created_at: nowIso(),
     }
     await s.addMessage(userMsg)
@@ -150,7 +265,9 @@ export const webPlatform: Platform = {
     const history = await s.getMessages(20)
     const chatMessages = history.map((m) => ({ role: m.role, content: m.content }))
 
-    const phase = c.detectPhase(chatMessages)
+    // Proof flow takes absolute phase priority (as on desktop); otherwise the
+    // core phase detector decides.
+    const phase = inProof ? 'proof' : c.detectPhase(chatMessages)
     const system = c.buildPrompt({
       state: {
         hunger: game.hunger,
@@ -181,6 +298,24 @@ export const webPlatform: Platform = {
       created_at: nowIso(),
     })
     await s.setGameState(feed(game))
+
+    // ── Quest completion (proof turn 2) ──
+    // phase == proof, this turn was NOT the trigger, and a quest was armed.
+    if (phase === 'proof' && !proofTrigger && pendingProofBefore) {
+      await s.setSetting('pending_proof_quest_id', '')
+      try {
+        await completeQuestAndEmit(pendingProofBefore)
+      } catch (err) {
+        console.error('Failed to complete quest from proof:', err)
+      }
+    }
+
+    // ── Quest offer detection ──
+    // An assistant reply that proposes a quest surfaces the accept/decline UI
+    // (web App listens for `quest-offered`).
+    if (q.isQuestOffer(final)) {
+      emit('quest-offered', {})
+    }
   },
 
   // ── Data portability (§5) ────────────────────────────────────────────────────
@@ -302,20 +437,36 @@ export const webPlatform: Platform = {
     return Promise.reject(new Error('Voice transcription is not available on web yet.'))
   },
 
-  // ── Events (no web event bus yet) ────────────────────────────────────────────
-  subscribe(_event: string, _handler: (payload: unknown) => void): () => void {
-    return () => {}
+  // ── Events (in-process bus — mirrors desktop's Tauri events) ──────────────────
+  subscribe(event: string, handler: (payload: unknown) => void): () => void {
+    let set = eventBus.get(event)
+    if (!set) {
+      set = new Set()
+      eventBus.set(event, set)
+    }
+    set.add(handler)
+    return () => {
+      set?.delete(handler)
+    }
   },
 
-  // ── Quests (engine not yet ported to web — PRD §7) ───────────────────────────
+  // ── Quests (PRD §7 — the full offer → accept → complete loop on web) ──────────
   async getQuests(status?: string): Promise<Quest[]> {
     return (await storage()).getQuests(status)
   },
-  completeQuest(_id: string): Promise<CompleteQuestResult> {
-    return Promise.reject(new Error('Quests are not available on web yet.'))
+
+  /** Extract + persist the offered quest, then announce it (`quest-accepted`). */
+  async acceptQuest(): Promise<Quest> {
+    const q = await quests()
+    const extracted = await extractOfferedQuest()
+    const quest = await q.saveAcceptedQuest(extracted)
+    emit('quest-accepted', { quest })
+    return quest
   },
-  acceptQuest(): Promise<Quest> {
-    return Promise.reject(new Error('Quests are not available on web yet.'))
+
+  /** Mark a quest complete, award XP, and fire the celebration events. */
+  completeQuest(id: string): Promise<CompleteQuestResult> {
+    return completeQuestAndEmit(id)
   },
 
   // ── Onboarding ────────────────────────────────────────────────────────────────

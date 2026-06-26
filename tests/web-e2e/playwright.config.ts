@@ -1,17 +1,24 @@
 /**
  * playwright.config.ts — Web E2E harness (PRD §8)
  *
- * Drives the REAL web app (shared React components + — once compiled — the
- * shared `core/` engine) in a headless browser, so flows are tested end-to-end
- * and deterministically. This doubles as the shared-core regression net: the web
- * shell runs the same `core/` the desktop ships, so a green suite here guards the
- * core logic for both platforms (PRD §8).
+ * Drives the REAL `web/` shell (the dedicated browser app: `web/src/main.tsx`
+ * mounting the shared React components through the `src/platform/web.ts` seam,
+ * backed by the WASM `core/`, IndexedDB and the Venice proxy/BYOK client) in a
+ * headless browser, so flows are tested end-to-end and deterministically. This
+ * doubles as the shared-core regression net: the web shell runs the same `core/`
+ * the desktop ships, so a green suite here guards the core logic for both
+ * platforms (PRD §8).
  *
- * The "web dev server" is the Vite app served from the repo root (`npm run dev`
- * → http://localhost:5173). It mounts `src/components/*` — the shared UI surface
- * — which is exactly what the future `web/` shell renders. When the dedicated
- * `web/` shell lands (PRD §12), point `webServer.command`/`cwd` at it; nothing
- * else here needs to change.
+ * ── Which server we boot, and WHY it matters ────────────────────────────────
+ * We boot the `web/` Vite app (`npm run dev` with `cwd: web/` → http://localhost:5174),
+ * NOT the repo-root dev server (:5173, the legacy `src` shell). This is
+ * load-bearing: the `web/` shell is what users actually run, and its Vite config
+ * dedupes/aliases react/react-dom to ONE copy. Booting the root server instead
+ * meant the real shell's render was never exercised — a runtime render bug (e.g.
+ * the blank page from a duplicate React → "Invalid hook call") would sail
+ * straight through a green gate. Pointing the harness at :5174 closes that hole;
+ * the specs additionally fail on any uncaught page error / React hook-call
+ * console error so such a regression turns the gate red.
  *
  * ── Determinism strategy: mock Venice at the platform seam ──────────────────
  * The only outbound network call the product makes is the E2EE inference call to
@@ -41,10 +48,11 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// Repo root holds the web package.json + Vite dev server (tests/web-e2e/ → ../../).
-const repoRoot = resolve(__dirname, '..', '..')
+// The dedicated web shell lives in `web/` (tests/web-e2e/ → ../../web).
+const webDir = resolve(__dirname, '..', '..', 'web')
 
-const PORT = 5173
+// The web shell pins its dev server to 5174 (web/vite.config.ts, strictPort).
+const PORT = 5174
 const BASE_URL = `http://localhost:${PORT}`
 
 export default defineConfig({
@@ -66,10 +74,12 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
 
-  // Boot the real web dev server before the suite; reuse it locally for speed.
+  // Boot the REAL web shell (web/ Vite app on :5174) before the suite; reuse a
+  // locally-running one for speed. `cwd: web/` is what makes this the dedicated
+  // shell rather than the legacy root server.
   webServer: {
     command: 'npm run dev',
-    cwd: repoRoot,
+    cwd: webDir,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

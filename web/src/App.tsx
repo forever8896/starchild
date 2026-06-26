@@ -68,6 +68,7 @@ export default function App() {
   const setStarchildState = useAppStore((s) => s.setStarchildState)
   const currentView = useAppStore((s) => s.currentView)
   const setCurrentView = useAppStore((s) => s.setCurrentView)
+  const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const [showData, setShowData] = useState(false)
 
   useEffect(() => {
@@ -91,6 +92,17 @@ export default function App() {
     bootstrap()
     return () => { cancelled = true }
   }, [platform, setOnboardingComplete, setOnboardingChecked, setStarchildState])
+
+  // Surface the accept/decline UI when the Starchild offers a quest. The web
+  // platform emits `quest-offered` from `sendMessage` (mirrors the desktop Tauri
+  // event listened for in the desktop `App.tsx`); pull the user back to chat so
+  // the offer is visible if they're on the tree/settings.
+  useEffect(() => {
+    return platform.subscribe('quest-offered', () => {
+      setShowQuestOffer(true)
+      if (useAppStore.getState().currentView !== 'chat') setCurrentView('chat')
+    })
+  }, [platform, setShowQuestOffer, setCurrentView])
 
   // Invisible hold while we check onboarding state.
   if (!onboardingChecked) {
