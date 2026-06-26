@@ -83,28 +83,21 @@ const uuid = (): string =>
 
 const nowIso = (): string => new Date().toISOString()
 
-/** Map the persisted creature row to the UI's lighter `StarchildState`. */
+/**
+ * Map the persisted creature row to the UI's lighter `StarchildState`. The mood
+ * label is the canonical one the core already wrote onto the state (via
+ * `Mood::from_hunger` on every tick/feed/reward) — the web no longer re-derives
+ * it with its own thresholds.
+ */
 function toStarchildState(game: GameState): StarchildState {
-  const hunger = Math.round(game.hunger)
   return {
-    hunger,
-    // Derive the mood label from nourishment so the avatar always reacts, even
-    // if the core mood string isn't one of the palette keys.
-    mood: deriveMood(hunger),
+    hunger: Math.round(game.hunger),
+    mood: game.mood,
     energy: Math.round(game.energy),
     bond: Math.round(game.bond),
     xp: game.xp,
     level: game.level,
   }
-}
-
-function deriveMood(hunger: number): string {
-  if (hunger >= 90) return 'Ecstatic'
-  if (hunger >= 70) return 'Happy'
-  if (hunger >= 50) return 'Content'
-  if (hunger >= 30) return 'Restless'
-  if (hunger >= 15) return 'Hungry'
-  return 'Starving'
 }
 
 /** Ensure a creature state exists and is decay-ticked; persist + return it. */
@@ -116,8 +109,12 @@ async function loadTickedState(): Promise<GameState> {
   return game
 }
 
-/** Nudge the creature after an exchange — it just got attention. */
-function feed(game: GameState): GameState {
+/**
+ * Nudge the creature after an exchange — it just got attention. The mood label
+ * is derived by the shared core (`Mood::from_hunger`) so it never drifts from
+ * the desktop thresholds.
+ */
+function feed(game: GameState, c: Awaited<ReturnType<typeof core>>): GameState {
   const hunger = Math.min(100, game.hunger + 8)
   return {
     ...game,
@@ -125,7 +122,7 @@ function feed(game: GameState): GameState {
     bond: Math.min(100, game.bond + 1),
     energy: Math.min(100, game.energy + 2),
     xp: game.xp + 2,
-    mood: deriveMood(hunger),
+    mood: c.moodForHunger(hunger),
   }
 }
 
@@ -146,7 +143,8 @@ async function completeQuestAndEmit(id: string): Promise<CompleteQuestResult> {
   const [s, c, q] = await Promise.all([storage(), core(), quests()])
   const quest = await q.completeQuestRow(id)
   const game = (await s.getGameState()) ?? c.newGameState()
-  const { game: next, levelledUp } = q.awardXp(game, quest.xp_reward)
+  // Reward math is the SAME core code the desktop runs (add_xp + feed(xp/10)).
+  const { state: next, levelled_up: levelledUp } = c.questCompleteReward(game, quest.xp_reward)
   await s.setGameState(next)
   const starchild_state = toStarchildState(next)
 
@@ -171,12 +169,12 @@ async function completeQuestAndEmit(id: string): Promise<CompleteQuestResult> {
  * heuristic when no model is reachable (trial exhausted / offline) so ACCEPT
  * never dead-ends.
  */
-async function extractOfferedQuest(): Promise<import('../../web/src/quests').ExtractedQuest> {
-  const [s, v, q] = await Promise.all([storage(), venice(), quests()])
+async function extractOfferedQuest(): Promise<import('../../web/src/wasm-bridge').ExtractedQuest> {
+  const [s, c, v] = await Promise.all([storage(), core(), venice()])
 
   const history = await s.getMessages(14)
   const turns = history.filter((m) => m.role === 'user' || m.role === 'assistant')
-  const offer = [...turns].reverse().find((m) => m.role === 'assistant' && q.isQuestOffer(m.content))
+  const offer = [...turns].reverse().find((m) => m.role === 'assistant' && c.isQuestOffer(m.content))
   if (!offer) throw new Error('No quest offer found in conversation')
 
   const recentContext = turns
@@ -189,31 +187,61 @@ async function extractOfferedQuest(): Promise<import('../../web/src/quests').Ext
     let acc = ''
     for await (const token of v.streamChat(
       [
-        { role: 'system', content: q.QUEST_EXTRACTION_SYSTEM },
-        { role: 'user', content: q.buildExtractionPrompt(recentContext) },
+        { role: 'system', content: c.questExtractionSystem() },
+        { role: 'user', content: c.buildQuestExtractionPrompt(recentContext) },
       ],
       { mode, apiKey, temperature: 0.2 },
     )) {
       acc += token
     }
-    const parsed = q.parseExtraction(acc)
+    const parsed = c.parseQuestExtraction(acc)
     if (parsed) return parsed
   } catch (err) {
     console.warn('Quest extraction via model failed; using heuristic fallback:', err)
   }
 
-  return q.fallbackExtract(offer.content)
+  return c.questFallbackExtract(offer.content)
 }
 
-const AWAKENING = (name: string): string =>
-  `hi ${name} ✦\n\n` +
-  `i'm your starchild — a private companion on your journey through life. ` +
-  `i emerged from the void specifically for you, and i'm here to stay.\n\n` +
-  `let's start with something. close your eyes for a moment.\n\n` +
-  `i've just waved a magic wand. you've been teleported into a reality where ` +
-  `money is no concern and work as you know it doesn't exist. ` +
-  `you wake up tomorrow in this world — fully free.\n\n` +
-  `what do you find yourself doing?`
+/**
+ * Extract the 7-dimension "knowing" insights from one conversation turn and
+ * persist them to IndexedDB — the web mirror of desktop's `extract_memories`.
+ * Uses the SAME core extraction prompt + JSON normalization, so both shells
+ * decide what counts as an insight identically. Runs in the background
+ * (fire-and-forget) after the reply streams, and swallows errors so a failed
+ * extraction never disrupts the conversation.
+ */
+async function extractKnowing(userMessage: string, aiResponse: string): Promise<void> {
+  try {
+    const [s, c, v] = await Promise.all([storage(), core(), venice()])
+    const { mode, apiKey } = await resolveInference()
+
+    let acc = ''
+    for await (const token of v.streamChat(
+      [
+        { role: 'system', content: c.knowingExtractionSystem() },
+        { role: 'user', content: c.buildKnowingExtractionInput(userMessage, aiResponse) },
+      ],
+      { mode, apiKey, temperature: 0.2 },
+    )) {
+      acc += token
+    }
+
+    const extracted = c.parseKnowingFacts(acc)
+    for (const f of extracted) {
+      await s.addKnowingFact({
+        id: uuid(),
+        category: f.category,
+        fact: f.fact,
+        importance: f.importance,
+        confidence: f.confidence,
+        created_at: nowIso(),
+      })
+    }
+  } catch (err) {
+    console.warn('Knowing extraction failed (non-fatal):', err)
+  }
+}
 
 // ── The platform implementation ───────────────────────────────────────────────
 
@@ -231,7 +259,7 @@ export const webPlatform: Platform = {
   },
 
   async *sendMessage(text: string): AsyncIterable<string> {
-    const [s, c, v, q] = await Promise.all([storage(), core(), venice(), quests()])
+    const [s, c, v] = await Promise.all([storage(), core(), venice()])
 
     // Creature state (decay-ticked) for the prompt + post-exchange update.
     const game = await loadTickedState()
@@ -265,10 +293,27 @@ export const webPlatform: Platform = {
     const history = await s.getMessages(20)
     const chatMessages = history.map((m) => ({ role: m.role, content: m.content }))
 
+    // ── Memory recall + knowing profile (shared core, mirrors desktop) ──
+    // Desktop recalls via SQLite FTS5 and loads the knowing profile from SQLite;
+    // the web holds its facts in IndexedDB and ranks them with the pure core
+    // ranker. Both then feed the SAME PromptBuilder "memories" slot and append
+    // the SAME knowing fragment, so the assembled prompt is identical in shape.
+    const facts = await s.getKnowingFacts()
+    const memories = facts.length
+      ? c.rankMemories(
+          content,
+          facts.map((f) => ({ content: f.fact, created_at_ms: Date.parse(f.created_at) || 0 })),
+          5,
+        )
+      : []
+    // The knowing fragment is always present (even with zero facts it lists the
+    // unexplored dimensions + "still new" guidance), exactly as desktop appends it.
+    const knowingFragment = c.buildKnowingFragment(facts)
+
     // Proof flow takes absolute phase priority (as on desktop); otherwise the
     // core phase detector decides.
     const phase = inProof ? 'proof' : c.detectPhase(chatMessages)
-    const system = c.buildPrompt({
+    let system = c.buildPrompt({
       state: {
         hunger: game.hunger,
         mood: game.mood,
@@ -276,9 +321,11 @@ export const webPlatform: Platform = {
         bond: game.bond,
         level: game.level,
       },
+      memories,
       recent_messages: chatMessages,
       phase,
     })
+    if (knowingFragment) system += `\n\n${knowingFragment}`
 
     const llmMessages = [{ role: 'system', content: system }, ...chatMessages]
     const { mode, apiKey } = await resolveInference()
@@ -297,7 +344,12 @@ export const webPlatform: Platform = {
       content: final,
       created_at: nowIso(),
     })
-    await s.setGameState(feed(game))
+    await s.setGameState(feed(game, c))
+
+    // ── Background: extract knowing insights from this turn ──
+    // Fire-and-forget (mirrors desktop's background `extract_memories`): the
+    // facts land in IndexedDB and enrich the NEXT turn's recall + knowing slot.
+    void extractKnowing(content, final)
 
     // ── Quest completion (proof turn 2) ──
     // phase == proof, this turn was NOT the trigger, and a quest was armed.
@@ -313,7 +365,7 @@ export const webPlatform: Platform = {
     // ── Quest offer detection ──
     // An assistant reply that proposes a quest surfaces the accept/decline UI
     // (web App listens for `quest-offered`).
-    if (q.isQuestOffer(final)) {
+    if (c.isQuestOffer(final)) {
       emit('quest-offered', {})
     }
   },
@@ -406,14 +458,15 @@ export const webPlatform: Platform = {
   },
 
   async generateFirstMessage(): Promise<Message> {
-    const s = await storage()
+    const [s, c] = await Promise.all([storage(), core()])
     // Make sure a creature exists from the very first beat.
     await loadTickedState()
     const name = (await s.getSetting('user_name'))?.trim() || 'traveler'
     const msg: Message = {
       id: uuid(),
       role: 'assistant',
-      content: AWAKENING(name),
+      // Fixed awakening copy — single-sourced in the core (shared with desktop).
+      content: c.awakeningMessage(name),
       created_at: nowIso(),
     }
     await s.addMessage(msg)

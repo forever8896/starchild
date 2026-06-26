@@ -157,6 +157,32 @@ pub struct KnowingProfile {
 }
 
 impl KnowingProfile {
+    /// Assemble a profile from a flat list of stored facts: derive the
+    /// discovery stage from the count and flag any category with fewer than two
+    /// facts as a gap. This is the single source of truth both shells use —
+    /// desktop loads `facts` from SQLite, web from IndexedDB, then both call
+    /// this so the stage/gaps math (and the resulting prompt) is identical.
+    pub fn from_facts(facts: Vec<KnownFact>) -> Self {
+        let total_facts = facts.len();
+        let stage = DiscoveryStage::from_fact_count(total_facts);
+
+        // Categories with fewer than 2 facts are still "unexplored".
+        let mut gaps = Vec::new();
+        for cat in KnowingCategory::ALL {
+            let count = facts.iter().filter(|f| f.category == cat.as_str()).count();
+            if count < 2 {
+                gaps.push(*cat);
+            }
+        }
+
+        KnowingProfile {
+            facts,
+            stage,
+            total_facts,
+            gaps,
+        }
+    }
+
     /// Build a prompt fragment that tells Starchild what it knows and what it
     /// should explore next.
     pub fn to_prompt_fragment(&self) -> String {
@@ -266,9 +292,124 @@ pub fn knowing_extraction_prompt() -> &'static str {
      - No markdown fences, no explanation, just the JSON array"
 }
 
+/// Build the user message for the extraction LLM call from a single
+/// conversation turn. Shared so both shells phrase the extraction identically.
+pub fn build_extraction_input(user_message: &str, ai_response: &str) -> String {
+    format!(
+        "Analyze this conversation turn and extract meaningful insights about the human.\n\n\
+         User: {user_message}\nAssistant: {ai_response}"
+    )
+}
+
+/// A normalized fact extracted from a conversation turn, ready to store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedFact {
+    pub fact: String,
+    pub category: String,
+    pub importance: f64,
+    pub confidence: f64,
+}
+
+/// Parse + normalize the extraction model's raw JSON array into storable facts.
+///
+/// Mirrors the desktop pipeline exactly: a missing `category` defaults to
+/// `life_situation`, a missing `confidence` to `0.5`; each `fact` is trimmed and
+/// dropped when empty or longer than 500 chars (context-bloat guard); and
+/// `importance`/`confidence` are clamped to `0.0..=1.0`. A malformed payload
+/// yields an empty list (the turn simply teaches nothing). This is shared so
+/// the web and desktop never drift in what they consider a valid insight.
+pub fn parse_extracted_facts(raw: &str) -> Vec<ExtractedFact> {
+    #[derive(Deserialize)]
+    struct RawFact {
+        fact: String,
+        #[serde(default = "default_category")]
+        category: String,
+        importance: f64,
+        #[serde(default = "default_confidence")]
+        confidence: f64,
+    }
+    fn default_category() -> String {
+        "life_situation".to_string()
+    }
+    fn default_confidence() -> f64 {
+        0.5
+    }
+
+    let parsed: Vec<RawFact> = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    parsed
+        .into_iter()
+        .filter_map(|f| {
+            let fact = f.fact.trim();
+            if fact.is_empty() || fact.len() > 500 {
+                return None;
+            }
+            Some(ExtractedFact {
+                fact: fact.to_string(),
+                category: f.category,
+                importance: f.importance.clamp(0.0, 1.0),
+                confidence: f.confidence.clamp(0.0, 1.0),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_facts_matches_stage_and_gaps() {
+        let facts = vec![
+            KnownFact {
+                id: "1".into(),
+                category: "core_values".into(),
+                fact: "values freedom".into(),
+                importance: 0.9,
+                confidence: 0.9,
+                created_at: "t".into(),
+            },
+            KnownFact {
+                id: "2".into(),
+                category: "core_values".into(),
+                fact: "values honesty".into(),
+                importance: 0.8,
+                confidence: 0.8,
+                created_at: "t".into(),
+            },
+        ];
+        let p = KnowingProfile::from_facts(facts);
+        assert_eq!(p.total_facts, 2);
+        assert_eq!(p.stage, DiscoveryStage::NewMeet);
+        // core_values has 2 facts → not a gap; others are gaps.
+        assert!(!p.gaps.contains(&KnowingCategory::CoreValues));
+        assert!(p.gaps.contains(&KnowingCategory::Fears));
+    }
+
+    #[test]
+    fn parse_extracted_facts_normalizes_and_filters() {
+        let raw = r#"[
+            {"fact":"  they fear stagnation  ","category":"fears","importance":1.5,"confidence":0.7},
+            {"fact":"","category":"desires","importance":0.4,"confidence":0.4},
+            {"fact":"they want autonomy","importance":0.6}
+        ]"#;
+        let facts = parse_extracted_facts(raw);
+        assert_eq!(facts.len(), 2);
+        assert_eq!(facts[0].fact, "they fear stagnation");
+        assert_eq!(facts[0].importance, 1.0, "importance is clamped");
+        // Missing category/confidence fall back to the desktop defaults.
+        assert_eq!(facts[1].category, "life_situation");
+        assert_eq!(facts[1].confidence, 0.5);
+    }
+
+    #[test]
+    fn parse_extracted_facts_tolerates_garbage() {
+        assert!(parse_extracted_facts("not json").is_empty());
+        assert!(parse_extracted_facts("[]").is_empty());
+    }
 
     #[test]
     fn discovery_stage_progression() {

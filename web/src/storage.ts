@@ -13,15 +13,19 @@
  */
 
 import type { Message, Quest } from '../../src/store'
-import type { GameState } from './wasm-bridge'
+import type { GameState, KnownFact } from './wasm-bridge'
 
 const DB_NAME = 'starchild'
-const DB_VERSION = 1
+// v2 adds the `knowing` store (the 7-dimension facts the recall ranker + the
+// knowing prompt fragment read). Bumping the version triggers `onupgradeneeded`,
+// which creates the new store without touching existing data.
+const DB_VERSION = 2
 
 const STORE_MESSAGES = 'messages'
 const STORE_STATE = 'state'
 const STORE_SETTINGS = 'settings'
 const STORE_QUESTS = 'quests'
+const STORE_KNOWING = 'knowing'
 
 /** The persisted message row — the shared `Message` plus an ordering key. */
 interface StoredMessage extends Message {
@@ -53,6 +57,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_QUESTS)) {
         db.createObjectStore(STORE_QUESTS, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STORE_KNOWING)) {
+        db.createObjectStore(STORE_KNOWING, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -175,6 +182,18 @@ export async function putQuest(quest: Quest): Promise<void> {
   await tx(STORE_QUESTS, 'readwrite', (s) => s.put(quest))
 }
 
+// ─── Knowing facts (the 7-dimension understanding of the human) ──────────────
+
+/** Append one extracted fact about the human. */
+export async function addKnowingFact(fact: KnownFact): Promise<void> {
+  await tx(STORE_KNOWING, 'readwrite', (s) => s.put(fact))
+}
+
+/** All stored knowing facts (the recall pool + the knowing-fragment source). */
+export async function getKnowingFacts(): Promise<KnownFact[]> {
+  return getAll<KnownFact>(STORE_KNOWING)
+}
+
 // ─── Bulk replace (import) ───────────────────────────────────────────────────
 
 /** Wipe every store, then load a fresh dataset (used by `importData`). */
@@ -187,7 +206,7 @@ export async function replaceAll(input: {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(
-      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS],
+      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING],
       'readwrite',
     )
     t.oncomplete = () => resolve()
@@ -196,6 +215,8 @@ export async function replaceAll(input: {
     t.objectStore(STORE_STATE).clear()
     t.objectStore(STORE_SETTINGS).clear()
     t.objectStore(STORE_QUESTS).clear()
+    // Knowing facts are rebuilt from conversation; a fresh dataset starts clean.
+    t.objectStore(STORE_KNOWING).clear()
     let seq = Date.now()
     for (const m of input.messages) {
       t.objectStore(STORE_MESSAGES).put({ ...m, seq: seq++ } satisfies StoredMessage)

@@ -40,30 +40,17 @@ impl KnowingSystem {
     }
 
     /// Load the full knowing profile for prompt building.
+    ///
+    /// The stage/gaps assembly lives in the shared core
+    /// (`KnowingProfile::from_facts`) so web and desktop derive it identically;
+    /// this method only supplies the facts from SQLite.
     pub fn profile(&self) -> Result<KnowingProfile, String> {
         let facts = self
             .db
             .get_knowing_facts()
             .map_err(|e| e.to_string())?;
 
-        let total_facts = facts.len();
-        let stage = DiscoveryStage::from_fact_count(total_facts);
-
-        // Find categories with fewer than 2 facts
-        let mut gaps = Vec::new();
-        for cat in KnowingCategory::ALL {
-            let count = facts.iter().filter(|f| f.category == cat.as_str()).count();
-            if count < 2 {
-                gaps.push(*cat);
-            }
-        }
-
-        Ok(KnowingProfile {
-            facts,
-            stage,
-            total_facts,
-            gaps,
-        })
+        Ok(KnowingProfile::from_facts(facts))
     }
 }
 

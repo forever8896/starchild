@@ -22,6 +22,10 @@ use crate::ai::{
     PromptBuilder,
 };
 use crate::game;
+use crate::knowing::{self, KnowingProfile, KnownFact};
+use crate::messages;
+use crate::quest;
+use crate::recall::{self, MemoryItem};
 
 /// Map a [`ConversationPhase`] to its stable string tag (the same tag the
 /// detector/prompt layer use). Centralized so the parse below stays in sync.
@@ -169,4 +173,140 @@ pub fn postprocess(text: &str, phase: &str) -> String {
 #[wasm_bindgen]
 pub fn core_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Quest logic (offer detection · extraction prompt · parse/normalize · fallback)
+// ---------------------------------------------------------------------------
+
+/// True when an assistant reply contains a quest offer the UI should surface.
+#[wasm_bindgen]
+pub fn is_quest_offer(text: &str) -> bool {
+    quest::is_quest_offer(text)
+}
+
+/// The system message for the extraction LLM call.
+#[wasm_bindgen]
+pub fn quest_extraction_system() -> String {
+    quest::QUEST_EXTRACTION_SYSTEM.to_string()
+}
+
+/// Build the extraction user prompt from recent conversation context.
+#[wasm_bindgen]
+pub fn build_quest_extraction_prompt(recent_context: &str) -> String {
+    quest::build_extraction_prompt(recent_context)
+}
+
+/// Parse + normalize a raw model extraction response. Returns the quest object,
+/// or `null` when the model declined / the JSON could not be parsed.
+#[wasm_bindgen]
+pub fn parse_quest_extraction(raw: &str) -> Result<JsValue, JsValue> {
+    Ok(serde_wasm_bindgen::to_value(&quest::parse_extraction(raw))?)
+}
+
+/// Apply the category/type defaults + XP clamp to an extracted quest.
+#[wasm_bindgen]
+pub fn normalize_quest(input: JsValue) -> Result<JsValue, JsValue> {
+    let e: quest::ExtractedQuest = serde_wasm_bindgen::from_value(input)?;
+    Ok(serde_wasm_bindgen::to_value(&quest::normalize_quest(e))?)
+}
+
+/// The offline heuristic fallback — turn an offer message into a quest.
+#[wasm_bindgen]
+pub fn quest_fallback_extract(offer_text: &str) -> Result<JsValue, JsValue> {
+    Ok(serde_wasm_bindgen::to_value(&quest::fallback_extract(
+        offer_text,
+    ))?)
+}
+
+// ---------------------------------------------------------------------------
+// Quest-completion reward (XP + feed) — the same math the desktop runs
+// ---------------------------------------------------------------------------
+
+/// Result of awarding a quest's reward: the updated creature plus whether it
+/// levelled up.
+#[derive(Serialize)]
+struct RewardResult {
+    state: game::StarchildState,
+    levelled_up: bool,
+}
+
+/// Award a quest's XP and feed the creature exactly as the desktop quest
+/// completion does (`add_xp(reward)` then `feed(reward / 10.0)`). Returns the
+/// next creature state and whether it levelled up.
+#[wasm_bindgen]
+pub fn quest_complete_reward(state: JsValue, xp_reward: f64) -> Result<JsValue, JsValue> {
+    let mut s: game::StarchildState = serde_wasm_bindgen::from_value(state)?;
+    let levelled_up = s.add_xp(xp_reward as i64);
+    s.feed(xp_reward / 10.0);
+    Ok(serde_wasm_bindgen::to_value(&RewardResult {
+        state: s,
+        levelled_up,
+    })?)
+}
+
+/// Derive the canonical mood label from a hunger value (`game::Mood::from_hunger`).
+/// Centralized so the web stops re-deriving it with drifting thresholds.
+#[wasm_bindgen]
+pub fn mood_for_hunger(hunger: f64) -> String {
+    game::Mood::from_hunger(hunger).to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Authored copy
+// ---------------------------------------------------------------------------
+
+/// The Starchild's fixed awakening (first) message for the given user name.
+#[wasm_bindgen]
+pub fn awakening_message(name: &str) -> String {
+    messages::awakening_message(name)
+}
+
+// ---------------------------------------------------------------------------
+// Memory recall (pure ranker — the web's FTS5 substitute)
+// ---------------------------------------------------------------------------
+
+/// Rank stored memories against a query by keyword overlap + recency and return
+/// the top-N contents (a JS `string[]`). `items` is a JS array of
+/// `{ content, created_at_ms }`. This is the web's recall path; desktop keeps
+/// SQLite FTS5, but both feed the same `PromptBuilder` "memories" slot.
+#[wasm_bindgen]
+pub fn rank_memories(query: &str, items: JsValue, top_n: usize) -> Result<JsValue, JsValue> {
+    let items: Vec<MemoryItem> = serde_wasm_bindgen::from_value(items)?;
+    let ranked = recall::rank_memories(query, &items, top_n);
+    Ok(serde_wasm_bindgen::to_value(&ranked)?)
+}
+
+// ---------------------------------------------------------------------------
+// The Knowing protocol (7-dimension understanding — shared with desktop)
+// ---------------------------------------------------------------------------
+
+/// The system prompt for the knowing/insight extraction LLM call.
+#[wasm_bindgen]
+pub fn knowing_extraction_system() -> String {
+    knowing::knowing_extraction_prompt().to_string()
+}
+
+/// Build the extraction user message from one `(user, assistant)` turn.
+#[wasm_bindgen]
+pub fn build_knowing_extraction_input(user_message: &str, ai_response: &str) -> String {
+    knowing::build_extraction_input(user_message, ai_response)
+}
+
+/// Parse + normalize the extraction model's raw JSON into storable facts
+/// (`ExtractedFact[]`), applying the same defaults/clamps/filters as desktop.
+#[wasm_bindgen]
+pub fn parse_knowing_facts(raw: &str) -> Result<JsValue, JsValue> {
+    Ok(serde_wasm_bindgen::to_value(&knowing::parse_extracted_facts(
+        raw,
+    ))?)
+}
+
+/// Build the knowing prompt fragment from the stored facts (`KnownFact[]`):
+/// derives stage + gaps via `KnowingProfile::from_facts`, then renders the same
+/// "WHAT YOU UNDERSTAND … / AREAS STILL UNEXPLORED …" text the desktop appends.
+#[wasm_bindgen]
+pub fn build_knowing_fragment(facts: JsValue) -> Result<String, JsValue> {
+    let facts: Vec<KnownFact> = serde_wasm_bindgen::from_value(facts)?;
+    Ok(KnowingProfile::from_facts(facts).to_prompt_fragment())
 }
