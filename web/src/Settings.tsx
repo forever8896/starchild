@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePlatform } from '../../src/platform/usePlatform'
+import { ACCESS_URL } from './access'
 
 const VENICE_KEY = 'venice_api_key'
 
@@ -311,6 +312,28 @@ export default function Settings({
               </p>
             )}
           </div>
+
+          {/* Token-lock tier → claim a funded, private key on the commons */}
+          <a
+            href={ACCESS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col gap-1 p-4 transition-opacity duration-150 hover:opacity-90"
+            style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '1.5px solid var(--outline)',
+              borderRadius: '16px',
+              textDecoration: 'none',
+            }}
+          >
+            <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              Free private access — lock $STARCHILD ↗
+            </span>
+            <span className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              No Venice key? Lock $STARCHILD on the commons and get a funded, private Starchild
+              key — capped and expiring with your lock. Claim it there, then paste it above.
+            </span>
+          </a>
         </section>
 
         {/* Your data */}
