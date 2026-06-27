@@ -63,6 +63,35 @@ contract StarchildLockTest is Test {
         assertEq(tok.balanceOf(alice), 1_000_000 ether); // got it all back, never burned
     }
 
+    /// The security guarantee behind funded access: a locker can NEVER withdraw
+    /// while their key is still live. The minted key expires at `unlockAt`, and
+    /// `withdraw()` reverts at every instant strictly before `unlockAt` — opening
+    /// up ONLY at `unlockAt`, by which point the key has already expired. So there
+    /// is no window where the tokens are back in hand AND the key still works.
+    function test_withdraw_blocked_at_every_instant_before_unlock() public {
+        _lock(alice, 100 ether, 30 days);
+        (, uint64 unlockAt) = lk.lockInfo(alice);
+
+        // Mid-lock (day 15): still locked.
+        vm.warp(uint256(unlockAt) - 15 days);
+        vm.prank(alice);
+        vm.expectRevert("still locked");
+        lk.withdraw();
+
+        // One second before unlock: still locked.
+        vm.warp(uint256(unlockAt) - 1);
+        vm.prank(alice);
+        vm.expectRevert("still locked");
+        lk.withdraw();
+
+        // Exactly at unlock (== the key's expiry timestamp): now, and only now, allowed.
+        vm.warp(uint256(unlockAt));
+        vm.prank(alice);
+        lk.withdraw();
+        assertEq(lk.lockedOf(alice), 0);
+        assertEq(tok.balanceOf(alice), 1_000_000 ether); // full amount back, never burned
+    }
+
     function test_topup_adds_amount_and_extends() public {
         _lock(alice, 100 ether, 10 days);
         (, uint64 u1) = lk.lockInfo(alice);
