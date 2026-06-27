@@ -13,16 +13,20 @@
  * exact same shared `SkillTree` component the desktop renders.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '../../src/store'
 import { usePlatform } from '../../src/platform/usePlatform'
 import Onboarding from '../../src/components/Onboarding'
 import ChatWindow from '../../src/components/ChatWindow'
-import SkillTree from '../../src/components/SkillTree'
 import ErrorBoundary from '../../src/components/ErrorBoundary'
-import DataSettings from './DataSettings'
-import Settings from './Settings'
+
+// Heavy, conditionally-rendered panels — split into their own async chunks so
+// they don't weigh down the initial chat/onboarding render. Each only loads
+// when the user actually opens it (Vision Tree, Your Data, Settings).
+const SkillTree = lazy(() => import('../../src/components/SkillTree'))
+const DataSettings = lazy(() => import('./DataSettings'))
+const Settings = lazy(() => import('./Settings'))
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -162,7 +166,11 @@ export default function App() {
         )}
 
         {/* Your Data — encrypted export / import overlay (PRD §5). */}
-        {showData && <DataSettings onClose={() => setShowData(false)} />}
+        {showData && (
+          <Suspense fallback={null}>
+            <DataSettings onClose={() => setShowData(false)} />
+          </Suspense>
+        )}
 
         {/* Settings — Venice key (BYOK) + data panel access (PRD §6). */}
         <AnimatePresence>
@@ -176,10 +184,12 @@ export default function App() {
               className="absolute inset-0 z-40"
             >
               <ErrorBoundary>
-                <Settings
-                  onClose={() => setCurrentView('chat')}
-                  onOpenData={() => setShowData(true)}
-                />
+                <Suspense fallback={null}>
+                  <Settings
+                    onClose={() => setCurrentView('chat')}
+                    onOpenData={() => setShowData(true)}
+                  />
+                </Suspense>
               </ErrorBoundary>
             </motion.div>
           )}
@@ -196,7 +206,9 @@ export default function App() {
               className="absolute inset-0"
             >
               <ErrorBoundary>
-                <SkillTree onBack={() => setCurrentView('chat')} />
+                <Suspense fallback={null}>
+                  <SkillTree onBack={() => setCurrentView('chat')} />
+                </Suspense>
               </ErrorBoundary>
             </motion.div>
           ) : (

@@ -314,12 +314,14 @@ export const webPlatform: Platform = {
     // core phase detector decides.
     const phase = inProof ? 'proof' : c.detectPhase(chatMessages)
     let system = c.buildPrompt({
+      // core's build_prompt state is u32; the live game state carries fractional
+      // (decayed) stats — round before crossing the WASM boundary or serde rejects.
       state: {
-        hunger: game.hunger,
+        hunger: Math.round(game.hunger),
         mood: game.mood,
-        energy: game.energy,
-        bond: game.bond,
-        level: game.level,
+        energy: Math.round(game.energy),
+        bond: Math.round(game.bond),
+        level: Math.round(game.level),
       },
       memories,
       recent_messages: chatMessages,

@@ -763,10 +763,7 @@ async fn send_message_stream(
         // 1. First quest: if vision is placed but no quest has ever been offered, offer one
         let any_quest_offered = phase_history.iter()
             .filter(|m| m.role == "assistant")
-            .any(|m| {
-                let lower = m.content.to_lowercase();
-                lower.contains("quest for you") || lower.contains("i have a quest")
-            });
+            .any(|m| quest::is_quest_offer(&m.content));
         let has_active_quests = !active_quest_titles.is_empty();
 
         if (quest_just_completed || recently_completed) && !active_quest_titles.is_empty() {
@@ -959,11 +956,8 @@ async fn send_message_stream(
 
             // Show accept/decline buttons whenever the response contains a quest offer
             // (Quest phase, Negotiate phase with revised quest, or any phase)
-            {
-                let lower = full_text.to_lowercase();
-                if lower.contains("quest for you") || lower.contains("i have a quest") {
-                    let _ = app_handle.emit("quest-offered", ());
-                }
+            if quest::is_quest_offer(&full_text) {
+                let _ = app_handle.emit("quest-offered", ());
             }
 
             // Background: extract memories

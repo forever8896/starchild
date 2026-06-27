@@ -35,6 +35,33 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    rollupOptions: {
+      output: {
+        // Split heavy third-party vendors out of the main entry chunk so the
+        // app shell ships small and the big dependencies load as their own
+        // cacheable chunks. The WASM core and conditionally-rendered panels
+        // (SkillTree, DataSettings, Settings) are additionally lazy-loaded via
+        // dynamic import (see wasm-bridge.ts and App.tsx), which Rollup emits as
+        // their own async chunks automatically.
+        manualChunks(id) {
+          if (id.includes('/node_modules/')) {
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/scheduler/')
+            ) {
+              return 'react-vendor'
+            }
+            if (id.includes('/framer-motion/') || id.includes('/motion-dom/') || id.includes('/motion-utils/')) {
+              return 'framer-motion'
+            }
+            if (id.includes('/@noble/')) {
+              return 'crypto'
+            }
+          }
+        },
+      },
+    },
   },
   worker: {
     format: 'es',
