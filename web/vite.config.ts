@@ -5,6 +5,7 @@ import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { devProxy } from './dev-proxy'
 
 // Web shell build config.
 //
@@ -20,7 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url)) // web/
 const repoRoot = resolve(here, '..')
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), wasm(), topLevelAwait()],
+  plugins: [react(), tailwindcss(), wasm(), topLevelAwait(), devProxy()],
   clearScreen: false,
   resolve: {
     dedupe: ['react', 'react-dom', 'zustand', 'framer-motion'],

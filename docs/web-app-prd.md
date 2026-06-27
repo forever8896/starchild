@@ -116,13 +116,27 @@ The "switch between desktop and web" is a **file you own**, not a server.
 
 ## 6. Inference funding
 
-Storage is local; inference still needs to be paid for. Tiers (default — tunable via the DAO later):
+Storage is local; inference is the one thing that costs money. The web edition offers **three ways to power it**, all surfaced in Settings. **Resolution order: BYOK key → locked-token key → sponsored demo.** BYOK and the locked-token key are fully private (the key lives in the browser; conversation runs client↔Venice E2EE; our backend is never in the path). The sponsored demo is the only non-E2EE path and is labelled as such.
 
-1. **Trial** — a bounded, no-friction first taste via a **proxy-only** demo key (never bundled in client JS; the proxy holds it, pins a cheap model, rate-limits per IP, enforces a monthly budget ceiling with graceful "rest mode," and **logs no content**).
-2. **Bring-your-own Venice key** — paste it; it stays in the browser (local), conversation runs client↔Venice E2EE. Free for us, fully private.
-3. **Lock $STARCHILD** — the inference-access utility (`docs/inference-access-spec.md`): lock → a minted, capped, expiring Venice key → paste it. Ties web distribution to the token utility.
+### 6.1 Sponsored demo — zero-friction first taste *(scaffold: `web/api/proxy.ts` ✅ + a dev shim)*
+Founder-funded (from ETH fees), bounded, **no key required** — so the app never *demands* a key just to try it.
+- The browser calls **our proxy**, never Venice directly. The proxy holds the demo key (env only, never in client JS), pins a cheap model, **logs no prompt/response content**, rate-limits per IP, and enforces a **monthly USD ceiling** with graceful "rest mode" (§5.7). `web/api/proxy.ts` already implements this.
+- **Production:** the proxy ships as an edge function beside the web app.
+- **Local dev:** a Vite dev-server middleware serves `/api/proxy` from `VENICE_TRIAL_KEY`, so the demo works in `npm run dev` without deploying. *(scaffold: `web/dev-proxy.ts` wired in `web/vite.config.ts`)*
 
-No fiat tier for v1 (keeps it simple + on-brand); revisit if demand warrants.
+### 6.2 Lock $STARCHILD → free private key — the token utility *(ties to `docs/inference-access-spec.md`)*
+The web edition is the distribution surface; **locking the token unlocks free, private, hosted-key usage.** This makes the web app and the token utility reinforce each other. Flow:
+1. **Connect wallet** (Base) in Settings → "Unlock free private access."
+2. **Lock** — call `StarchildLock.lock(amount, duration)` (the built, tested contract; locked tokens still vote).
+3. **Claim** — the web app POSTs the token site's **`/api/access/claim`** with an EIP-712 signature proving wallet ownership → backend verifies the lock on-chain → mints a **capped, expiring Venice inference key** (admin key) → returns it.
+4. **Use** — the minted key is stored in the **same local key slot as BYOK**; the web app talks to Venice **directly, E2EE** — the mint backend is never in the conversation path. The key auto-expires at `unlockAt`.
+- Cap mapping, the admin key, and the `/api/access/claim` mint endpoint are specced in `docs/inference-access-spec.md` (the contract is built; the mint endpoint + a Venice **admin key** are the remaining build — the one external dependency).
+- *(scaffold: `web/src/access.ts` — wallet connect + `lock()` + `claim()` → returns a Venice key; a "Free private access" panel in `web/src/Settings.tsx`; the token-site `/api/access/claim` route.)*
+
+### 6.3 Bring-your-own Venice key (BYOK) — ✅ exists
+Paste your own key (Settings → IndexedDB `venice_api_key`); fully private. For anyone who already has Venice.
+
+No fiat tier for v1 (keeps it simple + on-brand); revisit if demand warrants. The three tiers are DAO-tunable (caps, durations, demo budget).
 
 ## 7. Feature scope on web
 
@@ -144,7 +158,10 @@ Because the web build runs the **real** React components + **real** core engine 
 3. **Platform service** — interface + desktop/web impls; refactor `Onboarding` off direct `invoke`.
 4. **Web shell + storage** — Vite app, IndexedDB Storage adapter, wire the full experience.
 5. **Export/import** — encrypted versioned file; desktop import/export of the same format; web↔desktop round-trip test.
-6. **Inference** — trial proxy + BYOK + lock-$STARCHILD paths.
+6. **Inference access (§6)** — three tiers, resolution order BYOK → locked → demo:
+   - **Sponsored demo:** the edge proxy (`web/api/proxy.ts` ✅) for prod + a Vite **dev shim** (`web/dev-proxy.ts`) so the demo works in `npm run dev` keylessly.
+   - **BYOK** ✅ (exists).
+   - **Lock $STARCHILD:** `web/src/access.ts` (wallet connect → `StarchildLock.lock` → claim) + a "Free private access" panel in Settings + the token-site `/api/access/claim` mint endpoint (`docs/inference-access-spec.md`; the one external dep is a Venice **admin key**).
 7. **Playwright E2E** — the suite above, in CI.
 8. **Polish & deploy** — `app.starchild.software` (or `/app`), backup-nudge UX, analytics (page-level only, no content).
 
@@ -178,7 +195,10 @@ src/platform/{index.ts, desktop.ts, web.ts, usePlatform.ts}     ← shared seam
 web/{index.html, vite.config.ts, build-wasm.sh, src/{main.tsx, App.tsx,
       storage.ts (IndexedDB), wasm-bridge.ts, venice-proxy.ts,
       export.ts (encrypt/decrypt + schema), hooks/useWasmEngine.ts}}
-web/api/proxy.ts                                                ← trial key proxy (no-logging)
+web/api/proxy.ts                                                ← sponsored-demo proxy (no-logging, prod edge fn)
+web/dev-proxy.ts                                                ← dev shim: serves /api/proxy from VENICE_TRIAL_KEY in `npm run dev`
+web/src/access.ts                                              ← lock $STARCHILD → claim a minted Venice key (token utility)
+token/src/app/api/access/claim/route.ts                        ← mint endpoint (verifies lock, mints capped/expiring key; needs Venice admin key)
 src-tauri/src/core/* + src-tauri/src/desktop/*                  ← extraction
 src-tauri/src/desktop/import_export.rs                          ← desktop side of the .starchild file
 tests/web-e2e/*                                                 ← Playwright
