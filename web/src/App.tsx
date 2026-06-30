@@ -20,13 +20,19 @@ import { usePlatform } from '../../src/platform/usePlatform'
 import Onboarding from '../../src/components/Onboarding'
 import ChatWindow from '../../src/components/ChatWindow'
 import ErrorBoundary from '../../src/components/ErrorBoundary'
+import {
+  FEEDBACK_UNLOCKED_KEY,
+  FEEDBACK_SUBMITTED_KEY,
+  FEEDBACK_NUDGE_SEEN_KEY,
+} from './feedback'
 
 // Heavy, conditionally-rendered panels — split into their own async chunks so
 // they don't weigh down the initial chat/onboarding render. Each only loads
-// when the user actually opens it (Vision Tree, Your Data, Settings).
+// when the user actually opens it (Vision Tree, Your Data, Settings, Feedback).
 const SkillTree = lazy(() => import('../../src/components/SkillTree'))
 const DataSettings = lazy(() => import('./DataSettings'))
 const Settings = lazy(() => import('./Settings'))
+const FeedbackForm = lazy(() => import('./FeedbackForm'))
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +69,16 @@ function DataIcon() {
   )
 }
 
+function FeedbackIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
+      className="w-[18px] h-[18px]" aria-hidden="true">
+      <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+    </svg>
+  )
+}
+
 export default function App() {
   const platform = usePlatform()
   const onboardingComplete = useAppStore((s) => s.onboardingComplete)
@@ -74,6 +90,11 @@ export default function App() {
   const setCurrentView = useAppStore((s) => s.setCurrentView)
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const [showData, setShowData] = useState(false)
+  // Gated feedback (the first usage of the incentive fund). Unlocks after the
+  // first completed quest; `feedbackNudge` is the one-time prompt at that moment.
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedbackUnlocked, setFeedbackUnlocked] = useState(false)
+  const [feedbackNudge, setFeedbackNudge] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +113,20 @@ export default function App() {
       } catch {
         // Non-critical — the creature state initializes lazily.
       }
+      try {
+        // Feedback unlocks after the first completed quest. Trust the persisted
+        // flag; otherwise derive it from whether any completed quest exists
+        // (covers data imported from desktop, where no event fired here).
+        let unlocked = (await platform.getSetting(FEEDBACK_UNLOCKED_KEY)) === 'true'
+        if (!unlocked) {
+          const completed = await platform.getQuests('completed')
+          unlocked = completed.length > 0
+          if (unlocked) await platform.setSetting(FEEDBACK_UNLOCKED_KEY, 'true')
+        }
+        if (!cancelled) setFeedbackUnlocked(unlocked)
+      } catch {
+        // No quests yet — feedback stays locked.
+      }
     }
     bootstrap()
     return () => { cancelled = true }
@@ -107,6 +142,31 @@ export default function App() {
       if (useAppStore.getState().currentView !== 'chat') setCurrentView('chat')
     })
   }, [platform, setShowQuestOffer, setCurrentView])
+
+  // Completing a quest unlocks feedback. Flip it live + persist, and raise the
+  // one-time nudge (only if it hasn't been seen and feedback isn't already sent).
+  useEffect(() => {
+    return platform.subscribe('quest-completed', () => {
+      void (async () => {
+        await platform.setSetting(FEEDBACK_UNLOCKED_KEY, 'true')
+        setFeedbackUnlocked(true)
+        const [nudgeSeen, submitted] = await Promise.all([
+          platform.getSetting(FEEDBACK_NUDGE_SEEN_KEY),
+          platform.getSetting(FEEDBACK_SUBMITTED_KEY),
+        ])
+        if (nudgeSeen !== 'true' && submitted !== 'true') setFeedbackNudge(true)
+      })()
+    })
+  }, [platform])
+
+  const dismissNudge = () => {
+    setFeedbackNudge(false)
+    void platform.setSetting(FEEDBACK_NUDGE_SEEN_KEY, 'true')
+  }
+  const openFeedback = () => {
+    dismissNudge()
+    setShowFeedback(true)
+  }
 
   // Invisible hold while we check onboarding state.
   if (!onboardingChecked) {
@@ -129,6 +189,19 @@ export default function App() {
         {/* Top-right controls — chat view only; tree & settings carry their own back. */}
         {currentView === 'chat' && (
           <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+            {feedbackUnlocked && (
+              <motion.button
+                onClick={openFeedback}
+                className="clay-nav-button flex items-center justify-center w-9 h-9 rounded-xl"
+                style={{ color: 'var(--accent-rose)' }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                aria-label="Share feedback"
+                title="Share feedback"
+              >
+                <FeedbackIcon />
+              </motion.button>
+            )}
             <motion.button
               onClick={() => setShowData(true)}
               className="clay-nav-button flex items-center justify-center w-9 h-9 rounded-xl"
@@ -169,6 +242,51 @@ export default function App() {
         {showData && (
           <Suspense fallback={null}>
             <DataSettings onClose={() => setShowData(false)} />
+          </Suspense>
+        )}
+
+        {/* One-time nudge when feedback unlocks (first completed quest). */}
+        <AnimatePresence>
+          {feedbackNudge && currentView === 'chat' && !showFeedback && (
+            <motion.div
+              key="feedback-nudge"
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl"
+              style={{
+                backgroundColor: 'var(--bg-card)',
+                border: '1.5px solid var(--outline)',
+                maxWidth: 'calc(100vw - 32px)',
+              }}
+            >
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                First quest done. Care to help shape Starchild?
+              </span>
+              <button
+                onClick={openFeedback}
+                className="px-3 py-1 rounded-lg text-xs font-semibold shrink-0"
+                style={{ backgroundColor: 'var(--accent-rose)', color: 'var(--bg-deep)' }}
+              >
+                Share feedback
+              </button>
+              <button
+                onClick={dismissNudge}
+                className="text-xs shrink-0"
+                style={{ color: 'var(--text-muted)' }}
+                aria-label="Dismiss"
+              >
+                Later
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Feedback form — gated; the first usage of the incentive fund. */}
+        {showFeedback && (
+          <Suspense fallback={null}>
+            <FeedbackForm onClose={() => setShowFeedback(false)} />
           </Suspense>
         )}
 

@@ -1,4 +1,5 @@
 import type { Plugin } from 'vite'
+import { cleanFeedback, formatFeedback, webhookRequest } from './api/format-feedback'
 
 /**
  * Dev-only sponsored-demo shim (PRD §6.1).
@@ -51,6 +52,44 @@ export function devProxy(): Plugin {
           res.statusCode = 502
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'dev proxy failed' }))
+        }
+      })
+
+      // Dev sink for the gated feedback form (prod: web/api/feedback.ts). Relays
+      // to FEEDBACK_WEBHOOK_URL when set; otherwise logs to the dev console so
+      // the form is testable in `npm run dev` without a webhook configured.
+      server.middlewares.use('/api/feedback', async (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return }
+        try {
+          const chunks: Buffer[] = []
+          for await (const c of req) chunks.push(c as Buffer)
+          const body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
+          let clean
+          try {
+            clean = cleanFeedback(body)
+          } catch (e) {
+            res.statusCode = 400
+            res.setHeader('content-type', 'application/json')
+            res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'invalid feedback' }))
+            return
+          }
+          const text = formatFeedback(clean)
+          const webhookUrl = process.env.FEEDBACK_WEBHOOK_URL
+          if (webhookUrl) {
+            const { body: outBody, headers } = webhookRequest(
+              webhookUrl, process.env.FEEDBACK_TELEGRAM_CHAT_ID, text,
+            )
+            await fetch(webhookUrl, { method: 'POST', headers, body: outBody }).catch(() => {})
+          } else {
+            console.log(`\n[dev feedback] (set FEEDBACK_WEBHOOK_URL to forward)\n${text}\n`)
+          }
+          res.statusCode = 200
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.statusCode = 500
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'dev feedback failed' }))
         }
       })
     },

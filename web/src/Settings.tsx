@@ -23,6 +23,10 @@ import { ACCESS_URL } from './access'
 
 const VENICE_KEY = 'venice_api_key'
 
+// Launch is sponsored-demo-only — the lock→key tier stays hidden until the
+// Venice admin key is live. Flip to true to re-enable it (no other change needed).
+const SHOW_LOCK_TIER: boolean = false
+
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
 function EyeIcon() {
@@ -313,27 +317,30 @@ export default function Settings({
             )}
           </div>
 
-          {/* Token-lock tier → claim a funded, private key on the commons */}
-          <a
-            href={ACCESS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-col gap-1 p-4 transition-opacity duration-150 hover:opacity-90"
-            style={{
-              backgroundColor: 'var(--bg-card)',
-              border: '1.5px solid var(--outline)',
-              borderRadius: '16px',
-              textDecoration: 'none',
-            }}
-          >
-            <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-              Free private access — lock $STARCHILD ↗
-            </span>
-            <span className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-              No Venice key? Lock $STARCHILD on the commons and get a funded, private Starchild
-              key — capped and expiring with your lock. Claim it there, then paste it above.
-            </span>
-          </a>
+          {/* Token-lock tier → claim a funded, private key on the commons.
+              Hidden for the sponsored-demo launch (SHOW_LOCK_TIER). */}
+          {SHOW_LOCK_TIER && (
+            <a
+              href={ACCESS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col gap-1 p-4 transition-opacity duration-150 hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--bg-card)',
+                border: '1.5px solid var(--outline)',
+                borderRadius: '16px',
+                textDecoration: 'none',
+              }}
+            >
+              <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                Free private access — lock $STARCHILD ↗
+              </span>
+              <span className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                No Venice key? Lock $STARCHILD on the commons and get a funded, private Starchild
+                key — capped and expiring with your lock. Claim it there, then paste it above.
+              </span>
+            </a>
+          )}
         </section>
 
         {/* Your data */}
