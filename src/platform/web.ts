@@ -416,6 +416,25 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
         created_at: nowIso(),
       })
     }
+
+    // A turn that deepened the knowing profile is Great Work evidence too —
+    // `KnowingDeepened` lands on all three planes (it feeds the homunculus's
+    // bond, not stage advancement). Previously this kind was never emitted.
+    if (extracted.length > 0) {
+      try {
+        const gw = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+        if (gw) {
+          const updated = c.applyEvidence(
+            gw,
+            { kind: 'KnowingDeepened', dimension: extracted[0].category, depth: extracted.length },
+            nowIso(),
+          )
+          await s.setGreatWorkPosition(updated)
+        }
+      } catch (err) {
+        console.warn('Failed to record knowing evidence:', err)
+      }
+    }
   } catch (err) {
     console.warn('Knowing extraction failed (non-fatal):', err)
   }
@@ -468,15 +487,23 @@ export const webPlatform: Platform = {
     }
     await s.addMessage(userMsg)
 
+    const history = await s.getMessages(20)
+    const chatMessages = history.map((m) => ({ role: m.role, content: m.content }))
+
     // ── Preferential reality + vision crystallization (mirror desktop lib.rs) ──
-    // The awakening message asks the "magic wand" question; the user's first real
-    // answer IS their preferential reality (their north star). Capture it, then
-    // let the phase detector fast-path to the Crystallize (north-star) moment
-    // instead of digging forever — this is what makes the arc land. Without this
-    // flag the web conversation only ever walked arrive→dig→explore by turn count.
-    if (!inProof && content.trim().length >= 12) {
+    // The awakening message asks the "magic wand" question; the user's answer to
+    // THAT question is their preferential reality (their north star). Capture it,
+    // then let the phase detector fast-path to the Crystallize moment instead of
+    // digging forever. Capture is gated — a substantial message (≥20 chars, as
+    // desktop) that actually answers the awakening (the previous assistant turn
+    // mentions the magic wand) or lands in the first exchanges — so a stray
+    // "good morning!" can never become the permanent north star.
+    const assistantTurns = chatMessages.filter((m) => m.role === 'assistant')
+    const lastAssistant = [...chatMessages].reverse().find((m) => m.role === 'assistant')?.content ?? ''
+    if (!inProof && content.trim().length >= 20) {
       const existingPr = (await s.getSetting('preferential_reality')) ?? ''
-      if (!existingPr) {
+      const answersAwakening = /magic wand/i.test(lastAssistant) || assistantTurns.length <= 2
+      if (!existingPr && answersAwakening) {
         await s.setSetting('preferential_reality', content.trim())
         // ── Initialize the Great Work position ──
         // The journey begins when the user states their preferential reality.
@@ -503,9 +530,6 @@ export const webPlatform: Platform = {
     const visionRevealed = (await s.getSetting('vision_revealed')) === 'true'
     const crystallizePending = hasPr && !visionRevealed
 
-    const history = await s.getMessages(20)
-    const chatMessages = history.map((m) => ({ role: m.role, content: m.content }))
-
     // ── Memory recall + knowing profile (shared core, mirrors desktop) ──
     // Desktop recalls via SQLite FTS5 and loads the knowing profile from SQLite;
     // the web holds its facts in IndexedDB and ranks them with the pure core
@@ -524,9 +548,16 @@ export const webPlatform: Platform = {
     const knowingFragment = c.buildKnowingFragment(facts)
 
     // ── Great Work position (the hermetic macro state) ──
-    // Loaded from IndexedDB and passed to the prompt builder so the AI knows
-    // which alchemical stage the user is in. Falls back to null (no layer).
+    // Loaded from IndexedDB; passed to the prompt builder ONLY once the vision
+    // is placed — during the first-conversation arc (arrive→crystallize→first
+    // quest) the hermetic layer stays silent, so its "sit in the fire"
+    // Calcination guidance can't contradict the scripted Crystallize moves.
     const gwPos = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+
+    // Active quests — the AI must know the user's live commitments (desktop
+    // formats them the same way: "[category] title").
+    const activeQuests = await s.getQuests('active')
+    const activeQuestTitles = activeQuests.map((q) => `[${q.category ?? 'general'}] ${q.title}`)
 
     // Phase decision (mirrors desktop lib.rs):
     //   • proof flow wins absolutely,
@@ -534,7 +565,9 @@ export const webPlatform: Platform = {
     //     Crystallize (the north-star moment),
     //   • else once the vision IS placed but no quest has ever been offered →
     //     offer the first quest instead of drifting back into more questions,
-    //   • else the core detector decides by the conversation's shape.
+    //   • else the core detector decides — EXCEPT that a quest completed in the
+    //     last 5 minutes forces Explore ("let it breathe"; desktop's cooldown),
+    //     so the companion never chains straight into the next assignment.
     let phase: import('../../web/src/wasm-bridge').ConversationPhase
     if (inProof) {
       phase = 'proof'
@@ -542,10 +575,17 @@ export const webPlatform: Platform = {
       phase = c.detectPhase(chatMessages, true)
     } else {
       const anyQuestOffered = chatMessages.some((m) => m.role === 'assistant' && c.isQuestOffer(m.content))
-      const activeQuests = visionRevealed ? await s.getQuests('active') : []
       phase = visionRevealed && !anyQuestOffered && activeQuests.length === 0
         ? 'quest'
         : c.detectPhase(chatMessages, false)
+      if (phase === 'quest') {
+        const completed = await s.getQuests('completed')
+        const justCompleted = completed.some((q) => {
+          const t = q.completed_at ? Date.parse(q.completed_at) : NaN
+          return Number.isFinite(t) && Date.now() - t < 5 * 60_000
+        })
+        if (justCompleted) phase = 'explore'
+      }
     }
     let system = c.buildPrompt({
       // core's build_prompt state is u32; the live game state carries fractional
@@ -560,9 +600,41 @@ export const webPlatform: Platform = {
       memories,
       recent_messages: chatMessages,
       phase,
-      great_work: gwPos ?? undefined,
+      active_quests: activeQuestTitles,
+      // The hermetic layer engages only after the vision is placed (see above).
+      great_work: visionRevealed ? (gwPos ?? undefined) : undefined,
     })
     if (knowingFragment) system += `\n\n${knowingFragment}`
+
+    // ── Quest-branch steering (mirrors desktop's SKILL TREE BRANCHES block) ──
+    // The Quest phase instruction references "SKILL TREE BRANCHES below"; supply
+    // it. The next category comes from the Great Work `active_cell` (the ripe
+    // cell of their becoming) when a position exists, else the least-worked
+    // branch — either way growth cycles across body/mind/spirit instead of
+    // whatever plane the model happens to pick.
+    if (phase === 'quest') {
+      const allQuests = await s.getQuests()
+      const categories = ['body', 'mind', 'spirit'] as const
+      const count = (cat: string, status?: string) =>
+        allQuests.filter((q) => q.category === cat && (!status || q.status === status)).length
+      const leastWorked = [...categories].sort((a, b) => count(a) - count(b))[0]
+      const next = gwPos?.active_cell?.plane ?? leastWorked
+      const labels: Record<string, string> = {
+        body: 'Body (embodying the reality — physical, nature, movement)',
+        mind: 'Mind (mentally stepping into the reality — learning, creating, building)',
+        spirit: 'Spirit (attuning the whole being — presence, reflection, alchemy, connection)',
+      }
+      let steer = '\n\nSKILL TREE BRANCHES (quest balance across growth domains):\n'
+      for (const cat of categories) {
+        steer += `  ${cat[0].toUpperCase()}${cat.slice(1)} (${cat}): ${count(cat, 'completed')}/${count(cat)} quests completed\n`
+      }
+      steer += `\nNEXT QUEST MUST BE: ${labels[next]} category.\n`
+      steer += 'Growth cycles across Body → Mind → Spirit so no part of them is left behind.\n'
+      steer += "Each quest should connect to the user's preferential reality."
+      const pr = (await s.getSetting('preferential_reality')) ?? ''
+      if (pr) steer += `\n\nTHEIR PREFERENTIAL REALITY (their ideal life vision):\n"${pr}"`
+      system += steer
+    }
 
     const llmMessages = [{ role: 'system', content: system }, ...chatMessages]
     // The conversation is E2EE on the trial tier, FAIL CLOSED: if the encrypted
@@ -604,12 +676,30 @@ export const webPlatform: Platform = {
     // same woven-from-their-words vision sentence). Next turns fall to Quest.
     if (phase === 'crystallize') {
       await s.setSetting('vision_revealed', 'true')
-      if (!((await s.getSetting('vision_statement')) ?? '')) {
-        const vision = final
+      let vision = (await s.getSetting('vision_statement')) ?? ''
+      if (!vision) {
+        vision = final
           .replace(/let'?s place (this|it) on your vision tree.*$/is, '')
           .replace(/[\s✦.,;:—-]+$/u, '')
-          .trim()
-        await s.setSetting('vision_statement', vision || final)
+          .trim() || final
+        await s.setSetting('vision_statement', vision)
+      }
+      // The crystallized vision is Great Work evidence — Spirit-plane work at
+      // its current stage (so it counts toward advancing that stage). This is
+      // one of the two non-quest evidence kinds that were never emitted.
+      try {
+        const gwNow = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+        const spirit = gwNow?.planes.find((p) => p.plane === 'spirit')
+        if (gwNow && spirit) {
+          const updated = c.applyEvidence(
+            gwNow,
+            { kind: 'InsightCrystallized', cell: { plane: 'spirit', stage: spirit.stage }, insight: vision },
+            nowIso(),
+          )
+          await s.setGreatWorkPosition(updated)
+        }
+      } catch (err) {
+        console.warn('Failed to record crystallize evidence:', err)
       }
     }
 
