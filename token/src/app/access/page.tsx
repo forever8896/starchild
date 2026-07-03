@@ -177,8 +177,8 @@ export default function AccessPage() {
 
         <Star />
         <p style={{ ...lead, fontSize: 13, opacity: 0.7, textAlign: 'center' }}>
-          Locking never costs your vote — governance weight counts locked tokens too. Withdraw your tokens any time after the lock
-          expires (the key has already expired by then). See the <a href="/dao" style={link}>commons</a>.
+          Withdraw your tokens any time after the lock expires (the key has already expired by then). Come talk it through in
+          the <a href="/forum" style={link}>forum</a>.
         </p>
       </div>
     </main>

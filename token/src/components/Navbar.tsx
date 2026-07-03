@@ -33,13 +33,13 @@ export default function Navbar() {
 
       <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
         <Link
-          href="/dao"
+          href="/forum"
           style={linkStyle}
           onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
           onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-          title="help shape what gets built"
+          title="a place to discuss"
         >
-          dao
+          forum
         </Link>
         <Link
           href="https://starchild.software"
@@ -59,6 +59,16 @@ export default function Navbar() {
           onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
         >
           github
+        </Link>
+        <Link
+          href="https://x.com/Starchild_app"
+          target="_blank"
+          style={linkStyle}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+          title="Starchild on X"
+        >
+          x
         </Link>
       </div>
     </div>

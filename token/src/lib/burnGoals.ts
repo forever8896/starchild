@@ -49,9 +49,11 @@ export const VOTE_TYPES = {
   ],
 } as const
 
-// The founder holds zero $STARCHILD by design (burned it all) — so "official"
-// proposals from this address bypass the stake-to-propose gate. The founder still
-// has zero vote weight, so they can pose a question but can never sway it.
+// The official-proposer address below holds zero $STARCHILD — so "official"
+// proposals from it bypass the stake-to-propose gate while carrying NO vote
+// weight (it can pose a question, never sway it). The founder's personal
+// holdings live at a SEPARATE, public wallet (FOUNDER_HOLDINGS / kiliansolutions.eth)
+// and vote as a normal holder, like anyone else.
 export const FOUNDER_ADDRESS = (process.env.NEXT_PUBLIC_FOUNDER_ADDRESS ?? '0x1f44d8655727bb26532c657bec8882154a01e170').toLowerCase()
 export const isFounder = (addr?: string | null): boolean => !!addr && addr.toLowerCase() === FOUNDER_ADDRESS
 
@@ -94,6 +96,16 @@ export async function signAndVote(proposalId: string, support: boolean): Promise
 
 /** Canonical burn sink — every burn (past founder burns + contract burns) lands here. */
 export const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const
+
+/** The community Incentive Fund — a Safe multisig on Base. Seeded by me, grown
+ *  by buybacks; every payout is public. Rewards the people who make Starchild
+ *  better (genuine feedback first, then whatever the DAO decides). */
+export const INCENTIVE_FUND = '0xcD46BD0010430E8cE680c0141c8f22ec992E42EB' as const
+export const INCENTIVE_FUND_ENS = 'starchildfund.base.eth' as const
+
+/** My personal holdings — public, tied to my ENS. Held openly, on purpose. */
+export const FOUNDER_HOLDINGS = '0xE8f1B462BBf419315c14FBBd69689D9f163f36B2' as const
+export const FOUNDER_HOLDINGS_ENS = 'kiliansolutions.eth' as const
 
 // Multiple CORS-enabled Base RPCs with failover, and multicall batching so all
 // reads coalesce into 1–2 requests (avoids 429 rate-limits from bursts).
@@ -188,6 +200,8 @@ export async function fetchStats(): Promise<Stats> {
 }
 
 export const basescanTx = (hash: string) => `https://basescan.org/tx/${hash}`
+export const basescanAddr = (addr: string) => `https://basescan.org/address/${addr}`
+export const safeUrl = (addr: string) => `https://app.safe.global/balances?safe=base:${addr}`
 
 // My posts about this token — embedded so they show their own real words, not a
 // paraphrase. The label is only what each one is about, in order.
@@ -196,11 +210,18 @@ export const ARTICLES = [
   { id: '2036945553167466929', label: 'why I first said no to the fees' },
   { id: '2038726798293311852', label: 'the companion itself, in motion' },
   { id: '2068817367296025035', label: 'why I changed my mind' },
+  { id: '2069928720685486191', label: 'the first dev update' },
+  { id: '2071407013167288519', label: 'the second dev update' },
 ].map((a) => ({ ...a, url: `https://x.com/KilianSolutions/status/${a.id}` }))
 
 // Everything is verifiable — these are the receipts.
 export const LINKS = {
   token: `https://basescan.org/token/${STARCHILD_TOKEN}`,
+  fund: `https://basescan.org/address/${INCENTIVE_FUND}`,
+  fundSafe: `https://app.safe.global/balances?safe=base:${INCENTIVE_FUND}`,
+  holdings: `https://basescan.org/address/${FOUNDER_HOLDINGS}`,
+  x: 'https://x.com/Starchild_app',
+  xFounder: 'https://x.com/KilianSolutions',
   repo: 'https://github.com/forever8896/starchild',
   govSource: 'https://github.com/forever8896/starchild/blob/master/token/src/lib/governance.ts',
 } as const
