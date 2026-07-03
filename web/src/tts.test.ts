@@ -82,3 +82,54 @@ describe('platform.ttsSpeak (web voice)', () => {
     await expect(webPlatform.ttsSpeak('anything')).rejects.toThrow(/voice unavailable/)
   })
 })
+
+describe('platform.transcribe (web mic)', () => {
+  // A fake WAV big enough to pass the "nothing to transcribe" floor.
+  const WAV = new Uint8Array(256).map((_, i) => i % 251)
+  const WAV_B64 = btoa(String.fromCharCode(...WAV))
+
+  function stubJsonFetch(reply: unknown, status = 200) {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} })
+      return new Response(JSON.stringify(reply), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    return calls
+  }
+
+  it('is enabled on web', () => {
+    expect(webPlatform.supportsVoice).toBe(true)
+  })
+
+  it('trial → POSTs raw WAV bytes to /api/stt (no auth header) and returns the text', async () => {
+    const calls = stubJsonFetch({ text: '  i did the quest today  ' })
+    const text = await webPlatform.transcribe(WAV_B64)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/stt')
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBeUndefined()
+    expect(new Uint8Array(calls[0].init.body as Uint8Array)).toEqual(WAV)
+    expect(text).toBe('i did the quest today') // trimmed
+  })
+
+  it('BYOK → multiparts the audio straight to Venice with the user key', async () => {
+    await setSetting('venice_api_key', 'sk-user-key')
+    const calls = stubJsonFetch({ text: 'spoken privately' })
+    const text = await webPlatform.transcribe(WAV_B64)
+
+    expect(calls[0].url).toBe('https://api.venice.ai/api/v1/audio/transcriptions')
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer sk-user-key')
+    expect(calls[0].init.body).toBeInstanceOf(FormData)
+    const form = calls[0].init.body as FormData
+    expect(form.get('model')).toBe('openai/whisper-large-v3')
+    expect(text).toBe('spoken privately')
+  })
+
+  it('surfaces a friendly error when transcription is down', async () => {
+    stubJsonFetch({ error: 'nope' }, 503)
+    await expect(webPlatform.transcribe(WAV_B64)).rejects.toThrow(/transcription unavailable/)
+  })
+})

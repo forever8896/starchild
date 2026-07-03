@@ -383,11 +383,13 @@ export default function Settings({
             }}
           >
             <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-              Your Starchild can speak its replies aloud. Honest note: speaking
-              sends <em>its</em> words (never your messages) to Venice's voice
-              service — that path isn't end-to-end encrypted like the chat.
-              Prefer full silence on the wire? Turn voice off with the 🔊 toggle
-              in the chat header.
+              Your Starchild can speak its replies aloud, and you can speak to it
+              with the mic. Honest note: neither path is end-to-end encrypted
+              like the chat — speaking sends <em>its</em> words to Venice's voice
+              service, and the mic sends <em>your recorded speech</em> to Venice's
+              transcriber (only when you press the mic, never ambiently). Prefer
+              full silence on the wire? Type instead, and turn voice off with the
+              🔊 toggle in the chat header.
             </p>
             <div className="flex items-center gap-3">
               <label

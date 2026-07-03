@@ -445,10 +445,10 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
 export const webPlatform: Platform = {
   name: 'web',
 
-  // TTS speaks the Starchild's replies (Venice voice via /api/tts or BYOK);
-  // mic transcription is still desktop-only (PRD §7).
+  // Full voice loop: TTS speaks the Starchild's replies (/api/tts or BYOK) and
+  // the mic transcribes the user's speech (/api/stt or BYOK) — desktop parity.
   supportsTts: true,
-  supportsVoice: false,
+  supportsVoice: true,
 
   // ── Inference ──────────────────────────────────────────────────────────────
   async hasInferenceKey(): Promise<boolean> {
@@ -928,8 +928,39 @@ export const webPlatform: Platform = {
     }
     return btoa(binary)
   },
-  transcribe(_audioBase64: string): Promise<string> {
-    return Promise.reject(new Error('Voice transcription is not available on web yet.'))
+  // Mic → text (Venice Whisper). PRIVACY: this is the user's own voice and
+  // there is no E2EE transcription enclave — audio transits in plaintext. It
+  // only ever runs from the explicit mic button (plus the browser's own mic
+  // permission); the Settings voice card states this plainly.
+  // Trial → /api/stt relay (raw WAV bytes; key server-side, rate-limited,
+  // budget-metered); BYOK → Venice directly with the user's key.
+  async transcribe(audioBase64: string): Promise<string> {
+    const b = atob(audioBase64)
+    const bytes = new Uint8Array(b.length)
+    for (let i = 0; i < b.length; i++) bytes[i] = b.charCodeAt(i)
+    if (bytes.length < 128) throw new Error('nothing to transcribe')
+
+    const { mode, apiKey } = await resolveInference()
+    let res: Response
+    if (mode === 'byok') {
+      const form = new FormData()
+      form.append('file', new Blob([bytes], { type: 'application/octet-stream' }), 'speech.wav')
+      form.append('model', 'openai/whisper-large-v3')
+      res = await fetch('https://api.venice.ai/api/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      })
+    } else {
+      res = await fetch('/api/stt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: bytes,
+      })
+    }
+    if (!res.ok) throw new Error(`transcription unavailable (${res.status})`)
+    const out = (await res.json()) as { text?: unknown }
+    return typeof out?.text === 'string' ? out.text.trim() : ''
   },
 
   // ── Events (in-process bus — mirrors desktop's Tauri events) ──────────────────

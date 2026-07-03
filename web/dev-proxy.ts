@@ -146,6 +146,40 @@ export function devProxy(): Plugin {
         }
       })
 
+      // Dev transcription relay (prod: web/api/stt.ts). Raw WAV bytes in →
+      // Venice Whisper → { text }. Neither audio nor text is ever logged.
+      server.middlewares.use('/api/stt', async (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return }
+        const key = process.env.VENICE_TRIAL_KEY
+        const send = (status: number, obj: unknown) => {
+          res.statusCode = status
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(obj))
+        }
+        if (!key) { send(503, { error: 'transcription unavailable' }); return }
+        try {
+          const chunks: Buffer[] = []
+          for await (const c of req) chunks.push(c as Buffer)
+          const audio = Buffer.concat(chunks)
+          if (audio.length < 128 || audio.length > 12 * 1024 * 1024) {
+            send(400, { error: 'audio required (≤12MB)' }); return
+          }
+          const form = new FormData()
+          form.append('file', new Blob([new Uint8Array(audio)], { type: 'application/octet-stream' }), 'speech.wav')
+          form.append('model', process.env.TRIAL_STT_MODEL || 'openai/whisper-large-v3')
+          const upstream = await fetch('https://api.venice.ai/api/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${key}` },
+            body: form,
+          })
+          if (!upstream.ok) { send(502, { error: 'transcription failed' }); return }
+          const out = await upstream.json() as { text?: unknown }
+          send(200, { text: typeof out?.text === 'string' ? out.text : '' })
+        } catch (e) {
+          send(502, { error: e instanceof Error ? e.message : 'dev stt failed' })
+        }
+      })
+
       // Dev sink for the gated feedback form (prod: web/api/feedback.ts). Relays
       // to FEEDBACK_WEBHOOK_URL when set; otherwise logs to the dev console so
       // the form is testable in `npm run dev` without a webhook configured.
