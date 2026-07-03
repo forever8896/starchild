@@ -125,29 +125,25 @@ export default function IntroCinematic() {
             <motion.button
               onClick={(e) => { e.stopPropagation(); dismiss() }}
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.82 }}
+              animate={{ opacity: 0.4 }}
               transition={{ delay: 2.4, duration: 1.6 }}
-              whileHover={{ opacity: 1 }}
+              whileHover={{ opacity: 0.85 }}
               style={{
                 position: 'absolute',
-                bottom: 42,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                background: 'rgba(34,29,46,0.5)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-                border: '1px solid rgba(184,160,216,0.4)',
-                color: '#ede8f5',
-                fontSize: 14,
-                fontWeight: 600,
-                letterSpacing: '0.04em',
-                padding: '11px 24px',
-                borderRadius: 30,
+                bottom: 22,
+                right: 24,
+                background: 'none',
+                border: 'none',
+                color: 'rgba(255,255,255,0.7)',
+                fontSize: 11,
+                fontWeight: 400,
+                letterSpacing: '0.22em',
+                textTransform: 'uppercase',
                 cursor: 'pointer',
               }}
-              aria-label="Enter the app"
+              aria-label="Skip intro"
             >
-              enter the moment  ✦
+              skip
             </motion.button>
           )}
         </motion.div>
