@@ -67,18 +67,22 @@ function useCharReveal(content: string, isAssistant: boolean, messageId: string)
 // ─── Auto-play TTS (returns nothing; stores audio globally for char-reveal) ──
 
 async function autoPlayTts(platform: Platform, text: string) {
+  const setActivity = useAppStore.getState().setCreatureActivity
   try {
-    if (!platform.supportsTts) return
-    if (!useAppStore.getState().ttsEnabled) return
+    if (!platform.supportsTts) { setActivity('idle'); return }
+    if (!useAppStore.getState().ttsEnabled) { setActivity('idle'); return }
     const b64 = await platform.ttsSpeak(text)
     const audio = createEtherealAudio(b64)
     ;(window as any).__ttsAudio = audio
-    audio.onended = () => { (window as any).__ttsAudio = null }
-    audio.onerror = () => { (window as any).__ttsAudio = null }
+    // The creature speaks while its voice plays.
+    setActivity('speaking')
+    audio.onended = () => { (window as any).__ttsAudio = null; setActivity('idle') }
+    audio.onerror = () => { (window as any).__ttsAudio = null; setActivity('idle') }
     await audio.play()
   } catch (err) {
     console.error('Auto-play TTS failed:', err)
     ;(window as any).__ttsAudio = null
+    setActivity('idle')
   }
 }
 
@@ -119,9 +123,11 @@ function PlayButton({ message }: { message: Message }) {
   const isPlaying = ttsPlaying === message.id
   if (!platform.supportsTts) return null
 
+  const setActivity = useAppStore((s) => s.setCreatureActivity)
+
   async function handlePlay() {
     if (isPlaying) {
-      setTtsPlaying(null)
+      setTtsPlaying(null); setActivity('idle')
       if ((window as any).__ttsAudio) { (window as any).__ttsAudio.pause(); (window as any).__ttsAudio = null }
       return
     }
@@ -130,12 +136,13 @@ function PlayButton({ message }: { message: Message }) {
       const b64 = await platform.ttsSpeak(message.content)
       const audio = createEtherealAudio(b64)
       ;(window as any).__ttsAudio = audio
-      audio.onended = () => { setTtsPlaying(null); (window as any).__ttsAudio = null }
-      audio.onerror = () => { setTtsPlaying(null); (window as any).__ttsAudio = null }
+      setActivity('speaking')
+      audio.onended = () => { setTtsPlaying(null); (window as any).__ttsAudio = null; setActivity('idle') }
+      audio.onerror = () => { setTtsPlaying(null); (window as any).__ttsAudio = null; setActivity('idle') }
       await audio.play()
     } catch (err) {
       console.error('TTS failed:', err)
-      setTtsPlaying(null)
+      setTtsPlaying(null); setActivity('idle')
     }
   }
 
@@ -317,6 +324,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   const setCurrentView    = useAppStore((s) => s.setCurrentView)
   const ttsEnabled        = useAppStore((s) => s.ttsEnabled)
   const setTtsEnabled     = useAppStore((s) => s.setTtsEnabled)
+  const setCreatureActivity = useAppStore((s) => s.setCreatureActivity)
   const showQuestOffer    = useAppStore((s) => s.showQuestOffer)
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
 
@@ -353,6 +361,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       setMessages(msgs)
       if (msgs.length === 0) {
         setIsTyping(true)
+        setCreatureActivity('thinking')
         try {
           // Single-flight across StrictMode's double mount: both runs await the
           // SAME generation (one persisted row), and only the run that finds the
@@ -365,12 +374,16 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
             .messages.some((m) => m.id === revealMsg.id || m.id === firstMsg.id)
           if (!present) {
             addMessage(revealMsg)
-            autoPlayTts(platform, firstMsg.content)
+            setCreatureActivity('speaking')
+            autoPlayTts(platform, firstMsg.content) // manages speaking→idle
+          } else {
+            setCreatureActivity('idle')
           }
         } catch (err) {
           console.error('Failed to generate first message:', err)
           awakeningInFlight = null // let "try again" attempt a fresh generation
           setInitFailed(true)
+          setCreatureActivity('idle')
         } finally {
           setIsTyping(false)
         }
@@ -412,6 +425,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     const text = input.trim()
     if (!text || isLoading) return
     setError(null); setInput(''); setIsLoading(true); setIsTyping(true)
+    setCreatureActivity('thinking')
     const tmpId = `tmp-${Date.now()}`
     let streamId: string | null = null
     addMessage({ id: tmpId, role: 'user', content: text, created_at: new Date().toISOString() })
@@ -421,7 +435,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     try {
       for await (const token of platform.sendMessage(text)) {
         if (firstChunk) {
-          firstChunk = false; setIsTyping(false)
+          firstChunk = false; setIsTyping(false); setCreatureActivity('speaking')
           streamId = `streaming-${Date.now()}`
           addMessage({ id: streamId, role: 'assistant', content: token, created_at: new Date().toISOString() })
           streamAccRef.current = token
@@ -432,10 +446,10 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       }
       setIsTyping(false); setIsLoading(false)
       try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
-      autoPlayTts(platform, streamAccRef.current)
+      autoPlayTts(platform, streamAccRef.current) // manages speaking→idle
       inputRef.current?.focus()
     } catch (err) {
-      setIsTyping(false); setIsLoading(false)
+      setIsTyping(false); setIsLoading(false); setCreatureActivity('idle')
       console.error('Failed to send message:', err)
       // The platform rolled the turn back — mirror that in the UI: drop the
       // optimistic bubbles and hand the user their words back to retry.
@@ -461,6 +475,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     const displayText = `i did the quest: "${quest.title}"`
     const triggerText = `[proof:${quest.id}] ${displayText}`
     setInput(''); setError(null); setIsLoading(true); setIsTyping(true)
+    setCreatureActivity('thinking')
     const tmpId = `quest-proof-${Date.now()}`
     let streamId: string | null = null
     addMessage({ id: tmpId, role: 'user', content: displayText, created_at: new Date().toISOString() })
@@ -470,7 +485,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       try {
         for await (const token of platform.sendMessage(triggerText)) {
           if (firstChunk) {
-            firstChunk = false; setIsTyping(false)
+            firstChunk = false; setIsTyping(false); setCreatureActivity('speaking')
             streamId = `streaming-${Date.now()}`
             addMessage({ id: streamId, role: 'assistant', content: token, created_at: new Date().toISOString() })
             streamAccRef.current = token
@@ -483,7 +498,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
         autoPlayTts(platform, streamAccRef.current)
         inputRef.current?.focus()
       } catch (err) {
-        setIsTyping(false); setIsLoading(false)
+        setIsTyping(false); setIsLoading(false); setCreatureActivity('idle')
         // The platform rolled the proof turn back (quest stays completable) —
         // drop the optimistic bubbles so the thread matches what really happened.
         setMessages(

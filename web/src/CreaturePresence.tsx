@@ -18,8 +18,10 @@ import videoIdle from '../../src/assets/videos/starchild2.webm'
 import videoCurious from '../../src/assets/videos/starchild3.webm'
 // @ts-ignore
 import videoCelebrate from '../../src/assets/videos/starchild4.webm'
-// @ts-ignore
-import videoCaring from '../../src/assets/videos/starchild5.webm'
+// @ts-ignore — new: genuine tender/caring (retires the mislabeled starchild5)
+import videoTender from '../../src/assets/videos/starchild-tender.webm'
+// @ts-ignore — new: speaking (mouthless star-pulse + earnest bob)
+import videoTalking from '../../src/assets/videos/starchild-talking.webm'
 
 // Mood → gentle phrase + colour + aura + which loop plays. Keyed to the real
 // StarchildState moods (Ecstatic | Happy | Content | Restless | Hungry | Starving).
@@ -28,19 +30,33 @@ const MOODS: Record<string, { phrase: string; color: string; aura: string; video
   Happy:    { phrase: 'happy you’re here', color: '#a8d8b8', aura: 'radial-gradient(circle, rgba(168,216,184,.55), rgba(232,216,168,.22) 45%, transparent 70%)', video: videoCelebrate },
   Content:  { phrase: 'here with you', color: '#b8a0d8', aura: 'radial-gradient(circle, rgba(184,160,216,.55), rgba(168,200,232,.2) 45%, transparent 70%)', video: videoIdle },
   Restless: { phrase: 'a little restless', color: '#ffb88c', aura: 'radial-gradient(circle, rgba(255,184,140,.5), rgba(232,168,184,.22) 45%, transparent 70%)', video: videoCurious },
-  Hungry:   { phrase: 'longing for connection', color: '#ffb88c', aura: 'radial-gradient(circle, rgba(255,184,140,.5), rgba(232,168,184,.22) 45%, transparent 70%)', video: videoCaring },
-  Starving: { phrase: 'needs you near', color: '#e8a8b8', aura: 'radial-gradient(circle, rgba(232,168,184,.55), rgba(184,160,216,.22) 45%, transparent 70%)', video: videoCaring },
+  Hungry:   { phrase: 'holding space for you', color: '#ffb88c', aura: 'radial-gradient(circle, rgba(255,184,140,.5), rgba(232,168,184,.22) 45%, transparent 70%)', video: videoTender },
+  Starving: { phrase: 'here, however you are', color: '#e8a8b8', aura: 'radial-gradient(circle, rgba(232,168,184,.55), rgba(184,160,216,.22) 45%, transparent 70%)', video: videoTender },
 }
 const DEFAULT_MOOD = MOODS.Content
+
+// Activity clips override the resting mood clip when the Starchild is speaking
+// or composing — so the visual tracks the CONVERSATION, not just the hunger stat.
+const ACTIVITY_VIDEO: Record<'speaking' | 'thinking', string> = {
+  speaking: videoTalking,
+  thinking: videoCurious,
+}
 
 const RING_R = 47
 const RING_CIRC = 2 * Math.PI * RING_R
 
 export default function CreaturePresence({ compact = false }: { compact?: boolean }) {
   const state = useAppStore((s) => s.starchildState)
-  const mood = state?.mood && MOODS[state.mood] ? MOODS[state.mood] : DEFAULT_MOOD
+  const activity = useAppStore((s) => s.creatureActivity)
+  const moodInfo = state?.mood && MOODS[state.mood] ? MOODS[state.mood] : DEFAULT_MOOD
   const bond = Math.round(state?.bond ?? 0)
   const level = state?.level ?? 1
+
+  // The clip: speaking/thinking activity overrides the resting mood clip, so the
+  // creature visibly responds to the conversation. The phrase + colour + aura
+  // still come from the mood (the felt tone) even while it's talking.
+  const activeVideo = activity !== 'idle' ? ACTIVITY_VIDEO[activity] : moodInfo.video
+  const mood = { ...moodInfo, video: activeVideo }
 
   // Compact form — the narrow-layout header strip above the thread.
   if (compact) {

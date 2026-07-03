@@ -138,6 +138,12 @@ interface AppState {
   ttsPlaying: string | null  // message id currently playing
   setTtsPlaying: (id: string | null) => void
 
+  // Creature activity — drives which clip plays (conversation-aware, not just
+  // hunger). 'speaking' while a reply is voiced/streamed, 'thinking' while
+  // composing, else the resting mood clip.
+  creatureActivity: 'idle' | 'thinking' | 'speaking'
+  setCreatureActivity: (a: 'idle' | 'thinking' | 'speaking') => void
+
   // Background music
   bgMusicMuted: boolean
   setBgMusicMuted: (muted: boolean) => void
@@ -216,6 +222,9 @@ export const useAppStore = create<AppState>((set) => ({
   setTtsVoice: (ttsVoice) => set({ ttsVoice }),
   ttsPlaying: null,
   setTtsPlaying: (ttsPlaying) => set({ ttsPlaying }),
+
+  creatureActivity: 'idle',
+  setCreatureActivity: (creatureActivity) => set({ creatureActivity }),
 
   bgMusicMuted: false,
   setBgMusicMuted: (bgMusicMuted) => set({ bgMusicMuted }),
