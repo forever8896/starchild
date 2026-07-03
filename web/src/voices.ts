@@ -23,8 +23,13 @@ export const TTS_VOICES = [
 
 export type TtsVoice = (typeof TTS_VOICES)[number]
 
-/** Default until the audition verdict lands — soft and gentle. */
-export const DEFAULT_TTS_VOICE: TtsVoice = 'Lily'
+/**
+ * Default until the audition verdict lands. The Starchild is an ethereal being
+ * with a WISE, MANLY voice (per the founder's direction) — George is the
+ * deepest "kind elder" of the set, and every reply additionally passes through
+ * the live creature treatment (pitch-down + cosmic reverb) in etherealVoice.ts.
+ */
+export const DEFAULT_TTS_VOICE: TtsVoice = 'George'
 
 /** The settings key holding the user's chosen voice. */
 export const TTS_VOICE_SETTING = 'tts_voice'

@@ -45,7 +45,7 @@ const VOICES = new Set([
   'Chris', 'Daniel', 'Eric', 'George', 'Jessica', 'Laura', 'Liam',
   'Lily', 'Matilda', 'Rachel', 'River', 'Roger', 'Sarah', 'Will',
 ])
-const DEFAULT_VOICE = 'Lily'
+const DEFAULT_VOICE = 'George'
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() })

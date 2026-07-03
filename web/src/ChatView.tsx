@@ -20,6 +20,7 @@ import type { Platform } from '../../src/platform'
 import ActiveQuest from '../../src/components/ActiveQuest'
 import CreaturePresence from './CreaturePresence'
 import avatarFace from '../../src/assets/starchild-avatar.png'
+import { createEtherealAudio } from './etherealVoice'
 
 // ─── Char-by-char reveal synced to TTS audio (first message only) ────────────
 
@@ -70,7 +71,7 @@ async function autoPlayTts(platform: Platform, text: string) {
     if (!platform.supportsTts) return
     if (!useAppStore.getState().ttsEnabled) return
     const b64 = await platform.ttsSpeak(text)
-    const audio = new Audio(`data:audio/mp3;base64,${b64}`)
+    const audio = createEtherealAudio(b64)
     ;(window as any).__ttsAudio = audio
     audio.onended = () => { (window as any).__ttsAudio = null }
     audio.onerror = () => { (window as any).__ttsAudio = null }
@@ -127,7 +128,7 @@ function PlayButton({ message }: { message: Message }) {
     try {
       setTtsPlaying(message.id)
       const b64 = await platform.ttsSpeak(message.content)
-      const audio = new Audio(`data:audio/mp3;base64,${b64}`)
+      const audio = createEtherealAudio(b64)
       ;(window as any).__ttsAudio = audio
       audio.onended = () => { setTtsPlaying(null); (window as any).__ttsAudio = null }
       audio.onerror = () => { setTtsPlaying(null); (window as any).__ttsAudio = null }

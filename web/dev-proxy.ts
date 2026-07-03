@@ -127,7 +127,7 @@ export function devProxy(): Plugin {
             body: JSON.stringify({
               input: text,
               model: process.env.TRIAL_TTS_MODEL || 'tts-elevenlabs-turbo-v2-5',
-              voice: typeof body.voice === 'string' && body.voice ? body.voice : 'Lily',
+              voice: typeof body.voice === 'string' && body.voice ? body.voice : 'George',
               response_format: 'mp3',
             }),
           })
