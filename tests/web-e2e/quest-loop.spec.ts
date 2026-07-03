@@ -9,13 +9,15 @@
  * actual product code paths execute — not stubs.
  *
  * ── Determinism: mock Venice at the NETWORK seam (PRD §8) ────────────────────
- * The only outbound call the product makes is the E2EE inference call. On web
- * with no BYOK key set, every inference goes through the trial proxy
- * (`web/src/venice-proxy.ts` → POST `/api/proxy`). We `page.route()` that ONE
- * endpoint and replay a canned, chunked OpenAI/Venice-style SSE stream, so
- * `streamChat()` yields tokens exactly as a live call would — same streaming
- * code path, deterministic content, zero real network. Nothing is stubbed in
- * React or the core; we only swap the network boundary.
+ * The only outbound calls the product makes are the attestation fetch
+ * (`GET /api/attest`) and the E2EE inference call (`POST /api/proxy`). The
+ * trial FAILS CLOSED — no verified attestation, no send — so the mock plays a
+ * full MOCK ENCLAVE (see `e2ee-mock.ts`): it serves an attestation that passes
+ * the client's verification for real, decrypts the client's ciphertext with
+ * the same wire crypto, and streams back ENCRYPTED SSE chunks. The suite
+ * therefore exercises the app's true encrypt → relay → decrypt path,
+ * deterministically, with zero real network. Nothing is stubbed in React or
+ * the core; we only swap the network boundary.
  *
  * The proxy is hit for THREE distinct purposes in one loop, so the mock routes
  * by request shape (all observable in the POSTed `messages`):
@@ -41,6 +43,7 @@
  */
 
 import { test, expect, type Page, type Route } from '@playwright/test'
+import { attestationBody, openProxyRequest, skipIntro, sseStreamEncrypted, sseStreamPlain } from './e2ee-mock'
 
 // ── The quest we inject at the extraction seam ───────────────────────────────
 // Short title (< 18 chars) so the Vision Tree renders it un-truncated as a node
@@ -67,35 +70,41 @@ const PROOF_CELEBRATE_REPLY =
 const OFFER_MESSAGE = "i'm ready to grow toward who i want to become"
 const PROOF_STORY = 'it is complete — i stepped out at dawn and it was still and calm'
 
-// ── SSE helper: replay text as a chunked OpenAI/Venice data: stream ──────────
-function sseStream(text: string): string {
-  const chunks = text.match(/\S+\s*/g) ?? [text] // word-ish chunks, spaces kept
-  const body = chunks
-    .map(
-      (c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`,
-    )
-    .join('')
-  return `${body}data: [DONE]\n\n`
-}
-
-async function fulfillSse(route: Route, text: string): Promise<void> {
+// ── SSE fulfill: encrypted to the requester's session key when E2EE, else plain
+async function fulfillSse(route: Route, text: string, clientPubHex: string | null): Promise<void> {
   await route.fulfill({
     status: 200,
     headers: { 'content-type': 'text/event-stream; charset=utf-8' },
-    body: sseStream(text),
+    body: clientPubHex ? sseStreamEncrypted(text, clientPubHex) : sseStreamPlain(text),
   })
 }
 
 /**
- * Install the deterministic inference mock on the trial proxy endpoint. Routes
- * by the POSTed `messages` so one handler serves conversation, quest extraction
- * and knowing extraction — exactly the seam a live trial call would use.
+ * Install the deterministic MOCK ENCLAVE:
+ *   • `GET /api/attest` — a verifiable attestation (echoed nonce, matching
+ *     key↔report_data binding) so the client's fail-closed handshake succeeds.
+ *   • `POST /api/proxy` — decrypt the client's ciphertext, route by the
+ *     PLAINTEXT `messages` (conversation / quest extraction / knowing
+ *     extraction), and stream the reply back encrypted to the session key.
  */
 async function mockInference(page: Page): Promise<void> {
+  await page.route('**/api/attest**', async (route) => {
+    const url = new URL(route.request().url())
+    const nonce = url.searchParams.get('nonce') ?? ''
+    await route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(attestationBody(nonce)),
+    })
+  })
+
   await page.route('**/api/proxy**', async (route) => {
     let messages: Array<{ role: string; content: string }> = []
+    let clientPubHex: string | null = null
     try {
-      messages = route.request().postDataJSON()?.messages ?? []
+      const opened = openProxyRequest(route.request().postDataJSON() ?? {})
+      messages = opened.messages
+      clientPubHex = opened.clientPubHex
     } catch {
       messages = []
     }
@@ -105,12 +114,12 @@ async function mockInference(page: Page): Promise<void> {
 
     // (2) Quest extraction → the structured quest the core parses on ACCEPT.
     if (system.includes('Extract quest details')) {
-      await fulfillSse(route, JSON.stringify(QUEST))
+      await fulfillSse(route, JSON.stringify(QUEST), clientPubHex)
       return
     }
     // (3) Knowing extraction → no facts (fire-and-forget; swallowed).
     if (system.includes('insight extractor')) {
-      await fulfillSse(route, '[]')
+      await fulfillSse(route, '[]', clientPubHex)
       return
     }
     // (1) Main conversation — branch on the latest user turn.
@@ -118,14 +127,14 @@ async function mockInference(page: Page): Promise<void> {
     //   • proof turn 2: the user's story ("it is complete …") → celebrate
     //   • otherwise: offer a quest
     if (/i did the quest/i.test(lastUser)) {
-      await fulfillSse(route, PROOF_ASK_REPLY)
+      await fulfillSse(route, PROOF_ASK_REPLY, clientPubHex)
       return
     }
     if (/it is complete/i.test(lastUser)) {
-      await fulfillSse(route, PROOF_CELEBRATE_REPLY)
+      await fulfillSse(route, PROOF_CELEBRATE_REPLY, clientPubHex)
       return
     }
-    await fulfillSse(route, OFFER_REPLY)
+    await fulfillSse(route, OFFER_REPLY, clientPubHex)
   })
 }
 
@@ -247,6 +256,7 @@ test.describe('web shell — full quest loop', () => {
     await mockInference(page)
 
     // ── Onboarding ───────────────────────────────────────────────────────────
+    await skipIntro(page)
     await page.goto('/')
     await completeOnboarding(page)
 

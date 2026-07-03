@@ -130,6 +130,7 @@ async function runConversation(
     const systemPrompt = buildSystemPrompt({
       phase,
       memories: i > 0 ? [`Their preferential reality: "${route.prAnswer}"`] : [],
+      greatWork: route.greatWork,
     })
 
     // Prepare messages for API call

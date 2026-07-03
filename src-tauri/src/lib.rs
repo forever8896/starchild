@@ -201,7 +201,7 @@ async fn send_message(
 
     // Detect conversation phase and build system prompt
     let phase = ai::PhaseDetector::detect(&history);
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
@@ -814,7 +814,7 @@ async fn send_message_stream(
     log::info!("Conversation phase: {:?} (crystallize_pending={})", phase, crystallize_pending);
 
     // Build system prompt with knowing profile and conversation phase
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &active_quest_titles, &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &active_quest_titles, &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
@@ -1120,7 +1120,7 @@ async fn send_image_message(
     let knowing_fragment = state.knowing.profile().map(|p| p.to_prompt_fragment()).unwrap_or_default();
 
     let phase = ai::PhaseDetector::detect(&history);
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);

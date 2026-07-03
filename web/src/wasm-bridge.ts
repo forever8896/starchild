@@ -30,6 +30,8 @@ import init, {
   build_knowing_extraction_input,
   parse_knowing_facts,
   build_knowing_fragment,
+  derive_state_from_position,
+  apply_evidence,
 } from './wasm/starchild_core.js'
 
 // ── Boundary types (mirror the core Rust structs) ─────────────────────────
@@ -75,6 +77,9 @@ export interface PromptInput {
   active_quests?: string[]
   recent_messages?: ChatMessage[]
   phase?: ConversationPhase
+  /** The user's Great Work macro position (hermetic ontology); mirrors the
+   *  optional `great_work` field on the Rust `PromptInput`. */
+  great_work?: import('../../src/store').GreatWorkPosition
 }
 
 export interface RouteResult {
@@ -180,6 +185,20 @@ export interface Core {
   /** Render the knowing prompt fragment (stage + gaps) from stored facts. */
   buildKnowingFragment(facts: KnownFact[]): string
 
+  // ── The Great Work (hermetic macro state) ────────────────────────────────
+  /** Derive creature state from a Great Work position (homunculus mirror). */
+  deriveStateFromPosition(position: unknown, nowMs?: number): GameState
+  /**
+   * Record one piece of evidence into a Great Work position, advancing any
+   * plane it makes ripe, and return the updated position. The ONLY way to
+   * mutate the position — the record→advance rule lives in the Rust core.
+   */
+  applyEvidence(
+    position: import('../../src/store').GreatWorkPosition,
+    evidence: import('../../src/store').Evidence,
+    nowIso?: string,
+  ): import('../../src/store').GreatWorkPosition
+
   // ── Authored copy ────────────────────────────────────────────────────────
   /** The Starchild's fixed awakening (first) message for the given user name. */
   awakeningMessage(name: string): string
@@ -224,6 +243,10 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
       build_knowing_extraction_input(userMessage, aiResponse),
     parseKnowingFacts: (raw) => parse_knowing_facts(raw) as ExtractedFact[],
     buildKnowingFragment: (facts) => build_knowing_fragment(facts),
+    deriveStateFromPosition: (position, nowMs = Date.now()) =>
+      derive_state_from_position(position, nowMs) as GameState,
+    applyEvidence: (position, evidence, nowIso = new Date().toISOString()) =>
+      apply_evidence(position, evidence, nowIso) as import('../../src/store').GreatWorkPosition,
     awakeningMessage: (name) => awakening_message(name),
     version: () => core_version(),
   }))

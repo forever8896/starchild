@@ -9,6 +9,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import type {
   CompleteQuestResult,
+  GreatWorkPosition,
   Message,
   OnboardingInput,
   Platform,
@@ -174,5 +175,15 @@ export const desktopPlatform: Platform = {
   },
   async setSetting(key: string, value: string): Promise<void> {
     await invoke('save_settings', { key, value })
+  },
+
+  // ── Great Work (the hermetic macro state) ──────────────────────────────────
+  // Desktop returns null for now — the Rust backend will add the IPC command
+  // when the persistence layer is wired. The web shell has full support.
+  async getGreatWorkPosition(): Promise<GreatWorkPosition | null> {
+    return null
+  },
+  async setGreatWorkPosition(_pos: GreatWorkPosition): Promise<void> {
+    // No-op on desktop until the SQLite table is added
   },
 }

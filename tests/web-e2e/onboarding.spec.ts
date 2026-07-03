@@ -28,6 +28,7 @@
  * stubbing React internals — so the real component + core code paths still run.
  */
 
+import { skipIntro } from './e2ee-mock'
 import { test, expect, type Page } from '@playwright/test'
 
 /**
@@ -77,6 +78,7 @@ test.describe('web shell', () => {
   }) => {
     const guard = guardAgainstRenderErrors(page)
 
+    await skipIntro(page)
     await page.goto('/')
 
     // Document loaded as the real Starchild shell.
@@ -102,6 +104,7 @@ test.describe('web shell', () => {
   test('completing onboarding renders the live chat view', async ({ page }) => {
     const guard = guardAgainstRenderErrors(page)
 
+    await skipIntro(page)
     await page.goto('/')
 
     // Fill the name and begin — on web `hasInferenceKey()` is true (bounded

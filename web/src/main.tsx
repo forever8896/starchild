@@ -13,6 +13,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
+import IntroCinematic from './IntroCinematic'
 import { PlatformProvider } from '../../src/platform/usePlatform'
 
 createRoot(document.getElementById('root')!).render(
@@ -20,5 +21,6 @@ createRoot(document.getElementById('root')!).render(
     <PlatformProvider>
       <App />
     </PlatformProvider>
+    <IntroCinematic />
   </StrictMode>,
 )

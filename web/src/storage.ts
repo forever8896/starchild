@@ -19,13 +19,15 @@ const DB_NAME = 'starchild'
 // v2 adds the `knowing` store (the 7-dimension facts the recall ranker + the
 // knowing prompt fragment read). Bumping the version triggers `onupgradeneeded`,
 // which creates the new store without touching existing data.
-const DB_VERSION = 2
+// v3 adds the `great_work` store (the hermetic Great Work position).
+const DB_VERSION = 3
 
 const STORE_MESSAGES = 'messages'
 const STORE_STATE = 'state'
 const STORE_SETTINGS = 'settings'
 const STORE_QUESTS = 'quests'
 const STORE_KNOWING = 'knowing'
+const STORE_GREAT_WORK = 'great_work'
 
 /** The persisted message row — the shared `Message` plus an ordering key. */
 interface StoredMessage extends Message {
@@ -60,6 +62,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_KNOWING)) {
         db.createObjectStore(STORE_KNOWING, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STORE_GREAT_WORK)) {
+        db.createObjectStore(STORE_GREAT_WORK, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -194,6 +199,29 @@ export async function getKnowingFacts(): Promise<KnownFact[]> {
   return getAll<KnownFact>(STORE_KNOWING)
 }
 
+// ─── Great Work position (the hermetic macro state) ─────────────────────────
+
+/** The persisted Great Work position row. */
+interface StoredGreatWork {
+  id: 'position'
+  data: unknown
+}
+
+/** Load the Great Work position (or null if not yet created). */
+export async function getGreatWorkPosition<T>(): Promise<T | null> {
+  const row = await tx<StoredGreatWork | undefined>(STORE_GREAT_WORK, 'readonly', (s) =>
+    s.get('position') as IDBRequest<StoredGreatWork | undefined>,
+  )
+  return row ? (row.data as T) : null
+}
+
+/** Persist the Great Work position. */
+export async function setGreatWorkPosition(data: unknown): Promise<void> {
+  await tx(STORE_GREAT_WORK, 'readwrite', (s) =>
+    s.put({ id: 'position', data } satisfies StoredGreatWork),
+  )
+}
+
 // ─── Bulk replace (import) ───────────────────────────────────────────────────
 
 /** Wipe every store, then load a fresh dataset (used by `importData`). */
@@ -202,11 +230,15 @@ export async function replaceAll(input: {
   state: GameState | null
   settings: Record<string, string>
   quests: Quest[]
+  /** The knowing profile's facts — restored, not rebuilt (they ARE the soul). */
+  knowingFacts?: KnownFact[]
+  /** The Great Work macro position; null/undefined leaves the store empty. */
+  greatWork?: unknown | null
 }): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(
-      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING],
+      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING, STORE_GREAT_WORK],
       'readwrite',
     )
     t.oncomplete = () => resolve()
@@ -215,8 +247,8 @@ export async function replaceAll(input: {
     t.objectStore(STORE_STATE).clear()
     t.objectStore(STORE_SETTINGS).clear()
     t.objectStore(STORE_QUESTS).clear()
-    // Knowing facts are rebuilt from conversation; a fresh dataset starts clean.
     t.objectStore(STORE_KNOWING).clear()
+    t.objectStore(STORE_GREAT_WORK).clear()
     let seq = Date.now()
     for (const m of input.messages) {
       t.objectStore(STORE_MESSAGES).put({ ...m, seq: seq++ } satisfies StoredMessage)
@@ -229,6 +261,12 @@ export async function replaceAll(input: {
     }
     for (const q of input.quests) {
       t.objectStore(STORE_QUESTS).put(q)
+    }
+    for (const f of input.knowingFacts ?? []) {
+      t.objectStore(STORE_KNOWING).put(f)
+    }
+    if (input.greatWork != null) {
+      t.objectStore(STORE_GREAT_WORK).put({ id: 'position', data: input.greatWork } satisfies StoredGreatWork)
     }
   })
 }

@@ -39,6 +39,9 @@ export const config = { runtime: 'edge' }
 const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? 'https://api.venice.ai/api/v1'
 // Cheapest non-E2EE tier the desktop app already uses for internal tasks.
 const MODEL = process.env.TRIAL_MODEL ?? 'llama-3.3-70b'
+// The E2EE tier: content is encrypted browser↔enclave (this proxy only injects
+// the key + relays ciphertext). Pinned so the client can't request another.
+const E2EE_MODEL = process.env.TRIAL_E2EE_MODEL ?? 'e2ee-glm-4-7-p'
 const MAX_TOKENS = int(process.env.TRIAL_MAX_TOKENS, 400)
 const RATE_LIMIT = int(process.env.TRIAL_RATE_LIMIT, 20)
 const RATE_WINDOW_SEC = int(process.env.TRIAL_RATE_WINDOW_SEC, 3600)
@@ -60,8 +63,16 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Parse the client request. We accept only conversation content; the model,
-  // streaming and token cap are all dictated here, never by the client.
-  let body: { messages?: unknown; temperature?: unknown }
+  // streaming and token cap are all dictated here, never by the client. For the
+  // E2EE tier the `content` fields are opaque ciphertext (encrypted to the
+  // enclave) — we never see plaintext, we only inject the key + the TEE headers.
+  let body: {
+    messages?: unknown
+    temperature?: unknown
+    e2ee?: unknown
+    clientPubHex?: unknown
+    modelPubHex?: unknown
+  }
   try {
     body = await req.json()
   } catch {
@@ -70,6 +81,14 @@ export default async function handler(req: Request): Promise<Response> {
   const messages = body?.messages
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages required' }, 400)
+  }
+
+  // E2EE request? Validate the two attested public keys the enclave needs.
+  const e2ee = body?.e2ee === true
+  const clientPubHex = typeof body?.clientPubHex === 'string' ? body.clientPubHex : ''
+  const modelPubHex = typeof body?.modelPubHex === 'string' ? body.modelPubHex : ''
+  if (e2ee && !(isHex(clientPubHex, 130) && isHex(modelPubHex, 130))) {
+    return json({ error: 'e2ee requires clientPubHex and modelPubHex' }, 400)
   }
 
   const ip = clientIp(req)
@@ -97,14 +116,22 @@ export default async function handler(req: Request): Promise<Response> {
 
   // 3) Stream from Venice. We pass the conversation straight through with the
   //    pinned model + bounded length, and ask for usage so we can meter spend.
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${VENICE_TRIAL_KEY()}`,
+    'Content-Type': 'application/json',
+  }
+  // E2EE: tell the enclave which keys to use. Content stays opaque to us.
+  if (e2ee) {
+    headers['X-Venice-TEE-Client-Pub-Key'] = clientPubHex
+    headers['X-Venice-TEE-Model-Pub-Key'] = modelPubHex
+    headers['X-Venice-TEE-Signing-Algo'] = 'ecdsa'
+  }
+
   const upstream = await fetch(`${VENICE_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${VENICE_TRIAL_KEY()}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      model: MODEL,
+      model: e2ee ? E2EE_MODEL : MODEL,
       messages,
       temperature: clampTemp(body?.temperature),
       max_tokens: MAX_TOKENS,
@@ -234,6 +261,11 @@ function monthTtlSec(): number {
 function clientIp(req: Request): string {
   const fwd = req.headers.get('x-forwarded-for')
   return (fwd ? fwd.split(',')[0] : req.headers.get('x-real-ip'))?.trim() || 'unknown'
+}
+
+// A hex string of an exact length (used to sanity-check the TEE public keys).
+function isHex(s: string, len: number): boolean {
+  return s.length === len && /^[0-9a-fA-F]+$/.test(s)
 }
 
 function clampTemp(t: unknown): number {

@@ -41,6 +41,41 @@ export interface StarchildState {
   level: number
 }
 
+// ─── Great Work types (mirrors src-tauri/core/src/opus.rs) ──────────────────
+
+export type Plane = 'body' | 'mind' | 'spirit'
+export type Stage = 'calcination' | 'dissolution' | 'separation' | 'conjunction' | 'fermentation' | 'distillation' | 'coagulation'
+
+export interface Cell {
+  plane: Plane
+  stage: Stage
+}
+
+export interface Evidence {
+  kind: 'QuestCompleted' | 'InsightCrystallized' | 'KnowingDeepened'
+  cell?: Cell
+  quest_title?: string
+  insight?: string
+  dimension?: string
+  depth?: number
+}
+
+export interface PlanePosition {
+  plane: Plane
+  stage: Stage
+  cells_worked: Stage[]
+  evidence: Evidence[]
+  stuck: boolean
+}
+
+export interface GreatWorkPosition {
+  preferential_reality: string | null
+  planes: [PlanePosition, PlanePosition, PlanePosition]
+  active_cell: Cell | null
+  total_cells_worked: number
+  last_advanced_at: string | null
+}
+
 // ─── Store interface ─────────────────────────────────────────────────────────
 
 interface AppState {

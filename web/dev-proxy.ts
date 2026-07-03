@@ -32,10 +32,20 @@ export function devProxy(): Plugin {
           const chunks: Buffer[] = []
           for await (const c of req) chunks.push(c as Buffer)
           const body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
-          const model = process.env.TRIAL_MODEL || 'llama-3.3-70b'
+          // E2EE: relay ciphertext to the enclave, injecting the TEE headers.
+          const e2ee = body.e2ee === true
+          const model = e2ee
+            ? (process.env.TRIAL_E2EE_MODEL || 'e2ee-glm-4-7-p')
+            : (process.env.TRIAL_MODEL || 'llama-3.3-70b')
+          const headers: Record<string, string> = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }
+          if (e2ee) {
+            headers['X-Venice-TEE-Client-Pub-Key'] = String(body.clientPubHex || '')
+            headers['X-Venice-TEE-Model-Pub-Key'] = String(body.modelPubHex || '')
+            headers['X-Venice-TEE-Signing-Algo'] = 'ecdsa'
+          }
           const upstream = await fetch('https://api.venice.ai/api/v1/chat/completions', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ model, messages: body.messages ?? [], stream: true, max_tokens: 600 }),
           })
           res.statusCode = upstream.status
@@ -52,6 +62,45 @@ export function devProxy(): Plugin {
           res.statusCode = 502
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'dev proxy failed' }))
+        }
+      })
+
+      // Dev attestation relay (prod: web/api/attest.ts). Injects the trial key
+      // and fetches Venice's TEE attestation so the browser can establish an
+      // E2EE session in `npm run dev`.
+      server.middlewares.use('/api/attest', async (req, res) => {
+        if (req.method !== 'GET') { res.statusCode = 405; res.end(); return }
+        const key = process.env.VENICE_TRIAL_KEY
+        const send = (status: number, obj: unknown) => {
+          res.statusCode = status
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(obj))
+        }
+        if (!key) { send(503, { error: 'trial unavailable' }); return }
+        try {
+          const u = new URL(req.url || '', 'http://localhost')
+          const model = u.searchParams.get('model') || 'e2ee-glm-4-7-p'
+          const nonce = u.searchParams.get('nonce') || ''
+          if (!/^[0-9a-fA-F]{16,128}$/.test(nonce)) { send(400, { error: 'valid hex nonce required' }); return }
+          const upstream = await fetch(
+            `https://api.venice.ai/api/v1/tee/attestation?model=${encodeURIComponent(model)}&nonce=${encodeURIComponent(nonce)}`,
+            { headers: { Authorization: `Bearer ${key}` } },
+          )
+          if (!upstream.ok) { send(502, { error: 'attestation failed' }); return }
+          const att = await upstream.json() as Record<string, any>
+          send(200, {
+            signing_public_key: att.signing_public_key ?? att.signing_key ?? null,
+            verified: att.verified ?? null,
+            nonce: att.nonce ?? att.request_nonce ?? null,
+            model: att.model ?? model,
+            stale_after: att.stale_after ?? att.freshness?.stale_after ?? null,
+            tee_hardware: att.tee_hardware ?? null,
+            upstream_model: att.upstream_model ?? null,
+            signing_address: att.signing_address ?? null,
+            server_verification: att.server_verification ?? null,
+          })
+        } catch (e) {
+          send(502, { error: e instanceof Error ? e.message : 'attestation failed' })
         }
       })
 

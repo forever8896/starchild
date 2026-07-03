@@ -22,10 +22,15 @@
  */
 
 import type { ChatMessage } from "./wasm-bridge";
+import type { E2eeSession } from "./e2ee";
 
 // ── Public surface ───────────────────────────────────────────────────────────
 
 export type InferenceMode = "trial" | "byok";
+
+export { establishE2eeSession, E2eeSession, E2EE_MODEL } from "./e2ee";
+/** Where the attestation relay lives (a same-origin Edge function). */
+export const DEFAULT_ATTEST_URL = "/api/attest";
 
 /** Default Venice REST base — overridable for BYOK (e.g. a regional endpoint). */
 export const DEFAULT_VENICE_BASE_URL = "https://api.venice.ai/api/v1";
@@ -45,6 +50,12 @@ export interface StreamChatOptions {
   temperature?: number;
   /** TRIAL only: proxy endpoint. Defaults to {@link DEFAULT_PROXY_URL}. */
   proxyUrl?: string;
+  /**
+   * TRIAL only: an established E2EE session. When present, message contents are
+   * encrypted to the enclave before leaving the browser and response deltas are
+   * decrypted here — the proxy relays only ciphertext. Absent → plaintext trial.
+   */
+  e2eeSession?: E2eeSession;
   /** BYOK only: Venice base URL. Defaults to {@link DEFAULT_VENICE_BASE_URL}. */
   baseUrl?: string;
   /** Abort the request (e.g. user cancels or the component unmounts). */
@@ -115,6 +126,36 @@ export async function* streamChat(
     );
   }
 
+  // E2EE trial: every SSE delta is hex ciphertext from the enclave. Decrypt each
+  // with the session key. Non-ciphertext chunks (keepalives, partial hex across
+  // a chunk boundary) fail to decrypt and are skipped, mirroring the desktop —
+  // but if a stream delivers content and NONE of it decrypts, that's a broken
+  // session (stale key, tampered relay), not noise: fail loudly so the UI shows
+  // an error instead of persisting a silent blank reply.
+  const session = opts.mode === "trial" ? opts.e2eeSession : undefined;
+  if (session) {
+    let received = 0;
+    let decrypted = 0;
+    for await (const enc of parseSse(response.body, opts.signal)) {
+      received += 1;
+      let plain: string;
+      try {
+        plain = session.decrypt(enc.trim());
+      } catch {
+        continue;
+      }
+      decrypted += 1;
+      if (plain) yield plain;
+    }
+    if (received > 0 && decrypted === 0) {
+      throw new VeniceError(
+        "protocol",
+        "The encrypted reply could not be decrypted — the secure session may have expired. Please try again.",
+      );
+    }
+    return;
+  }
+
   yield* parseSse(response.body, opts.signal);
 }
 
@@ -124,11 +165,24 @@ async function postTrial(
   messages: ChatMessage[],
   opts: StreamChatOptions,
 ): Promise<Response> {
+  const session = opts.e2eeSession;
+  // E2EE: encrypt every message's content to the enclave and hand the proxy the
+  // two attested public keys (for the TEE headers). The proxy sees only ciphertext.
+  const payload = session
+    ? {
+        e2ee: true,
+        clientPubHex: session.clientPubHex,
+        modelPubHex: session.modelPubHex,
+        messages: messages.map((m) => ({ role: m.role, content: session.encrypt(m.content) })),
+        temperature: opts.temperature,
+      }
+    : { messages, temperature: opts.temperature };
+
   // The proxy dictates model + token cap + streaming; we send only content.
   return doFetch(
     opts.proxyUrl ?? DEFAULT_PROXY_URL,
     { "Content-Type": "application/json" },
-    { messages, temperature: opts.temperature },
+    payload,
     opts.signal,
   );
 }

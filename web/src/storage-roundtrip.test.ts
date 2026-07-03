@@ -9,15 +9,18 @@
  *   seed IndexedDB → read it all out → `encryptExport` → `decryptImport`
  *   → `replaceAll` back into IndexedDB → read it out again → assert identical.
  *
- * It proves the encrypted `.starchild` file faithfully preserves everything the
- * storage layer holds (messages, creature, settings, quests) across a full
- * encrypt/decrypt/replace cycle — wrong-passphrase rejection is covered in
- * `export.test.ts`.
+ * It proves the encrypted `.starchild` file faithfully preserves EVERYTHING the
+ * storage layer holds — messages, creature, settings, quests, the knowing
+ * profile's facts, and the Great Work position — across a full
+ * encrypt/decrypt/replace cycle. (The knowing facts + Great Work position are
+ * the companion's accumulated understanding: a backup that drops them silently
+ * forgets the user, which is exactly the regression this file must catch.)
+ * Wrong-passphrase rejection is covered in `export.test.ts`.
  */
 
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
-import type { Message, Quest } from '../../src/store'
+import type { Message, Quest, GreatWorkPosition } from '../../src/store'
 import {
   addMessage,
   getMessages,
@@ -27,9 +30,13 @@ import {
   getAllSettings,
   putQuests,
   getQuests,
+  addKnowingFact,
+  getKnowingFacts,
+  setGreatWorkPosition,
+  getGreatWorkPosition,
   replaceAll,
 } from './storage'
-import type { GameState } from './wasm-bridge'
+import type { GameState, KnownFact } from './wasm-bridge'
 import {
   encryptExport,
   decryptImport,
@@ -73,20 +80,56 @@ const sampleQuests: Quest[] = [
   },
 ]
 
+const sampleFacts: KnownFact[] = [
+  {
+    id: 'f1',
+    category: 'values',
+    fact: 'honesty matters more to them than comfort',
+    importance: 8,
+    confidence: 0.9,
+    created_at: '2026-06-26T00:00:05.000Z',
+  },
+  {
+    id: 'f2',
+    category: 'desires',
+    fact: 'wants to live surrounded by nature, practicing alchemy',
+    importance: 9,
+    confidence: 0.95,
+    created_at: '2026-06-26T00:00:06.000Z',
+  },
+]
+
+const samplePosition: GreatWorkPosition = {
+  preferential_reality: 'living in nature, studying alchemy, healing the world',
+  planes: [
+    { plane: 'body', stage: 'dissolution', cells_worked: ['calcination'], evidence: [], stuck: false },
+    { plane: 'mind', stage: 'calcination', cells_worked: [], evidence: [], stuck: false },
+    { plane: 'spirit', stage: 'calcination', cells_worked: [], evidence: [], stuck: false },
+  ],
+  active_cell: { plane: 'body', stage: 'dissolution' },
+  total_cells_worked: 1,
+  last_advanced_at: '2026-06-26T00:00:07.000Z',
+}
+
 async function seedStorage(): Promise<void> {
   for (const m of sampleMessages) await addMessage(m)
   await setGameState(sampleGame)
   await setSetting('venice_api_key', 'sk-test')
   await setSetting('user_name', 'Kilian')
   await putQuests(sampleQuests)
+  for (const f of sampleFacts) await addKnowingFact(f)
+  await setGreatWorkPosition(samplePosition)
 }
 
-/** Build the export payload from whatever is currently in storage. */
+/** Build the export payload from whatever is currently in storage — mirrors
+ *  `platform.exportData` (including the knowing facts + Great Work position). */
 async function exportFromStorage(): Promise<StarchildExport> {
   const game = (await getGameState())!
   const messages = await getMessages(0)
   const quests = await getQuests()
   const settings = await getAllSettings()
+  const facts = await getKnowingFacts()
+  const greatWork = await getGreatWorkPosition<GreatWorkPosition>()
   return {
     schemaVersion: EXPORT_SCHEMA_VERSION,
     exportedAt: '2026-06-26T00:00:09.000Z',
@@ -96,7 +139,13 @@ async function exportFromStorage(): Promise<StarchildExport> {
       content: m.content,
       created_at: m.created_at,
     })),
-    knowing: { facts: [], stage: 'unknown', total_facts: 0, gaps: [] },
+    knowing: {
+      facts: facts.map((f) => ({ ...f })),
+      stage: 'exported',
+      total_facts: facts.length,
+      gaps: [],
+    },
+    great_work: greatWork,
     quests: quests.map((q) => ({ ...q })),
     creature: {
       hunger: game.hunger,
@@ -111,7 +160,7 @@ async function exportFromStorage(): Promise<StarchildExport> {
 }
 
 describe('export → import round-trip through the storage layer', () => {
-  it('preserves messages, creature, settings and quests across encrypt/decrypt/replace', async () => {
+  it('preserves messages, creature, settings, quests, knowing facts and the Great Work position', async () => {
     // 1. Seed the real IndexedDB-backed storage.
     await seedStorage()
 
@@ -139,6 +188,8 @@ describe('export → import round-trip through the storage layer', () => {
       },
       settings: restored.settings,
       quests: restored.quests.map((q) => ({ ...q })) as Quest[],
+      knowingFacts: (restored.knowing?.facts ?? []).map((f) => ({ ...f })),
+      greatWork: restored.great_work ?? null,
     })
 
     // 4. Read storage again — everything must match what we started with.
@@ -157,12 +208,26 @@ describe('export → import round-trip through the storage layer', () => {
       xp: game.xp,
       level: game.level,
     }).toEqual({ hunger: 73, mood: 'Content', energy: 61, bond: 44, xp: 210, level: 4 })
+
+    // 5. The soul survives: knowing facts + Great Work position intact.
+    const factsAfter = await getKnowingFacts()
+    expect(factsAfter.sort((a, b) => a.id.localeCompare(b.id))).toEqual(sampleFacts)
+    expect(await getGreatWorkPosition<GreatWorkPosition>()).toEqual(samplePosition)
   })
 
   it('replaceAll wipes prior data not present in the imported file', async () => {
-    // Seed a stray message + setting that the import must clear.
+    // Seed stray rows in every store that the import must clear.
     await addMessage({ id: 'stale', role: 'user', content: 'old life', created_at: '2026-06-25T00:00:00.000Z' })
     await setSetting('stale_key', 'gone')
+    await addKnowingFact({
+      id: 'stale-fact',
+      category: 'fears',
+      fact: 'should be wiped',
+      importance: 1,
+      confidence: 0.1,
+      created_at: '2026-06-25T00:00:00.000Z',
+    })
+    await setGreatWorkPosition(samplePosition)
 
     const blob = await encryptExport(
       {
@@ -183,10 +248,15 @@ describe('export → import round-trip through the storage layer', () => {
       state: null,
       settings: restored.settings,
       quests: [],
+      knowingFacts: restored.knowing?.facts ?? [],
+      greatWork: restored.great_work ?? null,
     })
 
     expect((await getMessages(0)).some((m) => m.id === 'stale')).toBe(false)
     expect(await getAllSettings()).toEqual({ user_name: 'Kilian' })
     expect(await getQuests()).toEqual([])
+    // A file without knowing/great_work leaves both stores empty (old-file import).
+    expect(await getKnowingFacts()).toEqual([])
+    expect(await getGreatWorkPosition()).toBeNull()
   })
 })

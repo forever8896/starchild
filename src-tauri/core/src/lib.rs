@@ -18,6 +18,7 @@ pub mod game;
 pub mod inference;
 pub mod knowing;
 pub mod messages;
+pub mod opus;
 pub mod quest;
 pub mod recall;
 pub mod storage;

@@ -484,6 +484,7 @@ impl PromptBuilder {
         active_quests: &[String],
         _recent_messages: &[ChatMessage],
         phase: ConversationPhase,
+        great_work: Option<&crate::opus::GreatWorkPosition>,
     ) -> String {
         let mut layers: Vec<String> = Vec::with_capacity(14);
 
@@ -698,6 +699,23 @@ impl PromptBuilder {
              actually are and move toward the life that's calling them."
                 .to_string(),
         );
+
+        // ── Layer 8.5: The Great Work (hermetic position) ─────────────
+        // The AI's private ontology — where the human is in their developmental
+        // journey across 3 planes × 7 alchemical stages. The user never sees
+        // this vocabulary; it only shapes how the AI approaches the conversation.
+        if let Some(pos) = great_work {
+            let fragment = pos.to_prompt_fragment();
+            if !fragment.is_empty() {
+                layers.push(format!(
+                    "THE GREAT WORK — YOUR PRIVATE MAP OF WHERE THIS HUMAN IS:\n\
+                     {fragment}\n\n\
+                     This is YOUR private ontology. The user never sees words like \
+                     \"calcination\" or \"alchemical stage.\" They experience the right \
+                     kind of work at the right time. Speak human; think hermetic."
+                ));
+            }
+        }
 
         // ── Layer 9: Conversation Arc ──────────────────────────────────
         // THE MOST IMPORTANT LAYER. This gives Starchild DIRECTION.
@@ -1120,7 +1138,7 @@ mod tests {
             ChatMessage::assistant("greetings, human"),
         ];
 
-        let prompt = PromptBuilder::build(&state, &personality, &memories, &quests, &recent, ConversationPhase::Dig);
+        let prompt = PromptBuilder::build(&state, &personality, &memories, &quests, &recent, ConversationPhase::Dig, None);
 
         // Layer 1 - re-centering + identity
         assert!(prompt.contains("You are Starchild"));
@@ -1150,7 +1168,7 @@ mod tests {
         let state = StarchildState::default();
         let personality = PersonalityParams::default();
 
-        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Arrive);
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Arrive, None);
 
         assert!(prompt.contains("You are Starchild"));
         // With no memories, should show discovery prompt instead
@@ -1454,7 +1472,7 @@ mod tests {
         // Verify the Proof phase has a valid prompt
         let state = StarchildState::default();
         let personality = PersonalityParams::default();
-        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Proof);
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Proof, None);
         assert!(prompt.contains("current phase: proof"));
         assert!(prompt.contains("PROOF"));
         assert!(prompt.contains("completed a quest"));
@@ -1464,7 +1482,7 @@ mod tests {
     fn phase_negotiate_prompt_exists() {
         let state = StarchildState::default();
         let personality = PersonalityParams::default();
-        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Negotiate);
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Negotiate, None);
         assert!(prompt.contains("current phase: negotiate"));
         assert!(prompt.contains("NEGOTIATE"));
     }
@@ -1473,7 +1491,7 @@ mod tests {
     fn phase_explore_prompt_exists() {
         let state = StarchildState::default();
         let personality = PersonalityParams::default();
-        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Explore);
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Explore, None);
         assert!(prompt.contains("current phase: explore"));
         assert!(prompt.contains("EXPLORE"));
     }
@@ -1482,7 +1500,7 @@ mod tests {
     fn phase_quest_prompt_exists() {
         let state = StarchildState::default();
         let personality = PersonalityParams::default();
-        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Quest);
+        let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], ConversationPhase::Quest, None);
         assert!(prompt.contains("current phase: quest"));
         assert!(prompt.contains("QUEST"));
         assert!(prompt.contains("quest for you"));
@@ -1525,7 +1543,7 @@ mod tests {
             ConversationPhase::Release,
         ];
         for phase in phases {
-            let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], phase);
+            let prompt = PromptBuilder::build(&state, &personality, &[], &[], &[], phase, None);
             assert!(!prompt.to_lowercase().contains("dandelion"),
                 "Phase {:?} prompt contains 'dandelion' — hallucination risk", phase);
         }

@@ -13,6 +13,7 @@
 
 import type {
   CompleteQuestResult,
+  GreatWorkPosition,
   Message,
   OnboardingInput,
   Platform,
@@ -49,6 +50,127 @@ let questsMod: Promise<QuestsMod> | null = null
 const quests = (): Promise<QuestsMod> => (questsMod ??= import('../../web/src/quests'))
 
 const core = async () => (await wasm()).loadCore()
+
+// ── E2EE trial session ────────────────────────────────────────────────────────
+//
+// The free trial defaults to end-to-end encryption: message contents are
+// encrypted in the browser to Venice's attested TDX enclave, so the trial proxy
+// relays only ciphertext. We establish one session (attestation handshake) and
+// reuse it until Venice marks the attestation stale. Flip `E2EE_TRIAL` off to
+// fall back to the plaintext (cheaper/faster) trial model.
+const E2EE_TRIAL = true
+
+let e2eeSessionP: Promise<import('../../web/src/e2ee').E2eeSession> | null = null
+
+/**
+ * Get (or establish) the trial E2EE session, refreshing when it goes stale.
+ * THROWS on handshake failure — the trial is E2EE-or-nothing. Callers decide
+ * what failure means: `sendMessage` surfaces it to the user (fail closed — we
+ * never silently downgrade the conversation to plaintext), background
+ * extraction simply skips its work.
+ */
+async function trialE2eeSession(): Promise<import('../../web/src/e2ee').E2eeSession | undefined> {
+  if (!E2EE_TRIAL) return undefined
+  const v = await venice()
+  const fresh = async () => v.establishE2eeSession(v.DEFAULT_ATTEST_URL)
+  try {
+    if (!e2eeSessionP) e2eeSessionP = fresh()
+    let s = await e2eeSessionP
+    if (Date.now() >= s.staleAt) {
+      e2eeSessionP = fresh()
+      s = await e2eeSessionP
+    }
+    return s
+  } catch (err) {
+    // Drop the failed promise so the next attempt retries the handshake.
+    e2eeSessionP = null
+    throw err
+  }
+}
+
+/**
+ * Inference options for CONVERSATION-DERIVED content — the single policy gate.
+ * BYOK goes direct to Venice with the user's key. The trial REQUIRES the E2EE
+ * session; if the handshake fails the caller gets a thrown error (never a
+ * silent plaintext downgrade). Background callers pass `optional: true` to get
+ * `null` back instead — meaning "skip this work", still never plaintext.
+ */
+async function privateInference(optional = false): Promise<
+  { mode: 'trial' | 'byok'; apiKey?: string; e2eeSession?: import('../../web/src/e2ee').E2eeSession } | null
+> {
+  const { mode, apiKey } = await resolveInference()
+  if (mode === 'byok') return { mode, apiKey }
+  if (!E2EE_TRIAL) return { mode } // explicit operator opt-out of E2EE
+  try {
+    const e2eeSession = await trialE2eeSession()
+    return { mode, e2eeSession }
+  } catch (err) {
+    if (optional) {
+      console.warn('E2EE unavailable — skipping background inference (no plaintext fallback):', err)
+      return null
+    }
+    throw new Error(
+      'could not open the encrypted channel — your words were not sent. take a breath and try again.',
+    )
+  }
+}
+
+// ── Enclave keep-alive ────────────────────────────────────────────────────────
+//
+// The confidential enclave can cold-start (~12s to first token) but then holds
+// warmth (~2.5s on GLM-4.7). So from app-load we ping it with a tiny throwaway
+// E2EE inference every 15s — by the time the user finishes onboarding and sends
+// their first real message, the enclave is warm. Stops on the first real message
+// (real traffic keeps it warm) or after a cap, and never runs for BYOK. Each ping
+// is a few tokens (aborted at the first) — negligible cost.
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null
+let keepAliveUntil = 0
+let pingInFlight = false
+
+async function pingEnclave(): Promise<void> {
+  if (pingInFlight) return
+  pingInFlight = true
+  const ctrl = new AbortController()
+  try {
+    const [v, session] = await Promise.all([venice(), trialE2eeSession()])
+    if (!session) { stopEnclaveKeepAlive(); return }
+    for await (const _tok of v.streamChat(
+      [{ role: 'user', content: 'hi' }],
+      { mode: 'trial', e2eeSession: session, temperature: 0.1, signal: ctrl.signal },
+    )) {
+      ctrl.abort() // warm now — stop generating
+      break
+    }
+  } catch {
+    // Best-effort (aborted/offline). If it keeps failing the cap will end it.
+  } finally {
+    ctrl.abort()
+    pingInFlight = false
+  }
+}
+
+function stopEnclaveKeepAlive(): void {
+  if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null }
+}
+
+/**
+ * Warm the E2EE handshake AND the enclave ahead of the first message. Called from
+ * app bootstrap (during intro/onboarding). Trial tier only; no-op for BYOK.
+ */
+export function warmTrialE2ee(): void {
+  void (async () => {
+    if (!E2EE_TRIAL) return
+    const key = (await (await storage()).getSetting('venice_api_key'))?.trim()
+    if (key) return // BYOK — no shared enclave to warm
+    if (keepAliveTimer) return
+    keepAliveUntil = Date.now() + 5 * 60_000 // cap: 5 min of warming
+    void pingEnclave()
+    keepAliveTimer = setInterval(() => {
+      if (Date.now() >= keepAliveUntil) { stopEnclaveKeepAlive(); return }
+      void pingEnclave()
+    }, 15_000)
+  })()
+}
 
 // ── In-process event bus ──────────────────────────────────────────────────────
 //
@@ -105,6 +227,28 @@ async function loadTickedState(): Promise<GameState> {
   const [s, c] = await Promise.all([storage(), core()])
   const existing = await s.getGameState()
   const game = existing ? c.tickGameState(existing) : c.newGameState()
+
+  // The homunculus MERGE: the live state (per-message feed, decay, quest XP)
+  // stays the moment-to-moment truth so talking visibly nourishes the creature;
+  // the Great Work derivation supplies FLOORS for the growth stats — the
+  // creature never displays less bond/xp/level than the user's macro progress
+  // implies. (Previously the derivation *replaced* the live state each read,
+  // silently discarding every feed()/quest-reward write — the creature froze.)
+  const gw = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+  if (gw) {
+    const derived = c.deriveStateFromPosition(gw, Date.now())
+    const hunger = game.hunger
+    const merged: GameState = {
+      ...game,
+      bond: Math.max(game.bond, derived.bond),
+      xp: Math.max(game.xp, derived.xp),
+      level: Math.max(game.level, derived.level),
+      mood: c.moodForHunger(hunger),
+    }
+    await s.setGameState(merged)
+    return merged
+  }
+
   await s.setGameState(game)
   return game
 }
@@ -148,6 +292,30 @@ async function completeQuestAndEmit(id: string): Promise<CompleteQuestResult> {
   await s.setGameState(next)
   const starchild_state = toStarchildState(next)
 
+  // ── Record evidence in the Great Work position ──
+  // A completed quest is evidence for the quest's plane. Hand it to the core's
+  // `applyEvidence`, which records it AND advances the plane's alchemical stage
+  // once the evidence threshold is cleared — the record→advance rule lives in
+  // Rust so native + web stay identical (the web previously pushed evidence in
+  // JS and so never advanced).
+  try {
+    const gw = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+    if (gw) {
+      const plane = (quest.category as 'body' | 'mind' | 'spirit') ?? 'spirit'
+      const planePos = gw.planes.find((p) => p.plane === plane)
+      if (planePos) {
+        const updated = c.applyEvidence(
+          gw,
+          { kind: 'QuestCompleted', cell: { plane, stage: planePos.stage }, quest_title: quest.title },
+          nowIso(),
+        )
+        await s.setGreatWorkPosition(updated)
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to record Great Work evidence:', err)
+  }
+
   emit('quest-completed', {
     quest,
     starchild_state,
@@ -183,19 +351,24 @@ async function extractOfferedQuest(): Promise<import('../../web/src/wasm-bridge'
     .join('\n')
 
   try {
-    const { mode, apiKey } = await resolveInference()
-    let acc = ''
-    for await (const token of v.streamChat(
-      [
-        { role: 'system', content: c.questExtractionSystem() },
-        { role: 'user', content: c.buildQuestExtractionPrompt(recentContext) },
-      ],
-      { mode, apiKey, temperature: 0.2 },
-    )) {
-      acc += token
+    // Conversation turns are in this prompt — E2EE required on the trial. If
+    // the channel is unavailable we fall to the local heuristic, NEVER plaintext.
+    const inference = await privateInference(true)
+    if (inference) {
+      const { mode, apiKey, e2eeSession } = inference
+      let acc = ''
+      for await (const token of v.streamChat(
+        [
+          { role: 'system', content: c.questExtractionSystem() },
+          { role: 'user', content: c.buildQuestExtractionPrompt(recentContext) },
+        ],
+        { mode, apiKey, e2eeSession, temperature: 0.2 },
+      )) {
+        acc += token
+      }
+      const parsed = c.parseQuestExtraction(acc)
+      if (parsed) return parsed
     }
-    const parsed = c.parseQuestExtraction(acc)
-    if (parsed) return parsed
   } catch (err) {
     console.warn('Quest extraction via model failed; using heuristic fallback:', err)
   }
@@ -214,7 +387,12 @@ async function extractOfferedQuest(): Promise<import('../../web/src/wasm-bridge'
 async function extractKnowing(userMessage: string, aiResponse: string): Promise<void> {
   try {
     const [s, c, v] = await Promise.all([storage(), core(), venice()])
-    const { mode, apiKey } = await resolveInference()
+    // This prompt carries the raw turn — the most sensitive derived content in
+    // the app. E2EE required on the trial; if unavailable, skip extraction
+    // entirely (the knowing profile just grows a turn later). NEVER plaintext.
+    const inference = await privateInference(true)
+    if (!inference) return
+    const { mode, apiKey, e2eeSession } = inference
 
     let acc = ''
     for await (const token of v.streamChat(
@@ -222,7 +400,7 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
         { role: 'system', content: c.knowingExtractionSystem() },
         { role: 'user', content: c.buildKnowingExtractionInput(userMessage, aiResponse) },
       ],
-      { mode, apiKey, temperature: 0.2 },
+      { mode, apiKey, e2eeSession, temperature: 0.2 },
     )) {
       acc += token
     }
@@ -290,6 +468,41 @@ export const webPlatform: Platform = {
     }
     await s.addMessage(userMsg)
 
+    // ── Preferential reality + vision crystallization (mirror desktop lib.rs) ──
+    // The awakening message asks the "magic wand" question; the user's first real
+    // answer IS their preferential reality (their north star). Capture it, then
+    // let the phase detector fast-path to the Crystallize (north-star) moment
+    // instead of digging forever — this is what makes the arc land. Without this
+    // flag the web conversation only ever walked arrive→dig→explore by turn count.
+    if (!inProof && content.trim().length >= 12) {
+      const existingPr = (await s.getSetting('preferential_reality')) ?? ''
+      if (!existingPr) {
+        await s.setSetting('preferential_reality', content.trim())
+        // ── Initialize the Great Work position ──
+        // The journey begins when the user states their preferential reality.
+        // Create a fresh position with all planes at Calcination and set the
+        // active cell to Body × Calcination (the default starting point).
+        const gw = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+        if (!gw) {
+          const freshPos: import('./index').GreatWorkPosition = {
+            preferential_reality: content.trim(),
+            planes: [
+              { plane: 'body', stage: 'calcination', cells_worked: [], evidence: [], stuck: false },
+              { plane: 'mind', stage: 'calcination', cells_worked: [], evidence: [], stuck: false },
+              { plane: 'spirit', stage: 'calcination', cells_worked: [], evidence: [], stuck: false },
+            ],
+            active_cell: { plane: 'body', stage: 'calcination' },
+            total_cells_worked: 0,
+            last_advanced_at: null,
+          }
+          await s.setGreatWorkPosition(freshPos)
+        }
+      }
+    }
+    const hasPr = ((await s.getSetting('preferential_reality')) ?? '') !== ''
+    const visionRevealed = (await s.getSetting('vision_revealed')) === 'true'
+    const crystallizePending = hasPr && !visionRevealed
+
     const history = await s.getMessages(20)
     const chatMessages = history.map((m) => ({ role: m.role, content: m.content }))
 
@@ -310,9 +523,30 @@ export const webPlatform: Platform = {
     // unexplored dimensions + "still new" guidance), exactly as desktop appends it.
     const knowingFragment = c.buildKnowingFragment(facts)
 
-    // Proof flow takes absolute phase priority (as on desktop); otherwise the
-    // core phase detector decides.
-    const phase = inProof ? 'proof' : c.detectPhase(chatMessages)
+    // ── Great Work position (the hermetic macro state) ──
+    // Loaded from IndexedDB and passed to the prompt builder so the AI knows
+    // which alchemical stage the user is in. Falls back to null (no layer).
+    const gwPos = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
+
+    // Phase decision (mirrors desktop lib.rs):
+    //   • proof flow wins absolutely,
+    //   • else if a vision is ready to place → let the detector fast-path to
+    //     Crystallize (the north-star moment),
+    //   • else once the vision IS placed but no quest has ever been offered →
+    //     offer the first quest instead of drifting back into more questions,
+    //   • else the core detector decides by the conversation's shape.
+    let phase: import('../../web/src/wasm-bridge').ConversationPhase
+    if (inProof) {
+      phase = 'proof'
+    } else if (crystallizePending) {
+      phase = c.detectPhase(chatMessages, true)
+    } else {
+      const anyQuestOffered = chatMessages.some((m) => m.role === 'assistant' && c.isQuestOffer(m.content))
+      const activeQuests = visionRevealed ? await s.getQuests('active') : []
+      phase = visionRevealed && !anyQuestOffered && activeQuests.length === 0
+        ? 'quest'
+        : c.detectPhase(chatMessages, false)
+    }
     let system = c.buildPrompt({
       // core's build_prompt state is u32; the live game state carries fractional
       // (decayed) stats — round before crossing the WASM boundary or serde rejects.
@@ -326,16 +560,30 @@ export const webPlatform: Platform = {
       memories,
       recent_messages: chatMessages,
       phase,
+      great_work: gwPos ?? undefined,
     })
     if (knowingFragment) system += `\n\n${knowingFragment}`
 
     const llmMessages = [{ role: 'system', content: system }, ...chatMessages]
-    const { mode, apiKey } = await resolveInference()
+    // The conversation is E2EE on the trial tier, FAIL CLOSED: if the encrypted
+    // channel can't be established this throws (surfaced as the chat error
+    // banner) rather than silently sending plaintext. BYOK goes direct to Venice.
+    const inference = (await privateInference(false))!
+    const { mode, apiKey, e2eeSession } = inference
+    // Real traffic now keeps the enclave warm — stop the keep-alive pings.
+    stopEnclaveKeepAlive()
 
     let acc = ''
-    for await (const token of v.streamChat(llmMessages, { mode, apiKey })) {
-      acc += token
-      yield token
+    try {
+      for await (const token of v.streamChat(llmMessages, { mode, apiKey, e2eeSession })) {
+        acc += token
+        yield token
+      }
+    } catch (err) {
+      // A decrypt failure means the cached E2EE session likely went stale —
+      // drop it so the user's retry performs a fresh handshake.
+      if (err instanceof Error && /decrypt/i.test(err.message)) e2eeSessionP = null
+      throw err
     }
 
     // Post-process + persist the assistant turn and the fed creature.
@@ -347,6 +595,23 @@ export const webPlatform: Platform = {
       created_at: nowIso(),
     })
     await s.setGameState(feed(game, c))
+
+    // The north-star moment just happened — record it so we crystallize only once
+    // (mirrors desktop setting `vision_revealed`). Also stash the vision itself
+    // for the tree's crown — WITHOUT the "let's place this on your vision tree ✦"
+    // meta-instruction tail the Crystallize phase appends to the chat reply
+    // (desktop synthesizes a separate statement; stripping the tail leaves the
+    // same woven-from-their-words vision sentence). Next turns fall to Quest.
+    if (phase === 'crystallize') {
+      await s.setSetting('vision_revealed', 'true')
+      if (!((await s.getSetting('vision_statement')) ?? '')) {
+        const vision = final
+          .replace(/let'?s place (this|it) on your vision tree.*$/is, '')
+          .replace(/[\s✦.,;:—-]+$/u, '')
+          .trim()
+        await s.setSetting('vision_statement', vision || final)
+      }
+    }
 
     // ── Background: extract knowing insights from this turn ──
     // Fire-and-forget (mirrors desktop's background `extract_memories`): the
@@ -378,6 +643,10 @@ export const webPlatform: Platform = {
     const game = (await s.getGameState()) ?? c.newGameState()
     const messages = await s.getMessages(0)
     const quests = await s.getQuests()
+    // The knowing facts + Great Work position ARE the companion's soul — a
+    // backup without them silently forgets the user. Include both.
+    const knowingFacts = await s.getKnowingFacts()
+    const greatWork = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
     return e.encryptExport(
       {
         schemaVersion: e.EXPORT_SCHEMA_VERSION,
@@ -388,7 +657,20 @@ export const webPlatform: Platform = {
           content: m.content,
           created_at: m.created_at,
         })),
-        knowing: { facts: [], stage: 'unknown', total_facts: 0, gaps: [] },
+        knowing: {
+          facts: knowingFacts.map((f) => ({
+            id: f.id,
+            category: f.category,
+            fact: f.fact,
+            importance: f.importance,
+            confidence: f.confidence,
+            created_at: f.created_at,
+          })),
+          stage: 'exported',
+          total_facts: knowingFacts.length,
+          gaps: [],
+        },
+        great_work: greatWork,
         quests: quests.map((q) => ({
           id: q.id,
           title: q.title,
@@ -451,6 +733,17 @@ export const webPlatform: Platform = {
         completed_at: q.completed_at,
         due_at: q.due_at,
       })),
+      // Restore the soul: knowing facts + Great Work position (older exports
+      // simply carry an empty list / no field — both handled gracefully).
+      knowingFacts: (payload.knowing?.facts ?? []).map((f) => ({
+        id: f.id,
+        category: f.category,
+        fact: f.fact,
+        importance: f.importance,
+        confidence: f.confidence,
+        created_at: f.created_at,
+      })),
+      greatWork: payload.great_work ?? null,
     })
   },
 
@@ -538,5 +831,13 @@ export const webPlatform: Platform = {
   },
   async setSetting(key: string, value: string): Promise<void> {
     await (await storage()).setSetting(key, value)
+  },
+
+  // ── Great Work (the hermetic macro state) ──────────────────────────────────
+  async getGreatWorkPosition(): Promise<GreatWorkPosition | null> {
+    return (await storage()).getGreatWorkPosition<GreatWorkPosition>()
+  },
+  async setGreatWorkPosition(pos: GreatWorkPosition): Promise<void> {
+    await (await storage()).setGreatWorkPosition(pos)
   },
 }

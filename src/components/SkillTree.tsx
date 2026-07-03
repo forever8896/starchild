@@ -1,38 +1,43 @@
 /**
- * SkillTree.tsx — The Constellation Map
+ * SkillTree.tsx — The Vessel
  *
- * A living, animated skill tree that visualizes the user's journey
- * from where they are to their preferential reality (vision).
+ * A 3×7 alchemical grid visualizing the user's Great Work:
+ *   - 3 pillars (Body, Mind, Spirit) as columns
+ *   - 7 rings (Calcination → Coagulation) as rows
+ *   - 21 cells total, each a (plane × stage) coordinate
  *
- * The vision appears first at the crown, then branches materialize
- * downward — each one a domain of growth. Quest nodes light up
- * along the branches as the user progresses.
+ * Cells light up as the user progresses:
+ *   - worked: past stages (filled, with checkmark glow)
+ *   - active: current stage (pulsing ring)
+ *   - unexplored: future stages (dim outline)
+ *
+ * The Stone (preferential reality) sits at the crown.
+ * Quest nodes appear on their plane's current stage cell.
  *
  * Layout (bottom → top):
+ *   ★ Your Preferential Reality (the Stone)
+ *   │ trunk
+ *   ├── Body (mint)    ├── Mind (gold)    ├── Spirit (lavender)
+ *   │  Coagulation      │  Coagulation      │  Coagulation
+ *   │  Distillation     │  Distillation     │  Distillation
+ *   │  Fermentation     │  Fermentation     │  Fermentation
+ *   │  Conjunction      │  Conjunction      │  Conjunction
+ *   │  Separation       │  Separation       │  Separation
+ *   │  Dissolution      │  Dissolution      │  Dissolution
+ *   │  Calcination      │  Calcination      │  Calcination
  *   ◇ You Are Here
- *   │ trunk
- *   ├── Body (mint)
- *   ├── Purpose (sky)
- *   ├── Mind (gold)
- *   ├── Heart (rose)
- *   └── Spirit (lavender)
- *   │ trunk
- *   ★ Your Preferential Reality
- *
- * Animations: framer-motion (pathLength for lines, spring pops for nodes)
- * All elements animate on mount — no `revealed` toggle needed.
  */
 
 import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { type Quest } from '../store'
+import { type Quest, type GreatWorkPosition, type Plane, type Stage } from '../store'
 import { usePlatform } from '../platform/usePlatform'
 import starchildLogo from '../assets/starchild-logo.png'
 // @ts-ignore
 import videoSkillTree from '../assets/videos/skilltree.webm'
 import skilltreeBg from '../assets/skilltree-bg.png'
 
-// ─── Tree Layout Constants ──────────────────────────────────────────────────
+// ─── Vessel Layout Constants ────────────────────────────────────────────────
 
 const VB_W = 800
 const VB_H = 1000
@@ -40,17 +45,33 @@ const VB_H = 1000
 const VISION_Y = 70
 const JUNCTION_Y = 220
 const CATEGORY_Y = 340
-const QUEST_T1_Y = 470
-const QUEST_T2_Y = 590
-const QUEST_T3_Y = 700
 const YOU_Y = 900
 const TRUNK_X = VB_W / 2
 
+// 7 stage rows, evenly spaced from CATEGORY_Y + 30 to YOU_Y - 50
+const STAGE_ROW_START = CATEGORY_Y + 40
+const STAGE_ROW_END = YOU_Y - 60
+const STAGE_ROW_SPACING = (STAGE_ROW_END - STAGE_ROW_START) / 6
+
+const STAGES: { key: Stage; label: string; short: string }[] = [
+  { key: 'calcination',   label: 'Calcination',   short: 'Calc' },
+  { key: 'dissolution',   label: 'Dissolution',   short: 'Diss' },
+  { key: 'separation',    label: 'Separation',    short: 'Sep' },
+  { key: 'conjunction',   label: 'Conjunction',   short: 'Conj' },
+  { key: 'fermentation',  label: 'Fermentation',  short: 'Ferm' },
+  { key: 'distillation',  label: 'Distillation',  short: 'Dist' },
+  { key: 'coagulation',   label: 'Coagulation',   short: 'Coag' },
+]
+
 const CATEGORIES = [
-  { key: 'body',   label: 'Body',   color: '#a8d8b8', x: 200 },
-  { key: 'mind',   label: 'Mind',   color: '#e8d8a8', x: 400 },
-  { key: 'spirit', label: 'Spirit', color: '#b8a0d8', x: 600 },
+  { key: 'body' as Plane,   label: 'Body',   color: '#a8d8b8', x: 200 },
+  { key: 'mind' as Plane,   label: 'Mind',   color: '#e8d8a8', x: 400 },
+  { key: 'spirit' as Plane, label: 'Spirit', color: '#b8a0d8', x: 600 },
 ] as const
+
+function stageRowY(index: number): number {
+  return STAGE_ROW_START + index * STAGE_ROW_SPACING
+}
 
 // ─── SVG Helpers ────────────────────────────────────────────────────────────
 
@@ -623,6 +644,7 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
   const platform = usePlatform()
   const [quests, setQuests] = useState<Quest[]>([])
   const [preferentialReality, setPreferentialReality] = useState('')
+  const [greatWork, setGreatWork] = useState<GreatWorkPosition | null>(null)
   const [selectedQuest, setSelectedQuest] = useState<{ quest: Quest; color: string } | null>(null)
   const [celebratingQuestId, setCelebratingQuestId] = useState<string | null>(null)
   const [celebrationXp, setCelebrationXp] = useState<number | null>(null)
@@ -683,6 +705,13 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
       } catch {
         // ignore
       }
+
+      try {
+        const gw = await platform.getGreatWorkPosition()
+        if (!cancelled) setGreatWork(gw)
+      } catch {
+        // Great Work not yet initialized
+      }
     }
 
     load()
@@ -701,32 +730,35 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
     return () => { cancelled = true; unsubAccepted(); unsubCelebration() }
   }, [platform])
 
-  // Group quests by category
-  const questsByCategory = useMemo(() => {
-    const grouped: Record<string, Quest[]> = {}
-    for (const cat of CATEGORIES) {
-      grouped[cat.key] = quests
-        .filter((q) => q.category === cat.key)
-        .slice(0, 3)
+  // Map quests by plane for cell placement
+  const questsByPlane = useMemo(() => {
+    const grouped: Record<Plane, Quest[]> = { body: [], mind: [], spirit: [] }
+    for (const q of quests) {
+      const cat = (q.category as Plane) || 'spirit'
+      if (grouped[cat]) grouped[cat].push(q)
     }
     return grouped
   }, [quests])
 
-  // Compute branch progress
-  const branchProgress = useMemo(() => {
-    const progress: Record<string, { completed: number; total: number; ratio: number }> = {}
+  // Determine cell state from Great Work position
+  const cellState = useMemo(() => {
+    const states: Record<string, 'worked' | 'active' | 'unexplored'> = {}
     for (const cat of CATEGORIES) {
-      const catQuests = quests.filter((q) => q.category === cat.key)
-      const completed = catQuests.filter((q) => q.status === 'completed').length
-      const total = catQuests.length
-      progress[cat.key] = {
-        completed,
-        total,
-        ratio: total > 0 ? completed / total : 0,
-      }
+      const planePos = greatWork?.planes.find((p) => p.plane === cat.key)
+      const currentStageIdx = planePos ? STAGES.findIndex((s) => s.key === planePos.stage) : -1
+      STAGES.forEach((stage, idx) => {
+        const key = `${cat.key}-${stage.key}`
+        if (planePos && idx < currentStageIdx) {
+          states[key] = 'worked'
+        } else if (planePos && idx === currentStageIdx) {
+          states[key] = 'active'
+        } else {
+          states[key] = 'unexplored'
+        }
+      })
     }
-    return progress
-  }, [quests])
+    return states
+  }, [greatWork])
 
   return (
     <div className="relative w-full h-full overflow-hidden">
@@ -852,7 +884,7 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
             </radialGradient>
           </defs>
 
-          {/* ── Phase 2: Trunk — Vision → Junction ───────────────────── */}
+          {/* ── Trunk — Vision → Junction ────────────────────────────── */}
           <AnimatedPath
             d={`M${TRUNK_X},${VISION_Y + 25} L${TRUNK_X},${JUNCTION_Y}`}
             color="#4a3f60"
@@ -861,7 +893,7 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
             width={2.5}
           />
 
-          {/* ── Phase 2: Trunk — Junction → You ──────────────────────── */}
+          {/* ── Trunk — Junction → You ───────────────────────────────── */}
           <AnimatedPath
             d={`M${TRUNK_X},${JUNCTION_Y} L${TRUNK_X},${YOU_Y - 20}`}
             color="#4a3f60"
@@ -870,23 +902,19 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
             width={2}
           />
 
-          {/* ── Phase 3: Branches — Junction → Category nodes ─────────── */}
+          {/* ── Branches — Junction → Pillars ─────────────────────────── */}
           {CATEGORIES.map((cat, i) => {
             const midY = JUNCTION_Y + (CATEGORY_Y - JUNCTION_Y) * 0.5
-            const progress = branchProgress[cat.key]
-            const hasQuests = progress && progress.total > 0
-            const growthOpacity = hasQuests
-              ? 0.3 + progress.ratio * 0.7
-              : 0.15
-            const growthWidth = hasQuests
-              ? 1.5 + progress.ratio * 2.0
-              : 1.5
+            const planePos = greatWork?.planes.find((p) => p.plane === cat.key)
+            const workedCount = planePos?.cells_worked.length ?? 0
+            const hasProgress = workedCount > 0
+            const growthOpacity = hasProgress ? 0.3 + (workedCount / 7) * 0.7 : 0.15
+            const growthWidth = hasProgress ? 1.5 + (workedCount / 7) * 2.0 : 1.5
             const branchPath = `M${TRUNK_X},${JUNCTION_Y} Q${(TRUNK_X + cat.x) / 2},${midY} ${cat.x},${CATEGORY_Y}`
 
             return (
               <g key={`branch-${cat.key}`}>
-                {/* Branch glow layer (progress-driven opacity + width) */}
-                {hasQuests && (
+                {hasProgress && (
                   <AnimatedPath
                     d={branchPath}
                     color={cat.color}
@@ -897,10 +925,9 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
                     extraOpacity={growthOpacity * 0.15}
                   />
                 )}
-                {/* Main branch */}
                 <AnimatedPath
                   d={branchPath}
-                  color={cat.color + (hasQuests ? '' : '60')}
+                  color={cat.color + (hasProgress ? '' : '60')}
                   delay={1.2 + i * 0.15}
                   duration={0.5}
                   width={growthWidth}
@@ -909,44 +936,165 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
             )
           })}
 
-          {/* ── Quest connection lines ────────────────────────────────── */}
-          {CATEGORIES.map((cat, catIdx) => {
-            const tiers = [QUEST_T1_Y, QUEST_T2_Y, QUEST_T3_Y]
-            const lines: React.ReactElement[] = []
+          {/* ── Pillar vertical lines (7 stages) ──────────────────────── */}
+          {CATEGORIES.map((cat, catIdx) => (
+            <AnimatedPath
+              key={`pillar-${cat.key}`}
+              d={`M${cat.x},${CATEGORY_Y + 12} L${cat.x},${stageRowY(6)}`}
+              color={cat.color + '20'}
+              delay={1.8 + catIdx * 0.12}
+              duration={0.6}
+              width={1}
+            />
+          ))}
 
-            lines.push(
-              <AnimatedPath
-                key={`qline-${cat.key}-0`}
-                d={`M${cat.x},${CATEGORY_Y + 12} L${cat.x},${tiers[0]}`}
-                color={cat.color + '30'}
-                delay={2.0 + catIdx * 0.12}
-                duration={0.4}
-                width={1}
-              />
-            )
+          {/* ── 21 Cells (3 planes × 7 stages) ────────────────────────── */}
+          {CATEGORIES.map((cat, catIdx) =>
+            STAGES.map((stage, stageIdx) => {
+              const cy = stageRowY(stageIdx)
+              const key = `${cat.key}-${stage.key}`
+              const state = cellState[key] ?? 'unexplored'
+              const planeQuests = questsByPlane[cat.key] || []
+              // Show quest on the active cell
+              const quest = state === 'active' ? planeQuests[0] : undefined
+              const isActive = state === 'active'
+              const isWorked = state === 'worked'
+              const r = isActive ? 14 : 10
 
-            for (let t = 0; t < 2; t++) {
-              lines.push(
-                <AnimatedPath
-                  key={`qline-${cat.key}-${t + 1}`}
-                  d={`M${cat.x},${tiers[t] + 14} L${cat.x},${tiers[t + 1]}`}
-                  color={cat.color + '20'}
-                  delay={2.3 + catIdx * 0.12 + t * 0.15}
-                  duration={0.3}
-                  width={1}
-                />
+              return (
+                <motion.g
+                  key={`cell-${key}`}
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{
+                    scale: { delay: 2.0 + catIdx * 0.1 + stageIdx * 0.08, type: 'spring', stiffness: 200, damping: 15 },
+                    opacity: { delay: 2.0 + catIdx * 0.1 + stageIdx * 0.08, duration: 0.2 },
+                  }}
+                  style={{ cursor: quest ? 'pointer' : 'default', transformOrigin: `${cat.x}px ${cy}px` }}
+                  onClick={quest ? () => setSelectedQuest({ quest, color: cat.color }) : undefined}
+                >
+                  {/* Celebration burst */}
+                  {quest?.id === celebratingQuestId && (
+                    <>
+                      <motion.circle
+                        cx={cat.x}
+                        cy={cy}
+                        r={r}
+                        fill="none"
+                        stroke={cat.color}
+                        strokeWidth={3}
+                        initial={{ scale: 1, opacity: 0.9 }}
+                        animate={{ scale: 3.5, opacity: 0 }}
+                        transition={{ duration: 1, ease: 'easeOut' }}
+                        style={{ transformOrigin: `${cat.x}px ${cy}px` }}
+                      />
+                      {celebrationParticles(cat.x, cy).map((p, i) => (
+                        <motion.circle
+                          key={`p-${i}`}
+                          r={2.5}
+                          fill={cat.color}
+                          initial={{ cx: cat.x, cy, opacity: 1 }}
+                          animate={{ cx: p.tx, cy: p.ty, opacity: 0 }}
+                          transition={{ duration: 0.8, delay: i * 0.03, ease: 'easeOut' }}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Active breathe ring */}
+                  {isActive && quest?.id !== celebratingQuestId && (
+                    <motion.circle
+                      cx={cat.x}
+                      cy={cy}
+                      r={r + 6}
+                      fill="none"
+                      stroke={cat.color}
+                      strokeWidth={1}
+                      animate={{ scale: [1, 1.3, 1], opacity: [0.3, 0.08, 0.3] }}
+                      transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
+                      style={{ transformOrigin: `${cat.x}px ${cy}px` }}
+                    />
+                  )}
+
+                  {/* Cell circle */}
+                  <motion.circle
+                    cx={cat.x}
+                    cy={cy}
+                    r={r}
+                    fill={isWorked || quest?.id === celebratingQuestId ? cat.color : 'transparent'}
+                    stroke={cat.color}
+                    strokeWidth={isWorked ? 0 : 1.5}
+                    opacity={isWorked ? 0.9 : isActive ? 0.9 : 0.2}
+                  />
+
+                  {/* Worked checkmark */}
+                  {isWorked && (
+                    <motion.path
+                      d={`M${cat.x - 5},${cy} L${cat.x - 1},${cy + 4} L${cat.x + 6},${cy - 4}`}
+                      fill="none"
+                      stroke="#1a1525"
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+
+                  {/* Active inner dot */}
+                  {isActive && !isWorked && (
+                    <motion.circle
+                      cx={cat.x}
+                      cy={cy}
+                      r={4}
+                      fill={cat.color}
+                      opacity={0.8}
+                      animate={{ scale: [1, 1.1, 1] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                      style={{ transformOrigin: `${cat.x}px ${cy}px` }}
+                    />
+                  )}
+
+                  {/* Quest title on active cell */}
+                  {quest && (isActive) && (
+                    <text
+                      x={cat.x}
+                      y={cy + r + 18}
+                      textAnchor="middle"
+                      fill={cat.color}
+                      fontSize={10}
+                      fontFamily="Nunito, sans-serif"
+                      fontWeight={600}
+                      opacity={0.85}
+                    >
+                      {quest.title.length > 16 ? quest.title.slice(0, 14) + '...' : quest.title}
+                    </text>
+                  )}
+
+                  {/* Stage label (left side, only on Mind pillar to avoid clutter) */}
+                  {cat.key === 'mind' && (
+                    <text
+                      x={cat.x - 30}
+                      y={cy + 4}
+                      textAnchor="end"
+                      fill="#6e6485"
+                      fontSize={9}
+                      fontFamily="Nunito, sans-serif"
+                      opacity={0.5}
+                    >
+                      {stage.label}
+                    </text>
+                  )}
+                </motion.g>
               )
-            }
+            })
+          )}
 
-            return <g key={`qlines-${cat.key}`}>{lines}</g>
-          })}
-
-          {/* ── Phase 1: Vision Crown ─────────────────────────────────── */}
+          {/* ── Vision Crown ──────────────────────────────────────────── */}
           <VisionCrown text={preferentialReality} />
 
-          {/* ── Phase 4: Category Labels ──────────────────────────────── */}
+          {/* ── Pillar Labels ─────────────────────────────────────────── */}
           {CATEGORIES.map((cat, i) => {
-            const progress = branchProgress[cat.key]
+            const planePos = greatWork?.planes.find((p) => p.plane === cat.key)
+            const workedCount = planePos?.cells_worked.length ?? 0
             return (
               <CategoryLabel
                 key={`cat-${cat.key}`}
@@ -954,43 +1102,15 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
                 y={CATEGORY_Y}
                 label={cat.label}
                 color={cat.color}
-                count={(questsByCategory[cat.key] || []).length}
-                completed={progress?.completed || 0}
-                total={progress?.total || 0}
+                count={workedCount}
+                completed={workedCount}
+                total={7}
                 delay={1.6 + i * 0.15}
               />
             )
           })}
 
-          {/* ── Phase 5: Quest Nodes ──────────────────────────────────── */}
-          {CATEGORIES.map((cat, catIdx) => {
-            const catQuests = questsByCategory[cat.key] || []
-            // Fill from bottom (near "You") upward toward vision
-            const tiers = [QUEST_T3_Y, QUEST_T2_Y, QUEST_T1_Y]
-
-            return (
-              <g key={`qnodes-${cat.key}`}>
-                {tiers.map((tierY, tierIdx) => (
-                  <QuestNode
-                    key={`qnode-${cat.key}-${tierIdx}`}
-                    cx={cat.x}
-                    cy={tierY}
-                    quest={catQuests[tierIdx]}
-                    color={cat.color}
-                    delay={2.5 + catIdx * 0.1 + tierIdx * 0.12}
-                    celebrating={catQuests[tierIdx]?.id === celebratingQuestId}
-                    onClick={
-                      catQuests[tierIdx]
-                        ? () => setSelectedQuest({ quest: catQuests[tierIdx], color: cat.color })
-                        : undefined
-                    }
-                  />
-                ))}
-              </g>
-            )
-          })}
-
-          {/* ── Phase 6: You Are Here ─────────────────────────────────── */}
+          {/* ── You Are Here ──────────────────────────────────────────── */}
           <YouMarker />
         </svg>
       </div>

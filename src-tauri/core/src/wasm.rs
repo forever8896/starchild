@@ -113,6 +113,9 @@ struct PromptInput {
     /// Phase tag; defaults to `"arrive"` when omitted.
     #[serde(default)]
     phase: Option<String>,
+    /// Optional Great Work position — the user's macro developmental state.
+    #[serde(default)]
+    great_work: Option<crate::opus::GreatWorkPosition>,
 }
 
 // `ai::StarchildState` / `PersonalityParams` already impl `Default`, but serde's
@@ -129,6 +132,7 @@ pub fn build_prompt(input: JsValue) -> Result<String, JsValue> {
         &inp.active_quests,
         &inp.recent_messages,
         phase,
+        inp.great_work.as_ref(),
     );
     Ok(prompt)
 }
@@ -309,4 +313,42 @@ pub fn parse_knowing_facts(raw: &str) -> Result<JsValue, JsValue> {
 pub fn build_knowing_fragment(facts: JsValue) -> Result<String, JsValue> {
     let facts: Vec<KnownFact> = serde_wasm_bindgen::from_value(facts)?;
     Ok(KnowingProfile::from_facts(facts).to_prompt_fragment())
+}
+
+// ---------------------------------------------------------------------------
+// The Great Work (hermetic macro state — creature derivation)
+// ---------------------------------------------------------------------------
+
+/// Derive the creature's `StarchildState` from a `GreatWorkPosition` at a
+/// JS-supplied timestamp. The creature becomes a homunculus mirror of the
+/// user's inner state: hunger=plane balance, mood=stage health,
+/// energy=PR alignment, bond=evidence, level=progress.
+#[wasm_bindgen]
+pub fn derive_state_from_position(
+    position: JsValue,
+    now_ms: f64,
+) -> Result<JsValue, JsValue> {
+    let pos: crate::opus::GreatWorkPosition = serde_wasm_bindgen::from_value(position)?;
+    let now = DateTime::from_timestamp_millis(now_ms as i64)
+        .ok_or_else(|| JsValue::from_str("derive_state_from_position: now_ms out of range"))?;
+    let state = pos.derive_state_from_position(now);
+    Ok(serde_wasm_bindgen::to_value(&state)?)
+}
+
+/// Record one piece of evidence into a `GreatWorkPosition`, advancing any plane
+/// it makes ripe, and return the updated position. `now_iso` stamps
+/// `last_advanced_at` when a plane advances. This is the ONLY way the shells
+/// mutate the macro position, so the record→advance rule stays single-sourced
+/// in the pure core (mirrors desktop; the web previously hand-rolled it and so
+/// never advanced).
+#[wasm_bindgen]
+pub fn apply_evidence(
+    position: JsValue,
+    evidence: JsValue,
+    now_iso: String,
+) -> Result<JsValue, JsValue> {
+    let mut pos: crate::opus::GreatWorkPosition = serde_wasm_bindgen::from_value(position)?;
+    let ev: crate::opus::Evidence = serde_wasm_bindgen::from_value(evidence)?;
+    pos.ingest_evidence(ev, now_iso);
+    Ok(serde_wasm_bindgen::to_value(&pos)?)
 }

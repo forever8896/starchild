@@ -80,6 +80,11 @@ export interface StarchildExport {
   quests: ExportQuest[]
   creature: CreatureState
   settings: Record<string, string>
+  /**
+   * The Great Work macro position (hermetic ontology). Optional so files
+   * exported before the feature (or from desktop) still import cleanly.
+   */
+  great_work?: import('../../src/store').GreatWorkPosition | null
 }
 
 // ─── On-disk envelope (the bytes of the file) ────────────────────────────────

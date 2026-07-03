@@ -5,9 +5,9 @@
 // implement it over WASM + IndexedDB + a Venice proxy/BYOK client (`web.ts`).
 // No component should import `invoke`/`listen` or branch on the platform.
 
-import type { Message, Quest, StarchildState } from '../store'
+import type { Message, Quest, StarchildState, GreatWorkPosition } from '../store'
 
-export type { Message, Quest, StarchildState }
+export type { Message, Quest, StarchildState, GreatWorkPosition }
 
 /** Which shell is backing the current `Platform` instance. */
 export type PlatformName = 'desktop' | 'web'
@@ -92,4 +92,10 @@ export interface Platform {
   // ── Settings ────────────────────────────────────────────────────────────────
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
+
+  // ── Great Work (the hermetic macro state) ──────────────────────────────────
+  /** Load the Great Work position (or null if not yet initialized). */
+  getGreatWorkPosition(): Promise<GreatWorkPosition | null>
+  /** Persist the Great Work position. */
+  setGreatWorkPosition(pos: GreatWorkPosition): Promise<void>
 }
