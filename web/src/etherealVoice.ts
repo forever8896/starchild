@@ -17,13 +17,17 @@
  * element still plays — the treatment degrades, the voice never dies.
  */
 
-/** Pitch/pace drop. 1 = untouched; 0.93 ≈ −1.3 semitones and 7% slower. */
-const ETHEREAL_RATE = 0.93
-/** Reverb mix under the dry voice. */
-const WET_LEVEL = 0.32
-const DRY_LEVEL = 0.82
+/**
+ * Pitch/pace drop. 1 = untouched. Tuned GENTLE (0.97 ≈ −0.5 semitone, 3%
+ * slower): the character is a cute, tender being — the deep-sage setting
+ * (0.93) fought that, so the treatment now only *hints* at otherworldliness.
+ */
+const ETHEREAL_RATE = 0.97
+/** Reverb mix under the dry voice — a whisper of space, not a cathedral. */
+const WET_LEVEL = 0.22
+const DRY_LEVEL = 0.88
 /** Impulse-response tail length (seconds) — the size of the "space". */
-const IR_SECONDS = 1.7
+const IR_SECONDS = 1.4
 
 let ctx: AudioContext | null = null
 let impulse: AudioBuffer | null = null

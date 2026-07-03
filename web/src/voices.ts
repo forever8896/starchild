@@ -24,12 +24,14 @@ export const TTS_VOICES = [
 export type TtsVoice = (typeof TTS_VOICES)[number]
 
 /**
- * Default until the audition verdict lands. The Starchild is an ethereal being
- * with a WISE, MANLY voice (per the founder's direction) — George is the
- * deepest "kind elder" of the set, and every reply additionally passes through
- * the live creature treatment (pitch-down + cosmic reverb) in etherealVoice.ts.
+ * Default until the audition verdict lands. The direction has settled between
+ * two poles — wise but CUTE: a deep sage fought the tender little creature, so
+ * the holding voice is River (soft, androgynous-leaning, calm) and the live
+ * treatment (etherealVoice.ts) only hints at depth. Candidates for the final
+ * pick: web-gentle-{River,Liam,Charlie,Brian,Callum,George}.mp3 +
+ * web-sprite-{River,Liam,Charlie}.mp3 in ~/starchild-voices.
  */
-export const DEFAULT_TTS_VOICE: TtsVoice = 'George'
+export const DEFAULT_TTS_VOICE: TtsVoice = 'River'
 
 /** The settings key holding the user's chosen voice. */
 export const TTS_VOICE_SETTING = 'tts_voice'
