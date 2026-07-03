@@ -18,16 +18,18 @@
  */
 
 /**
- * Pitch/pace drop. 1 = untouched; 0.93 ≈ −1.3 semitones and 7% slower.
- * SETTLED by ear (founder, after A/B-ing gentle + sprite variants): the deep
- * setting won — the wise, resonant read fits the being best.
+ * Pitch/pace drop. 1 = untouched. NEUTRALIZED (2026-07-03): the voice was
+ * recast to Minimax **YoungKnight**, judged and approved RAW — naturalness
+ * beat every DSP variant (deep, gentle, sprite, pitched-up all rejected).
+ * The knobs stay for future direction; don't turn them without new ear-time.
  */
-const ETHEREAL_RATE = 0.93
-/** Reverb mix under the dry voice. */
-const WET_LEVEL = 0.32
-const DRY_LEVEL = 0.82
+const ETHEREAL_RATE = 1.0
+/** Reverb mix under the dry voice. 0 = raw (a ≤0.15 whisper is the only
+ *  variant still on the table, pending the founder's A/B). */
+const WET_LEVEL = 0.0
+const DRY_LEVEL = 1.0
 /** Impulse-response tail length (seconds) — the size of the "space". */
-const IR_SECONDS = 1.7
+const IR_SECONDS = 1.4
 
 let ctx: AudioContext | null = null
 let impulse: AudioBuffer | null = null
@@ -59,34 +61,39 @@ function impulseResponse(c: AudioContext): AudioBuffer {
 export function createEtherealAudio(base64Mp3: string): HTMLAudioElement {
   const audio = new Audio(`data:audio/mp3;base64,${base64Mp3}`)
 
-  // Pitch + pace: turn OFF pitch preservation so the rate drop deepens the voice.
-  try {
-    ;(audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false
-    ;(audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
-    audio.playbackRate = ETHEREAL_RATE
-  } catch {
-    /* rate stays 1 — still fine */
+  // Pitch + pace: turn OFF pitch preservation so a rate change shifts timbre.
+  // Skipped entirely when neutral — raw means raw.
+  if (ETHEREAL_RATE !== 1.0) {
+    try {
+      ;(audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false
+      ;(audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
+      audio.playbackRate = ETHEREAL_RATE
+    } catch {
+      /* rate stays 1 — still fine */
+    }
   }
 
   // Reverb: route the element through a convolver + dry mix. Best-effort — any
   // failure leaves the untreated element playing normally.
-  try {
-    const c = audioContext()
-    void c.resume().catch(() => {})
-    const source = c.createMediaElementSource(audio)
-    const dry = c.createGain()
-    dry.gain.value = DRY_LEVEL
-    const convolver = c.createConvolver()
-    convolver.buffer = impulseResponse(c)
-    const wet = c.createGain()
-    wet.gain.value = WET_LEVEL
-    source.connect(dry)
-    dry.connect(c.destination)
-    source.connect(convolver)
-    convolver.connect(wet)
-    wet.connect(c.destination)
-  } catch {
-    /* no Web Audio — plain playback */
+  if (WET_LEVEL > 0) {
+    try {
+      const c = audioContext()
+      void c.resume().catch(() => {})
+      const source = c.createMediaElementSource(audio)
+      const dry = c.createGain()
+      dry.gain.value = DRY_LEVEL
+      const convolver = c.createConvolver()
+      convolver.buffer = impulseResponse(c)
+      const wet = c.createGain()
+      wet.gain.value = WET_LEVEL
+      source.connect(dry)
+      dry.connect(c.destination)
+      source.connect(convolver)
+      convolver.connect(wet)
+      wet.connect(c.destination)
+    } catch {
+      /* no Web Audio — plain playback */
+    }
   }
 
   return audio

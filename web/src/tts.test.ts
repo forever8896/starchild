@@ -66,10 +66,10 @@ describe('platform.ttsSpeak (web voice)', () => {
   })
 
   it('honors the saved tts_voice setting and falls back on invalid values', async () => {
-    await setSetting(TTS_VOICE_SETTING, 'River')
+    await setSetting(TTS_VOICE_SETTING, 'PatientMan')
     let { calls } = stubFetch()
     await webPlatform.ttsSpeak('with a chosen voice')
-    expect(JSON.parse(String(calls[0].init.body)).voice).toBe('River')
+    expect(JSON.parse(String(calls[0].init.body)).voice).toBe('PatientMan')
 
     await setSetting(TTS_VOICE_SETTING, 'NotARealVoice')
     ;({ calls } = stubFetch())

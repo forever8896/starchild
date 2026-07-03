@@ -16,10 +16,10 @@
 //   VENICE_TRIAL_KEY          (required) same demo key as /api/proxy.
 //   UPSTASH_REDIS_REST_URL    (required) shared limits state (fail-closed).
 //   UPSTASH_REDIS_REST_TOKEN  (required)
-//   TRIAL_TTS_MODEL           (optional) default tts-elevenlabs-turbo-v2-5.
+//   TRIAL_TTS_MODEL           (optional) default tts-minimax-speech-02-hd.
 //   TRIAL_TTS_MAX_CHARS       (optional) per-request text cap. Def 1200.
 //   TRIAL_TTS_RATE_LIMIT      (optional) requests per IP per hour. Def 40.
-//   TRIAL_TTS_USD_PER_MCHAR   (optional) $ per 1M chars for metering. Def 62.5.
+//   TRIAL_TTS_USD_PER_MCHAR   (optional) $ per 1M chars for metering. Def 125.
 //   TRIAL_MONTHLY_BUDGET_USD  (optional) shared ceiling (same as proxy). Def 50.
 //   VENICE_BASE_URL           (optional) default https://api.venice.ai/api/v1.
 //   TRIAL_ALLOWED_ORIGIN      (optional) CORS origin. Default: none (same-origin).
@@ -27,25 +27,26 @@
 export const config = { runtime: 'edge' }
 
 const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? 'https://api.venice.ai/api/v1'
-const TTS_MODEL = process.env.TRIAL_TTS_MODEL ?? 'tts-elevenlabs-turbo-v2-5'
+const TTS_MODEL = process.env.TRIAL_TTS_MODEL ?? 'tts-minimax-speech-02-hd'
 const MAX_CHARS = int(process.env.TRIAL_TTS_MAX_CHARS, 1200)
 const RATE_LIMIT = int(process.env.TRIAL_TTS_RATE_LIMIT, 40)
 const RATE_WINDOW_SEC = 3600
-const USD_PER_MCHAR = num(process.env.TRIAL_TTS_USD_PER_MCHAR, 62.5)
+const USD_PER_MCHAR = num(process.env.TRIAL_TTS_USD_PER_MCHAR, 125)
 const MONTHLY_BUDGET_USD = num(process.env.TRIAL_MONTHLY_BUDGET_USD, 50)
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
 
-// Pinned voice list (tts-elevenlabs-turbo-v2-5) — the client can't pick models,
+// Pinned voice list (tts-minimax-speech-02-hd) — the client can't pick models,
 // only one of these names.
 const VOICES = new Set([
-  'Alice', 'Aria', 'Bill', 'Brian', 'Callum', 'Charlie', 'Charlotte',
-  'Chris', 'Daniel', 'Eric', 'George', 'Jessica', 'Laura', 'Liam',
-  'Lily', 'Matilda', 'Rachel', 'River', 'Roger', 'Sarah', 'Will',
+  'CalmWoman', 'CasualGuy', 'DeepVoiceMan', 'DeterminedMan', 'ElegantMan',
+  'ExuberantGirl', 'FriendlyPerson', 'ImposingManner', 'InspirationalGirl',
+  'LivelyGirl', 'LovelyGirl', 'PatientMan', 'SweetGirl', 'WiseWoman',
+  'YoungKnight',
 ])
-const DEFAULT_VOICE = 'George'
+const DEFAULT_VOICE = 'YoungKnight'
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() })

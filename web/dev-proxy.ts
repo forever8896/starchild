@@ -126,8 +126,8 @@ export function devProxy(): Plugin {
             headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               input: text,
-              model: process.env.TRIAL_TTS_MODEL || 'tts-elevenlabs-turbo-v2-5',
-              voice: typeof body.voice === 'string' && body.voice ? body.voice : 'George',
+              model: process.env.TRIAL_TTS_MODEL || 'tts-minimax-speech-02-hd',
+              voice: typeof body.voice === 'string' && body.voice ? body.voice : 'YoungKnight',
               response_format: 'mp3',
             }),
           })

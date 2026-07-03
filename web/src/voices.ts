@@ -12,24 +12,26 @@
  * enclave. The chat-header "🔊 voice" toggle and Settings state this honestly.
  */
 
-export const TTS_MODEL = 'tts-elevenlabs-turbo-v2-5'
+export const TTS_MODEL = 'tts-minimax-speech-02-hd'
 
-/** Voice ids accepted by the model (also the audition set in ~/starchild-voices). */
+/** Voice ids accepted by the model (character-named — Minimax casts by role). */
 export const TTS_VOICES = [
-  'Alice', 'Aria', 'Bill', 'Brian', 'Callum', 'Charlie', 'Charlotte',
-  'Chris', 'Daniel', 'Eric', 'George', 'Jessica', 'Laura', 'Liam',
-  'Lily', 'Matilda', 'Rachel', 'River', 'Roger', 'Sarah', 'Will',
+  'CalmWoman', 'CasualGuy', 'DeepVoiceMan', 'DeterminedMan', 'ElegantMan',
+  'ExuberantGirl', 'FriendlyPerson', 'ImposingManner', 'InspirationalGirl',
+  'LivelyGirl', 'LovelyGirl', 'PatientMan', 'SweetGirl', 'WiseWoman',
+  'YoungKnight',
 ] as const
 
 export type TtsVoice = (typeof TTS_VOICES)[number]
 
 /**
- * SETTLED by the founder's ear (2026-07-03) after auditioning deep, gentle and
- * sprite variants: George with the full ethereal treatment (etherealVoice.ts —
- * −1.3 semitones, cosmic reverb). Wise, resonant, from a vast kind place.
- * Users can still pick any voice in Settings; the treatment applies to all.
+ * CAST by the founder's ear (2026-07-03) after a cross-engine audition
+ * (ElevenLabs narrators + DSP all rejected): **YoungKnight** — earnest,
+ * warm, genuinely on your side; the squire to your quest. Ships RAW (the
+ * pitch/reverb treatment in etherealVoice.ts is neutralized — naturalness
+ * won). Users can still pick any voice in Settings.
  */
-export const DEFAULT_TTS_VOICE: TtsVoice = 'George'
+export const DEFAULT_TTS_VOICE: TtsVoice = 'YoungKnight'
 
 /** The settings key holding the user's chosen voice. */
 export const TTS_VOICE_SETTING = 'tts_voice'
