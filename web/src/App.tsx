@@ -30,7 +30,6 @@ import {
 // Heavy, conditionally-rendered panels — split into their own async chunks so
 // they don't weigh down the initial chat/onboarding render.
 const SkillTree = lazy(() => import('../../src/components/SkillTree'))
-const DataSettings = lazy(() => import('./DataSettings'))
 const Settings = lazy(() => import('./Settings'))
 const FeedbackForm = lazy(() => import('./FeedbackForm'))
 
@@ -63,7 +62,6 @@ export default function App() {
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const narrow = useIsNarrow()
 
-  const [showData, setShowData] = useState(false)
   // Gated feedback (the first usage of the incentive fund). Unlocks after the
   // first completed quest; `feedbackNudge` is the one-time prompt at that moment.
   const [showFeedback, setShowFeedback] = useState(false)
@@ -157,7 +155,7 @@ export default function App() {
     )
   }
 
-  const activeNav = showData ? 'data' : showFeedback ? 'feedback' : currentView
+  const activeNav = showFeedback ? 'feedback' : currentView
 
   return (
     <ErrorBoundary>
@@ -177,7 +175,6 @@ export default function App() {
           feedbackUnlocked={feedbackUnlocked}
           onNav={(v) => setCurrentView(v)}
           onOpenFeedback={openFeedback}
-          onOpenData={() => setShowData(true)}
         />
 
         <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
@@ -204,10 +201,7 @@ export default function App() {
               >
                 <ErrorBoundary>
                   <Suspense fallback={null}>
-                    <Settings
-                      onClose={() => setCurrentView('chat')}
-                      onOpenData={() => setShowData(true)}
-                    />
+                    <Settings onClose={() => setCurrentView('chat')} />
                   </Suspense>
                 </ErrorBoundary>
               </motion.div>
@@ -224,13 +218,6 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
-
-      {/* Your Data — encrypted export / import overlay (PRD §5). */}
-      {showData && (
-        <Suspense fallback={null}>
-          <DataSettings onClose={() => setShowData(false)} />
-        </Suspense>
-      )}
 
       {/* Feedback form — gated; the first usage of the incentive fund. */}
       {showFeedback && (

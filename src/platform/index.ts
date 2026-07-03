@@ -55,6 +55,11 @@ export interface Platform {
   exportData(passphrase: string): Promise<Blob>
   /** Import a `.starchild` file back into local storage. */
   importData(file: File, passphrase: string): Promise<void>
+  /**
+   * Erase all local data — return to first-run. Optional (web implements it;
+   * desktop manages its own SQLite lifecycle). No undo.
+   */
+  clearAllData?(): Promise<void>
 
   // ── Conversation ────────────────────────────────────────────────────────────
   getMessages(limit: number): Promise<Message[]>

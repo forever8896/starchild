@@ -857,6 +857,21 @@ export const webPlatform: Platform = {
     })
   },
 
+  // Erase everything and return to first-run. Wipes IndexedDB (conversation,
+  // creature, quests, knowing, Great Work, settings incl. the BYOK key) AND the
+  // localStorage flags (intro-seen, music-mute, avatar intro) so the next load
+  // is a genuine clean slate. No undo — the caller confirms.
+  async clearAllData(): Promise<void> {
+    await (await storage()).clearAllData()
+    try {
+      localStorage.removeItem('starchild_music_muted')
+      localStorage.removeItem('starchild_intro_played')
+    } catch { /* private mode — fine */ }
+    try {
+      sessionStorage.removeItem('starchild_intro_seen')
+    } catch { /* private mode — fine */ }
+  },
+
   // ── Conversation ────────────────────────────────────────────────────────────
   async getMessages(limit: number): Promise<Message[]> {
     return (await storage()).getMessages(limit)

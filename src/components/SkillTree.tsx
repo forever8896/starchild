@@ -53,14 +53,17 @@ const STAGE_ROW_START = CATEGORY_Y + 40
 const STAGE_ROW_END = YOU_Y - 60
 const STAGE_ROW_SPACING = (STAGE_ROW_END - STAGE_ROW_START) / 6
 
-const STAGES: { key: Stage; label: string; short: string }[] = [
-  { key: 'calcination',   label: 'Calcination',   short: 'Calc' },
-  { key: 'dissolution',   label: 'Dissolution',   short: 'Diss' },
-  { key: 'separation',    label: 'Separation',    short: 'Sep' },
-  { key: 'conjunction',   label: 'Conjunction',   short: 'Conj' },
-  { key: 'fermentation',  label: 'Fermentation',  short: 'Ferm' },
-  { key: 'distillation',  label: 'Distillation',  short: 'Dist' },
-  { key: 'coagulation',   label: 'Coagulation',   short: 'Coag' },
+// The hermetic stage names are the AI's PRIVATE ontology — the user never sees
+// "Calcination" (PRD §3). Each maps to an evocative HUMAN label: the shape of
+// the inner work, in plain words, as a rising journey of depth.
+const STAGES: { key: Stage; label: string; human: string }[] = [
+  { key: 'calcination',   label: 'Calcination',   human: 'Facing' },
+  { key: 'dissolution',   label: 'Dissolution',   human: 'Releasing' },
+  { key: 'separation',    label: 'Separation',    human: 'Discerning' },
+  { key: 'conjunction',   label: 'Conjunction',   human: 'Reforming' },
+  { key: 'fermentation',  label: 'Fermentation',  human: 'Awakening' },
+  { key: 'distillation',  label: 'Distillation',  human: 'Refining' },
+  { key: 'coagulation',   label: 'Coagulation',   human: 'Becoming' },
 ]
 
 const CATEGORIES = [
@@ -1069,24 +1072,49 @@ export default function SkillTree({ onBack, showIntro = false }: { onBack: () =>
                     </text>
                   )}
 
-                  {/* Stage label (left side, only on Mind pillar to avoid clutter) */}
-                  {cat.key === 'mind' && (
-                    <text
-                      x={cat.x - 30}
-                      y={cy + 4}
-                      textAnchor="end"
-                      fill="#6e6485"
-                      fontSize={9}
-                      fontFamily="Nunito, sans-serif"
-                      opacity={0.5}
-                    >
-                      {stage.label}
-                    </text>
-                  )}
                 </motion.g>
               )
             })
           )}
+
+          {/* ── Stage axis (left edge) — the 7 depths, in human words ─────── */}
+          {STAGES.map((stage, i) => {
+            const cy = stageRowY(i)
+            // A row "glows" when any plane currently sits on it.
+            const activeHere = CATEGORIES.some((cat) => {
+              const pos = greatWork?.planes.find((p) => p.plane === cat.key)
+              return pos?.stage === stage.key
+            })
+            return (
+              <motion.g
+                key={`axis-${stage.key}`}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 2.2 + i * 0.06, duration: 0.4 }}
+              >
+                {/* faint guide dash into the grid */}
+                <line
+                  x1={92} y1={cy} x2={CATEGORIES[0].x - 26} y2={cy}
+                  stroke={activeHere ? '#b8a0d8' : '#4a3f60'}
+                  strokeWidth={1}
+                  strokeDasharray="2 5"
+                  opacity={activeHere ? 0.5 : 0.22}
+                />
+                <text
+                  x={86} y={cy + 4}
+                  textAnchor="end"
+                  fill={activeHere ? '#cbb8e6' : '#6e6485'}
+                  fontSize={12.5}
+                  fontFamily="Nunito, sans-serif"
+                  fontWeight={activeHere ? 800 : 600}
+                  opacity={activeHere ? 1 : 0.6}
+                  style={activeHere ? { filter: 'drop-shadow(0 0 6px rgba(184,160,216,0.5))' } : undefined}
+                >
+                  {stage.human}
+                </text>
+              </motion.g>
+            )
+          })}
 
           {/* ── Vision Crown ──────────────────────────────────────────── */}
           <VisionCrown text={preferentialReality} />

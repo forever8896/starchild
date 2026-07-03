@@ -222,6 +222,30 @@ export async function setGreatWorkPosition(data: unknown): Promise<void> {
   )
 }
 
+/**
+ * Erase everything — every store wiped in one transaction. The user's whole
+ * inner world (conversation, creature, quests, knowing profile, Great Work,
+ * settings incl. the BYOK key) is gone; the app returns to first-run. There is
+ * no undo. The DB itself is kept (schema intact) so the app keeps working.
+ */
+export async function clearAllData(): Promise<void> {
+  const db = await openDb()
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(
+      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING, STORE_GREAT_WORK],
+      'readwrite',
+    )
+    t.oncomplete = () => resolve()
+    t.onerror = () => reject(t.error ?? new Error('Could not erase your data.'))
+    t.objectStore(STORE_MESSAGES).clear()
+    t.objectStore(STORE_STATE).clear()
+    t.objectStore(STORE_SETTINGS).clear()
+    t.objectStore(STORE_QUESTS).clear()
+    t.objectStore(STORE_KNOWING).clear()
+    t.objectStore(STORE_GREAT_WORK).clear()
+  })
+}
+
 // ─── Bulk replace (import) ───────────────────────────────────────────────────
 
 /** Wipe every store, then load a fresh dataset (used by `importData`). */

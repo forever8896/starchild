@@ -11,7 +11,7 @@
 
 import starchildLogo from '../../src/assets/starchild-logo.png'
 
-type NavKey = 'chat' | 'tree' | 'feedback' | 'data' | 'settings'
+type NavKey = 'chat' | 'tree' | 'feedback' | 'settings'
 
 function RailButton({
   active, onClick, title, glyph, label, narrow,
@@ -52,14 +52,13 @@ function RailButton({
 
 export default function NavRail({
   active, narrow, feedbackUnlocked,
-  onNav, onOpenFeedback, onOpenData,
+  onNav, onOpenFeedback,
 }: {
   active: NavKey
   narrow: boolean
   feedbackUnlocked: boolean
   onNav: (view: 'chat' | 'tree' | 'settings') => void
   onOpenFeedback: () => void
-  onOpenData: () => void
 }) {
   const wrap: React.CSSProperties = narrow
     ? {
@@ -105,8 +104,7 @@ export default function NavRail({
 
       {!narrow && <div style={{ flex: 1 }} />}
 
-      <RailButton narrow={narrow} active={active === 'data'} onClick={onOpenData} title="Your Data" label="data" glyph="❍" />
-      <RailButton narrow={narrow} active={active === 'settings'} onClick={() => onNav('settings')} title="Settings" label="you" glyph="◐" />
+      <RailButton narrow={narrow} active={active === 'settings'} onClick={() => onNav('settings')} title="You & this space" label="you" glyph="◐" />
     </nav>
   )
 }

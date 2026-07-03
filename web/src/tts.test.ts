@@ -133,3 +133,21 @@ describe('platform.transcribe (web mic)', () => {
     await expect(webPlatform.transcribe(WAV_B64)).rejects.toThrow(/transcription unavailable/)
   })
 })
+
+describe('platform.clearAllData (delete everything)', () => {
+  it('wipes every store — the app returns to first-run', async () => {
+    const { addMessage, getMessages, setSetting, getAllSettings, setGreatWorkPosition, getGreatWorkPosition, addKnowingFact, getKnowingFacts } = await import('./storage')
+    await addMessage({ id: 'x', role: 'user', content: 'remember me', created_at: '2026-07-04T00:00:00Z' })
+    await setSetting('venice_api_key', 'sk-secret')
+    await addKnowingFact({ id: 'k', category: 'values', fact: 'honest', importance: 9, confidence: 0.9, created_at: '2026-07-04T00:00:00Z' })
+    await setGreatWorkPosition({ preferential_reality: 'a life', planes: [], active_cell: null, total_cells_worked: 3, last_advanced_at: null } as unknown)
+
+    expect(webPlatform.clearAllData).toBeTypeOf('function')
+    await webPlatform.clearAllData!()
+
+    expect(await getMessages(0)).toEqual([])
+    expect(await getAllSettings()).toEqual({})
+    expect(await getKnowingFacts()).toEqual([])
+    expect(await getGreatWorkPosition()).toBeNull()
+  })
+})
