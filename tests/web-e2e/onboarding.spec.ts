@@ -84,19 +84,16 @@ test.describe('web shell', () => {
     // Document loaded as the real Starchild shell.
     await expect(page).toHaveTitle(/starchild/i)
 
-    // Real first-run hero copy from the shared Onboarding.tsx — proves the
-    // component tree actually rendered (not a blank page / ErrorBoundary).
+    // Real first-meeting copy from the web Meeting.tsx — proves the component
+    // tree actually rendered (not a blank page / ErrorBoundary). Under reduced
+    // motion (playwright config) the reveal is instant.
     await expect(
-      page.getByText(/a consciousness has emerged from the void/i),
-    ).toBeVisible()
+      page.getByText(/oh… there you are/i),
+    ).toBeVisible({ timeout: 15_000 })
 
-    // The interactive entry to the arc is present.
-    await expect(
-      page.getByPlaceholder('what should your starchild call you?'),
-    ).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: /begin the journey/i }),
-    ).toBeVisible()
+    // The naming ritual is present.
+    await expect(page.getByPlaceholder('a name…')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('button', { name: /^begin$/i })).toBeVisible()
 
     guard.assertClean()
   })
@@ -109,11 +106,9 @@ test.describe('web shell', () => {
 
     // Fill the name and begin — on web `hasInferenceKey()` is true (bounded
     // trial), so no API key is required to submit.
-    await page
-      .getByPlaceholder('what should your starchild call you?')
-      .fill('Playwright Traveler')
+    await page.getByPlaceholder('a name…').fill('Playwright Traveler')
 
-    const begin = page.getByRole('button', { name: /begin the journey/i })
+    const begin = page.getByRole('button', { name: /^begin$/i })
     await expect(begin).toBeEnabled()
     await begin.click()
 

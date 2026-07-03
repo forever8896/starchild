@@ -68,6 +68,9 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
+    // The web "Meeting" (onboarding) reveals its lines on a timeline; reduced
+    // motion makes it appear instantly, keeping the suite fast + deterministic.
+    reducedMotion: 'reduce',
   },
 
   projects: [

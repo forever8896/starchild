@@ -17,7 +17,7 @@ import { useEffect, useState, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '../../src/store'
 import { usePlatform } from '../../src/platform/usePlatform'
-import Onboarding from '../../src/components/Onboarding'
+import Meeting from './Meeting'
 import ErrorBoundary from '../../src/components/ErrorBoundary'
 import NavRail from './NavRail'
 import ChatView from './ChatView'
@@ -150,7 +150,7 @@ export default function App() {
   if (!onboardingComplete) {
     return (
       <ErrorBoundary>
-        <Onboarding />
+        <Meeting />
       </ErrorBoundary>
     )
   }

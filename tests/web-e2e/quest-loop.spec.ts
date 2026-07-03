@@ -182,9 +182,9 @@ function guardAgainstRenderErrors(page: Page): { assertClean: () => void } {
 /** Complete first-run onboarding → land in the live chat (no network needed). */
 async function completeOnboarding(page: Page): Promise<void> {
   await page
-    .getByPlaceholder('what should your starchild call you?')
+    .getByPlaceholder('a name…')
     .fill('Quest Traveler')
-  const begin = page.getByRole('button', { name: /begin the journey/i })
+  const begin = page.getByRole('button', { name: /^begin$/i })
   await expect(begin).toBeEnabled()
   await begin.click()
   // Chat mounted: the composer + the LOCAL awakening line (no Venice call). Wait

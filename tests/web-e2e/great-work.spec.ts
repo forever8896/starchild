@@ -67,8 +67,8 @@ test('great work — position auto-initializes on first message', async ({ page 
   await page.goto('/')
 
   // Complete onboarding
-  await page.getByPlaceholder('what should your starchild call you?').fill('Test')
-  const begin = page.getByRole('button', { name: /begin the journey/i })
+  await page.getByPlaceholder('a name…').fill('Test')
+  const begin = page.getByRole('button', { name: /^begin$/i })
   await expect(begin).toBeEnabled()
   await begin.click()
 
