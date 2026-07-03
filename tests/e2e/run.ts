@@ -198,7 +198,7 @@ function assessRoute(
   phasesVisited: ConversationPhase[],
 ): Omit<RouteResult, 'judgeVerdict'> {
   // Check phase progression (should generally move forward)
-  const phaseOrder = ['arrive', 'dig', 'crystallize', 'edge', 'reframe', 'envision', 'commit', 'release']
+  const phaseOrder = ['arrive', 'dig', 'crystallize', 'quest', 'explore', 'reframe', 'negotiate', 'proof', 'release']
   let maxPhaseIdx = -1
   let regressionCount = 0
   for (const phase of phasesVisited) {

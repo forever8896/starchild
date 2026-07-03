@@ -17,7 +17,7 @@
 //   UPSTASH_REDIS_REST_TOKEN (optional)
 //   TRIAL_E2EE_MODEL         (optional) default e2ee-glm-4-7-p
 //   ATTEST_RATE_LIMIT        (optional) max attest fetches per IP per hour. Def 60.
-//   TRIAL_ALLOWED_ORIGIN     (optional) CORS origin. Def '*'.
+//   TRIAL_ALLOWED_ORIGIN     (optional) CORS origin. Default: none (same-origin only).
 
 export const config = { runtime: 'edge' }
 
@@ -25,7 +25,7 @@ const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? 'https://api.venice.ai/ap
 const E2EE_MODEL = process.env.TRIAL_E2EE_MODEL ?? 'e2ee-glm-4-7-p'
 const RATE_LIMIT = int(process.env.ATTEST_RATE_LIMIT, 60)
 const RATE_WINDOW_SEC = 3600
-const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? '*'
+const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
 
@@ -107,11 +107,21 @@ async function redisIncrTtl(k: string, ttlSec: number): Promise<number> {
   return n
 }
 
+// Trusted client IP (see proxy.ts): platform header first, else the RIGHTMOST
+// forwarded hop — never the client-controlled leftmost token.
 function clientIp(req: Request): string {
+  const real = req.headers.get('x-real-ip')?.trim()
+  if (real) return real
   const fwd = req.headers.get('x-forwarded-for')
-  return (fwd ? fwd.split(',')[0] : req.headers.get('x-real-ip'))?.trim() || 'unknown'
+  if (fwd) {
+    const hops = fwd.split(',').map((s) => s.trim()).filter(Boolean)
+    if (hops.length > 0) return hops[hops.length - 1]
+  }
+  return 'unknown'
 }
+// Same-origin by default (see proxy.ts) — CORS headers only when explicitly allowed.
 function cors(): Record<string, string> {
+  if (!ALLOWED_ORIGIN) return {}
   return {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',

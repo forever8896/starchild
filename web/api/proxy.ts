@@ -32,7 +32,8 @@
 //   TRIAL_USD_PER_MTOK      (optional) Blended $ per 1M tokens, for the spend
 //                           estimate. Def 0.7 (cheap model ballpark; tune it).
 //   VENICE_BASE_URL         (optional) Override Venice base. Def api.venice.ai.
-//   TRIAL_ALLOWED_ORIGIN    (optional) CORS origin to allow. Def '*'.
+//   TRIAL_ALLOWED_ORIGIN    (optional) CORS origin to allow. Default: none —
+//                           same-origin only (no CORS headers emitted).
 
 export const config = { runtime: 'edge' }
 
@@ -47,7 +48,7 @@ const RATE_LIMIT = int(process.env.TRIAL_RATE_LIMIT, 20)
 const RATE_WINDOW_SEC = int(process.env.TRIAL_RATE_WINDOW_SEC, 3600)
 const MONTHLY_BUDGET_USD = num(process.env.TRIAL_MONTHLY_BUDGET_USD, 50)
 const USD_PER_MTOK = num(process.env.TRIAL_USD_PER_MTOK, 0.7)
-const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? '*'
+const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
@@ -258,9 +259,19 @@ function monthTtlSec(): number {
   return 62 * 24 * 3600
 }
 
+// Trusted client IP. On Vercel Edge `x-real-ip` is platform-set; the LEFTMOST
+// x-forwarded-for entry is attacker-controlled (one spoofed header per request
+// used to mint a fresh rate-limit bucket). Prefer the platform header, else the
+// RIGHTMOST forwarded hop (appended by the closest proxy).
 function clientIp(req: Request): string {
+  const real = req.headers.get('x-real-ip')?.trim()
+  if (real) return real
   const fwd = req.headers.get('x-forwarded-for')
-  return (fwd ? fwd.split(',')[0] : req.headers.get('x-real-ip'))?.trim() || 'unknown'
+  if (fwd) {
+    const hops = fwd.split(',').map((s) => s.trim()).filter(Boolean)
+    if (hops.length > 0) return hops[hops.length - 1]
+  }
+  return 'unknown'
 }
 
 // A hex string of an exact length (used to sanity-check the TEE public keys).
@@ -273,7 +284,12 @@ function clampTemp(t: unknown): number {
   return Math.min(1.5, Math.max(0, n))
 }
 
+// CORS: the app is served from the SAME origin as this function, so no CORS
+// headers are needed at all by default — omitting them means third-party sites
+// can't script against the trial (and drain its budget) from a browser. Set
+// TRIAL_ALLOWED_ORIGIN only to deliberately allow an external origin.
 function cors(): Record<string, string> {
+  if (!ALLOWED_ORIGIN) return {}
   return {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
