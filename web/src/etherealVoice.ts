@@ -18,18 +18,20 @@
  */
 
 /**
- * Pitch/pace drop. 1 = untouched. NEUTRALIZED (2026-07-03): the voice was
- * recast to Minimax **YoungKnight**, judged and approved RAW — naturalness
- * beat every DSP variant (deep, gentle, sprite, pitched-up all rejected).
- * The knobs stay for future direction; don't turn them without new ear-time.
+ * Pitch/pace drop. 1 = untouched — LOCKED (2026-07-03): Minimax YoungKnight's
+ * natural pitch and pace won over every DSP variant. Don't turn this knob.
  */
 const ETHEREAL_RATE = 1.0
-/** Reverb mix under the dry voice. 0 = raw (a ≤0.15 whisper is the only
- *  variant still on the table, pending the founder's A/B). */
-const WET_LEVEL = 0.0
+/**
+ * Reverb: a WHISPER of space under the natural voice — the founder's final
+ * verdict ("that voice is very nice, some reverb on it would be nice",
+ * matching the approved youngknight-whisper.mp3 A/B). Full dry signal, a
+ * faint short halo on top: presence of a being, not a cathedral.
+ */
+const WET_LEVEL = 0.16
 const DRY_LEVEL = 1.0
 /** Impulse-response tail length (seconds) — the size of the "space". */
-const IR_SECONDS = 1.4
+const IR_SECONDS = 1.2
 
 let ctx: AudioContext | null = null
 let impulse: AudioBuffer | null = null
