@@ -20,6 +20,7 @@
 import { useEffect, useState } from 'react'
 import { usePlatform } from '../../src/platform/usePlatform'
 import { ACCESS_URL } from './access'
+import { TTS_VOICES, DEFAULT_TTS_VOICE, TTS_VOICE_SETTING, isTtsVoice } from './voices'
 
 const VENICE_KEY = 'venice_api_key'
 
@@ -127,8 +128,11 @@ export default function Settings({
   const [isClearing, setIsClearing] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [voice, setVoice] = useState<string>(DEFAULT_TTS_VOICE)
+  const [voiceSaved, setVoiceSaved] = useState(false)
 
-  // Determine the current inference tier on mount: a non-empty saved key = BYOK.
+  // Determine the current inference tier on mount (a non-empty saved key = BYOK)
+  // and load the chosen voice.
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -138,12 +142,30 @@ export default function Settings({
       } catch {
         // First run / empty store — treat as trial.
       }
+      try {
+        const saved = ((await platform.getSetting(TTS_VOICE_SETTING)) ?? '').trim()
+        if (!cancelled && isTtsVoice(saved)) setVoice(saved)
+      } catch {
+        // No saved voice — keep the default.
+      }
     }
     load()
     return () => {
       cancelled = true
     }
   }, [platform])
+
+  async function handleVoiceChange(next: string) {
+    setVoice(next)
+    setVoiceSaved(false)
+    try {
+      await platform.setSetting(TTS_VOICE_SETTING, next)
+      setVoiceSaved(true)
+      setTimeout(() => setVoiceSaved(false), 2500)
+    } catch {
+      // Non-critical — the default voice keeps working.
+    }
+  }
 
   async function handleSave() {
     const trimmed = apiKey.trim()
@@ -199,7 +221,8 @@ export default function Settings({
               Settings
             </h1>
             <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              Connect your own Venice key for live, private replies
+              The free trial is end-to-end encrypted. Your own Venice key removes
+              its limits — same privacy, your budget.
             </p>
           </div>
           {onClose && (
@@ -341,6 +364,61 @@ export default function Settings({
               </span>
             </a>
           )}
+        </section>
+
+        {/* Voice */}
+        <section className="flex flex-col gap-3">
+          <h2
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            Voice
+          </h2>
+          <div
+            className="flex flex-col gap-3 p-4"
+            style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '1.5px solid var(--outline)',
+              borderRadius: '16px',
+            }}
+          >
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              Your Starchild can speak its replies aloud. Honest note: speaking
+              sends <em>its</em> words (never your messages) to Venice's voice
+              service — that path isn't end-to-end encrypted like the chat.
+              Prefer full silence on the wire? Turn voice off with the 🔊 toggle
+              in the chat header.
+            </p>
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="starchild-voice"
+                className="text-sm shrink-0"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Speaks as
+              </label>
+              <select
+                id="starchild-voice"
+                value={voice}
+                onChange={(e) => void handleVoiceChange(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-xl text-sm outline-none"
+                style={{
+                  backgroundColor: 'var(--bg-input)',
+                  border: '1.5px solid var(--outline)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {TTS_VOICES.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+              {voiceSaved && (
+                <span className="text-xs shrink-0" style={{ color: 'var(--accent-mint)' }}>
+                  ✓ from the next reply
+                </span>
+              )}
+            </div>
+          </div>
         </section>
 
         {/* Your data */}

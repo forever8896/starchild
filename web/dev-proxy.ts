@@ -104,6 +104,48 @@ export function devProxy(): Plugin {
         }
       })
 
+      // Dev voice relay (prod: web/api/tts.ts). Injects the trial key and calls
+      // Venice TTS so the Starchild speaks in `npm run dev`. Text is never logged.
+      server.middlewares.use('/api/tts', async (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return }
+        const key = process.env.VENICE_TRIAL_KEY
+        const send = (status: number, obj: unknown) => {
+          res.statusCode = status
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(obj))
+        }
+        if (!key) { send(503, { error: 'voice unavailable' }); return }
+        try {
+          const chunks: Buffer[] = []
+          for await (const c of req) chunks.push(c as Buffer)
+          const body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
+          const text = typeof body.text === 'string' ? body.text.trim() : ''
+          if (!text || text.length > 1200) { send(400, { error: 'text required (≤1200 chars)' }); return }
+          const upstream = await fetch('https://api.venice.ai/api/v1/audio/speech', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              input: text,
+              model: process.env.TRIAL_TTS_MODEL || 'tts-elevenlabs-turbo-v2-5',
+              voice: typeof body.voice === 'string' && body.voice ? body.voice : 'Lily',
+              response_format: 'mp3',
+            }),
+          })
+          if (!upstream.ok || !upstream.body) { send(502, { error: 'voice failed' }); return }
+          res.statusCode = 200
+          res.setHeader('content-type', 'audio/mpeg')
+          const reader = upstream.body.getReader()
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            res.write(Buffer.from(value))
+          }
+          res.end()
+        } catch (e) {
+          send(502, { error: e instanceof Error ? e.message : 'dev tts failed' })
+        }
+      })
+
       // Dev sink for the gated feedback form (prod: web/api/feedback.ts). Relays
       // to FEEDBACK_WEBHOOK_URL when set; otherwise logs to the dev console so
       // the form is testable in `npm run dev` without a webhook configured.

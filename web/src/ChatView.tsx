@@ -46,12 +46,16 @@ function useCharReveal(content: string, isAssistant: boolean, messageId: string)
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
+    // Fallback: if no audio ever starts (blocked autoplay, voice endpoint down,
+    // muted trial), reveal everything after a short grace — never hold the
+    // words hostage to a voice that isn't coming. Venice TTS usually starts
+    // within ~3s, so 6s covers the slow path without freezing the moment.
     const fallback = setTimeout(() => {
       if (!doneRef.current && !audioDetectedRef.current) {
         doneRef.current = true; setChars(content.length)
         if (rafRef.current) cancelAnimationFrame(rafRef.current)
       }
-    }, 15000)
+    }, 6000)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); clearTimeout(fallback) }
   }, [])
 
@@ -271,6 +275,11 @@ function MicIcon() {
   )
 }
 
+// Module-level single-flight for the awakening message: React StrictMode mounts
+// twice in dev, and two concurrent `generateFirstMessage()` calls would persist
+// (and show) two awakenings. Shared across mounts; reset on failure for retry.
+let awakeningInFlight: Promise<import('../../src/store').Message> | null = null
+
 // ─── Friendly error copy ─────────────────────────────────────────────────────
 // Branch on the typed `VeniceError.code` (duck-typed — it crosses a dynamic
 // import boundary) so trial users are never told to "check your API key".
@@ -344,12 +353,22 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       if (msgs.length === 0) {
         setIsTyping(true)
         try {
-          const firstMsg = await platform.generateFirstMessage()
+          // Single-flight across StrictMode's double mount: both runs await the
+          // SAME generation (one persisted row), and only the run that finds the
+          // message absent adds it to the store — no duplicate awakening.
+          awakeningInFlight ??= platform.generateFirstMessage()
+          const firstMsg = await awakeningInFlight
           const revealMsg = platform.supportsTts ? { ...firstMsg, id: `first-${firstMsg.id}` } : firstMsg
-          addMessage(revealMsg)
-          autoPlayTts(platform, firstMsg.content)
+          const present = useAppStore
+            .getState()
+            .messages.some((m) => m.id === revealMsg.id || m.id === firstMsg.id)
+          if (!present) {
+            addMessage(revealMsg)
+            autoPlayTts(platform, firstMsg.content)
+          }
         } catch (err) {
           console.error('Failed to generate first message:', err)
+          awakeningInFlight = null // let "try again" attempt a fresh generation
           setInitFailed(true)
         } finally {
           setIsTyping(false)

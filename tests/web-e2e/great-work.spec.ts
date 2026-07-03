@@ -7,6 +7,11 @@ import { attestationBody, openProxyRequest, skipIntro, sseStreamEncrypted, sseSt
  * the send under test would refuse to leave the browser.
  */
 async function mockInference(page: Page): Promise<void> {
+  await page.route('**/api/tts**', async (route) => {
+    // Voice costs real money and audio can't autoplay headless — specs run silent.
+    await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"voice unavailable"}' })
+  })
+
   await page.route('**/api/attest**', async (route) => {
     const nonce = new URL(route.request().url()).searchParams.get('nonce') ?? ''
     await route.fulfill({

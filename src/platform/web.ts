@@ -445,8 +445,9 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
 export const webPlatform: Platform = {
   name: 'web',
 
-  // The web shell has no native TTS / mic transcription yet (PRD §7).
-  supportsTts: false,
+  // TTS speaks the Starchild's replies (Venice voice via /api/tts or BYOK);
+  // mic transcription is still desktop-only (PRD §7).
+  supportsTts: true,
   supportsVoice: false,
 
   // ── Inference ──────────────────────────────────────────────────────────────
@@ -886,9 +887,46 @@ export const webPlatform: Platform = {
     return toStarchildState(await loadTickedState())
   },
 
-  // ── Voice (unsupported on web for now) ───────────────────────────────────────
-  ttsSpeak(_text: string): Promise<string> {
-    return Promise.reject(new Error('Text-to-speech is not available on web yet.'))
+  // ── Voice ──────────────────────────────────────────────────────────────────
+  // Speaks the STARCHILD'S words (the UI only ever passes assistant replies —
+  // never the user's messages). PRIVACY: there is no E2EE TTS enclave, so this
+  // text transits in plaintext to Venice's voice service; the chat-header
+  // toggle + Settings copy state this, and turning voice off stops all of it.
+  // Trial → our /api/tts relay (key server-side, rate-limited, budget-metered);
+  // BYOK → Venice directly with the user's key. Returns base64 mp3.
+  async ttsSpeak(text: string): Promise<string> {
+    const s = await storage()
+    const { isTtsVoice, DEFAULT_TTS_VOICE, TTS_MODEL, TTS_VOICE_SETTING } = await import(
+      '../../web/src/voices'
+    )
+    const saved = ((await s.getSetting(TTS_VOICE_SETTING)) ?? '').trim()
+    const voice = isTtsVoice(saved) ? saved : DEFAULT_TTS_VOICE
+    const clean = text.trim().slice(0, 1200)
+    if (!clean) throw new Error('nothing to speak')
+
+    const { mode, apiKey } = await resolveInference()
+    const res =
+      mode === 'byok'
+        ? await fetch('https://api.venice.ai/api/v1/audio/speech', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: clean, model: TTS_MODEL, voice, response_format: 'mp3' }),
+          })
+        : await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: clean, voice }),
+          })
+    if (!res.ok) throw new Error(`voice unavailable (${res.status})`)
+
+    // ArrayBuffer → base64 (chunked so long replies don't blow the arg limit).
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    let binary = ''
+    const CHUNK = 0x8000
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    }
+    return btoa(binary)
   },
   transcribe(_audioBase64: string): Promise<string> {
     return Promise.reject(new Error('Voice transcription is not available on web yet.'))
