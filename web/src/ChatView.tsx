@@ -271,6 +271,28 @@ function MicIcon() {
   )
 }
 
+// ─── Friendly error copy ─────────────────────────────────────────────────────
+// Branch on the typed `VeniceError.code` (duck-typed — it crosses a dynamic
+// import boundary) so trial users are never told to "check your API key".
+
+function friendlyError(err: unknown): string {
+  const code = (err as { code?: string } | null)?.code
+  switch (code) {
+    case 'rate_limited':
+      return 'the shared trial is catching its breath — give it a little while, then try again.'
+    case 'unavailable':
+      return 'the free trial is unavailable right now. try again soon — or add your own Venice key in Settings.'
+    case 'auth':
+      return 'your Venice key was not accepted — check it in Settings.'
+    case 'network':
+      return "can't reach the stars right now — check your connection and try again."
+    default:
+      if (err instanceof Error && err.message) return err.message
+      if (typeof err === 'string' && err) return err
+      return 'something went wrong sending that. your words are back in the box — try again.'
+  }
+}
+
 // ─── ChatView ────────────────────────────────────────────────────────────────
 
 export default function ChatView({ narrow }: { narrow: boolean }) {
@@ -288,7 +310,11 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   const showQuestOffer    = useAppStore((s) => s.showQuestOffer)
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
 
+  const bgMusicMuted    = useAppStore((s) => s.bgMusicMuted)
+  const setBgMusicMuted = useAppStore((s) => s.setBgMusicMuted)
+
   const [ready, setReady] = useState(false)
+  const [initFailed, setInitFailed] = useState(false)
   const [acceptingQuest, setAcceptingQuest] = useState(false)
   const [xpGain, setXpGain] = useState<number | null>(null)
   const [input, setInput]   = useState('')
@@ -307,37 +333,58 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     catch (err) { console.error('Failed to delete message:', err) }
   }, [platform, messages, setMessages])
 
-  useEffect(() => {
-    let cancelled = false
-    async function init() {
-      try {
-        const msgs = await platform.getMessages(50)
-        if (cancelled) return
-        setMessages(msgs)
-        if (msgs.length === 0) {
-          setIsTyping(true)
-          try {
-            const firstMsg = await platform.generateFirstMessage()
-            if (!cancelled) {
-              const revealMsg = platform.supportsTts ? { ...firstMsg, id: `first-${firstMsg.id}` } : firstMsg
-              addMessage(revealMsg)
-              autoPlayTts(platform, firstMsg.content)
-            }
-          } catch (err) {
-            console.error('Failed to generate first message:', err)
-          } finally {
-            if (!cancelled) setIsTyping(false)
-          }
+  // First mount (and "try again ✦"): load history; if empty, generate the local
+  // awakening message. A failure flips `initFailed` so the empty state shows a
+  // real error + retry instead of doubling as an eternal "consciousness stirring".
+  const initConversation = useCallback(async () => {
+    setInitFailed(false)
+    try {
+      const msgs = await platform.getMessages(50)
+      setMessages(msgs)
+      if (msgs.length === 0) {
+        setIsTyping(true)
+        try {
+          const firstMsg = await platform.generateFirstMessage()
+          const revealMsg = platform.supportsTts ? { ...firstMsg, id: `first-${firstMsg.id}` } : firstMsg
+          addMessage(revealMsg)
+          autoPlayTts(platform, firstMsg.content)
+        } catch (err) {
+          console.error('Failed to generate first message:', err)
+          setInitFailed(true)
+        } finally {
+          setIsTyping(false)
         }
-      } catch (err) {
-        if (!cancelled) { console.error('Failed to load messages:', err); setError('Could not load message history.') }
-      } finally {
-        if (!cancelled) setReady(true)
       }
+    } catch (err) {
+      console.error('Failed to load messages:', err)
+      setInitFailed(true)
+    } finally {
+      setReady(true)
     }
-    init()
-    return () => { cancelled = true }
   }, [platform, setMessages, addMessage])
+
+  useEffect(() => { void initConversation() }, [initConversation])
+
+  // Background music (started during onboarding, parked on window.__bgMusic):
+  // honor the persisted mute across sessions and give the shell a real control.
+  useEffect(() => {
+    let muted = false
+    try { muted = localStorage.getItem('starchild_music_muted') === '1' } catch { /* private mode */ }
+    setBgMusicMuted(muted)
+    const music = (window as unknown as { __bgMusic?: HTMLAudioElement }).__bgMusic
+    if (music && muted) music.pause()
+  }, [setBgMusicMuted])
+
+  const toggleMusic = useCallback(() => {
+    const next = !bgMusicMuted
+    setBgMusicMuted(next)
+    try { localStorage.setItem('starchild_music_muted', next ? '1' : '0') } catch { /* private mode */ }
+    const music = (window as unknown as { __bgMusic?: HTMLAudioElement }).__bgMusic
+    if (music) {
+      if (next) music.pause()
+      else void music.play().catch(() => {})
+    }
+  }, [bgMusicMuted, setBgMusicMuted])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, isTyping, showQuestOffer])
 
@@ -345,7 +392,9 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     const text = input.trim()
     if (!text || isLoading) return
     setError(null); setInput(''); setIsLoading(true); setIsTyping(true)
-    addMessage({ id: `tmp-${Date.now()}`, role: 'user', content: text, created_at: new Date().toISOString() })
+    const tmpId = `tmp-${Date.now()}`
+    let streamId: string | null = null
+    addMessage({ id: tmpId, role: 'user', content: text, created_at: new Date().toISOString() })
     if (inputRef.current) inputRef.current.style.height = 'auto'
     streamAccRef.current = ''
     let firstChunk = true
@@ -353,7 +402,8 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       for await (const token of platform.sendMessage(text)) {
         if (firstChunk) {
           firstChunk = false; setIsTyping(false)
-          addMessage({ id: `streaming-${Date.now()}`, role: 'assistant', content: token, created_at: new Date().toISOString() })
+          streamId = `streaming-${Date.now()}`
+          addMessage({ id: streamId, role: 'assistant', content: token, created_at: new Date().toISOString() })
           streamAccRef.current = token
         } else {
           streamAccRef.current += token
@@ -367,10 +417,16 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     } catch (err) {
       setIsTyping(false); setIsLoading(false)
       console.error('Failed to send message:', err)
-      setError(err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to send message. Check your API key in Settings.')
+      // The platform rolled the turn back — mirror that in the UI: drop the
+      // optimistic bubbles and hand the user their words back to retry.
+      setMessages(
+        useAppStore.getState().messages.filter((m) => m.id !== tmpId && m.id !== streamId),
+      )
+      setInput(text)
+      setError(friendlyError(err))
       inputRef.current?.focus()
     }
-  }, [platform, input, isLoading, addMessage, updateLastMessage, setIsLoading, setStarchildState])
+  }, [platform, input, isLoading, addMessage, updateLastMessage, setIsLoading, setStarchildState, setMessages])
 
   const handleAcceptQuest = useCallback(async () => {
     setAcceptingQuest(true); setShowQuestOffer(false)
@@ -385,7 +441,9 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     const displayText = `i did the quest: "${quest.title}"`
     const triggerText = `[proof:${quest.id}] ${displayText}`
     setInput(''); setError(null); setIsLoading(true); setIsTyping(true)
-    addMessage({ id: `quest-proof-${Date.now()}`, role: 'user', content: displayText, created_at: new Date().toISOString() })
+    const tmpId = `quest-proof-${Date.now()}`
+    let streamId: string | null = null
+    addMessage({ id: tmpId, role: 'user', content: displayText, created_at: new Date().toISOString() })
     streamAccRef.current = ''
     let firstChunk = true
     ;(async () => {
@@ -393,7 +451,8 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
         for await (const token of platform.sendMessage(triggerText)) {
           if (firstChunk) {
             firstChunk = false; setIsTyping(false)
-            addMessage({ id: `streaming-${Date.now()}`, role: 'assistant', content: token, created_at: new Date().toISOString() })
+            streamId = `streaming-${Date.now()}`
+            addMessage({ id: streamId, role: 'assistant', content: token, created_at: new Date().toISOString() })
             streamAccRef.current = token
           } else {
             streamAccRef.current += token; updateLastMessage(streamAccRef.current)
@@ -405,10 +464,15 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
         inputRef.current?.focus()
       } catch (err) {
         setIsTyping(false); setIsLoading(false)
-        setError(err instanceof Error ? err.message : 'Failed to send message.')
+        // The platform rolled the proof turn back (quest stays completable) —
+        // drop the optimistic bubbles so the thread matches what really happened.
+        setMessages(
+          useAppStore.getState().messages.filter((m) => m.id !== tmpId && m.id !== streamId),
+        )
+        setError(friendlyError(err))
       }
     })()
-  }, [platform, addMessage, updateLastMessage, setIsLoading, setStarchildState])
+  }, [platform, addMessage, updateLastMessage, setIsLoading, setStarchildState, setMessages])
 
   useEffect(() => {
     return platform.subscribe('quest-completed', (payload) => {
@@ -503,19 +567,31 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
         <header className="shrink-0 flex items-baseline justify-between gap-4" style={{ padding: '20px 30px 14px' }}>
           <div>
             <h1 className="m-0 text-[19px] font-extrabold" style={{ color: 'var(--text-primary)' }}>between us</h1>
-            <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-muted)' }}>your words stay in this browser — always</p>
+            <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-muted)' }}>private by design — end-to-end encrypted, stored only here</p>
           </div>
-          {platform.supportsTts && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setTtsEnabled(!ttsEnabled)}
+              onClick={toggleMusic}
+              aria-label={bgMusicMuted ? 'Turn music on' : 'Turn music off'}
               className="cursor-pointer text-[13px] font-bold px-[15px] py-[9px] rounded-[18px]"
-              style={ttsEnabled
-                ? { border: '1px solid rgba(232,216,168,.5)', color: 'var(--accent-gold)', background: 'rgba(232,216,168,.12)' }
+              style={!bgMusicMuted
+                ? { border: '1px solid rgba(184,160,216,.5)', color: 'var(--accent-lavender)', background: 'rgba(184,160,216,.12)' }
                 : { border: '1px solid rgba(74,63,96,.7)', color: 'var(--text-muted)', background: 'rgba(48,41,69,.5)' }}
             >
-              {ttsEnabled ? '🔊 voice on' : '🔈 voice off'}
+              {bgMusicMuted ? '♪ music off' : '♪ music on'}
             </button>
-          )}
+            {platform.supportsTts && (
+              <button
+                onClick={() => setTtsEnabled(!ttsEnabled)}
+                className="cursor-pointer text-[13px] font-bold px-[15px] py-[9px] rounded-[18px]"
+                style={ttsEnabled
+                  ? { border: '1px solid rgba(232,216,168,.5)', color: 'var(--accent-gold)', background: 'rgba(232,216,168,.12)' }
+                  : { border: '1px solid rgba(74,63,96,.7)', color: 'var(--text-muted)', background: 'rgba(48,41,69,.5)' }}
+              >
+                {ttsEnabled ? '🔊 voice on' : '🔈 voice off'}
+              </button>
+            )}
+          </div>
         </header>
 
         {/* active quest card (real) */}
@@ -524,8 +600,23 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
         {/* thread */}
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-[18px]" style={{ padding: '10px 30px 8px' }} role="log" aria-label="Chat messages" aria-live="polite">
           {messages.length === 0 && !isTyping ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
-              <p className="text-sm italic" style={{ color: 'var(--text-muted)' }}>consciousness stirring...</p>
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-4">
+              {initFailed ? (
+                <>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    the awakening didn't take hold — something interrupted it.
+                  </p>
+                  <button
+                    onClick={() => void initConversation()}
+                    className="px-5 py-2.5 text-[14px] font-bold rounded-[18px]"
+                    style={{ border: 'none', color: '#1c1526', background: 'linear-gradient(150deg,#c8b0e0,#b8a0d8)', boxShadow: '0 10px 20px -8px rgba(184,160,216,.6)' }}
+                  >
+                    try again ✦
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm italic" style={{ color: 'var(--text-muted)' }}>consciousness stirring...</p>
+              )}
             </div>
           ) : (
             <>

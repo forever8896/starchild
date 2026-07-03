@@ -285,8 +285,10 @@ test.describe('web shell — full quest loop', () => {
 
     // The shared SkillTree (Vision Tree) renders and POPULATES with our quest:
     // its heading proves the tree mounted; the injected title (or branch count)
-    // proves the accepted quest landed on it.
-    await expect(page.getByText(/your journey/i)).toBeVisible({ timeout: 15_000 })
+    // proves the accepted quest landed on it. Match by heading ROLE — the
+    // awakening bubble also says "your journey", so a bare text match collides
+    // with the chat during the view transition.
+    await expect(page.getByRole('heading', { name: /your journey/i })).toBeVisible({ timeout: 15_000 })
     await expect(
       page
         .getByText(new RegExp(QUEST.title, 'i'))

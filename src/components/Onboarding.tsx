@@ -84,9 +84,14 @@ export default function Onboarding() {
   const [managedKey, setManagedKey] = useState<boolean | null>(null)
   const musicStarted = useRef(false)
 
-  // Start meditation music on first interaction — persists via window.__bgMusic
+  // Start meditation music on first interaction — persists via window.__bgMusic.
+  // Honors the persisted mute (the shell's "♪ music" toggle) so a user who
+  // silenced it once is never auto-played again.
   const startMusic = useCallback(() => {
     if (musicStarted.current) return
+    try {
+      if (localStorage.getItem('starchild_music_muted') === '1') return
+    } catch { /* private mode — default to playing */ }
     musicStarted.current = true
     const audio = new Audio(meditationSrc)
     audio.loop = true
@@ -166,8 +171,8 @@ export default function Onboarding() {
           transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
         />
 
-        {/* Content — creature left, text right */}
-        <div className="flex items-center h-full px-16 gap-12">
+        {/* Content — creature left, text right; stacks vertically on phones */}
+        <div className="flex flex-col lg:flex-row items-center h-full px-6 py-10 lg:px-16 lg:py-0 gap-4 lg:gap-12 overflow-y-auto">
           {/* Creature — appears first with a dramatic entrance */}
           <motion.div
             className="flex-shrink-0 flex items-center justify-center"
@@ -191,13 +196,12 @@ export default function Onboarding() {
               muted
               playsInline
               loop
-              className="object-contain"
-              style={{ width: '24rem', height: '24rem' }}
+              className="object-contain w-44 h-44 sm:w-60 sm:h-60 lg:w-96 lg:h-96"
             />
           </motion.div>
 
           {/* Right side — text and inputs, staggered reveal */}
-          <div className="flex flex-col justify-center gap-7 flex-1 min-w-0">
+          <div className="flex flex-col justify-center gap-4 lg:gap-7 flex-1 min-w-0 w-full max-w-xl lg:max-w-none pb-6 lg:pb-0">
             {/* Hero line 1 */}
             <AnimatedLine delay={1.4}>
               <p
@@ -241,14 +245,18 @@ export default function Onboarding() {
               </p>
             </AnimatedLine>
 
-            {/* Privacy whisper */}
+            {/* Privacy whisper — honest under the E2EE inference model: the data
+                lives here; when the starchild thinks, words travel end-to-end
+                encrypted to a private enclave and are stored nowhere. */}
             <AnimatedLine delay={3.1}>
               <p
                 className="text-sm leading-relaxed max-w-lg"
                 style={{ color: 'rgba(110, 100, 133, 0.9)' }}
               >
-                everything stays on your device. conversations, memories, quests —
-                nothing ever leaves. Venice AI retains nothing. your inner world is yours alone.
+                your world lives on your device — conversations, memories, quests.
+                when your starchild thinks, your words travel end-to-end encrypted
+                to a private enclave: read by no one, stored nowhere. your inner
+                world is yours alone.
               </p>
             </AnimatedLine>
 

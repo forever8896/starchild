@@ -637,10 +637,28 @@ export const webPlatform: Platform = {
     }
 
     const llmMessages = [{ role: 'system', content: system }, ...chatMessages]
+
+    // A failed send must leave NO trace: un-persist the user turn (so the
+    // thread doesn't desync from what actually happened) and dis-arm a proof
+    // trigger (so the quest can't complete off a message that never landed).
+    // The UI restores the text into the composer; retrying re-persists cleanly.
+    const rollbackTurn = async (): Promise<void> => {
+      try { await s.deleteMessage(userMsg.id) } catch { /* best-effort */ }
+      if (proofTrigger) {
+        try { await s.setSetting('pending_proof_quest_id', pendingProofBefore) } catch { /* best-effort */ }
+      }
+    }
+
     // The conversation is E2EE on the trial tier, FAIL CLOSED: if the encrypted
     // channel can't be established this throws (surfaced as the chat error
     // banner) rather than silently sending plaintext. BYOK goes direct to Venice.
-    const inference = (await privateInference(false))!
+    let inference: NonNullable<Awaited<ReturnType<typeof privateInference>>>
+    try {
+      inference = (await privateInference(false))!
+    } catch (err) {
+      await rollbackTurn()
+      throw err
+    }
     const { mode, apiKey, e2eeSession } = inference
     // Real traffic now keeps the enclave warm — stop the keep-alive pings.
     stopEnclaveKeepAlive()
@@ -655,6 +673,7 @@ export const webPlatform: Platform = {
       // A decrypt failure means the cached E2EE session likely went stale —
       // drop it so the user's retry performs a fresh handshake.
       if (err instanceof Error && /decrypt/i.test(err.message)) e2eeSessionP = null
+      await rollbackTurn()
       throw err
     }
 
