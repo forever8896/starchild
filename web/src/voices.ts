@@ -24,14 +24,12 @@ export const TTS_VOICES = [
 export type TtsVoice = (typeof TTS_VOICES)[number]
 
 /**
- * Default until the audition verdict lands. The direction has settled between
- * two poles — wise but CUTE: a deep sage fought the tender little creature, so
- * the holding voice is River (soft, androgynous-leaning, calm) and the live
- * treatment (etherealVoice.ts) only hints at depth. Candidates for the final
- * pick: web-gentle-{River,Liam,Charlie,Brian,Callum,George}.mp3 +
- * web-sprite-{River,Liam,Charlie}.mp3 in ~/starchild-voices.
+ * SETTLED by the founder's ear (2026-07-03) after auditioning deep, gentle and
+ * sprite variants: George with the full ethereal treatment (etherealVoice.ts —
+ * −1.3 semitones, cosmic reverb). Wise, resonant, from a vast kind place.
+ * Users can still pick any voice in Settings; the treatment applies to all.
  */
-export const DEFAULT_TTS_VOICE: TtsVoice = 'River'
+export const DEFAULT_TTS_VOICE: TtsVoice = 'George'
 
 /** The settings key holding the user's chosen voice. */
 export const TTS_VOICE_SETTING = 'tts_voice'
