@@ -16,7 +16,6 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore, type Message, type StarchildState } from '../../src/store'
 import { usePlatform } from '../../src/platform/usePlatform'
-import type { Platform } from '../../src/platform'
 import ActiveQuest from '../../src/components/ActiveQuest'
 import CreaturePresence from './CreaturePresence'
 import avatarFace from '../../src/assets/starchild-avatar.png'
@@ -24,67 +23,65 @@ import { createEtherealAudio } from './etherealVoice'
 
 // ─── Char-by-char reveal synced to TTS audio (first message only) ────────────
 
+// Reveal an assistant reply word-by-word as it's SPOKEN — the words land in
+// lockstep with the voice (synced to `__ttsAudio` playback position). When
+// there's no voice (toggle off / TTS down) it types out at a gentle steady
+// pace instead of popping in whole. Applies to the awakening (`first-`) and
+// every voiced reply (`reveal-`); other bubbles show instantly. A mode lock
+// (wait → audio | type) prevents the text ever jumping backwards.
+const TYPE_CPS = 40 // characters/second when typing without a voice
+const NO_AUDIO_GRACE_MS = 500 // wait this long for audio before typing
+
+function prefersReducedMotion(): boolean {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch { return false }
+}
+
 function useCharReveal(content: string, isAssistant: boolean, messageId: string) {
-  const isFirstMessage = messageId.startsWith('first-')
-  const shouldReveal = isAssistant && isFirstMessage
+  const shouldReveal =
+    isAssistant &&
+    (messageId.startsWith('first-') || messageId.startsWith('reveal-')) &&
+    !prefersReducedMotion()
   const [chars, setChars] = useState(shouldReveal ? 0 : content.length)
   const doneRef = useRef(!shouldReveal)
   const rafRef = useRef<number | null>(null)
-  const audioDetectedRef = useRef(false)
+  const modeRef = useRef<'wait' | 'audio' | 'type'>('wait')
+  const startRef = useRef(0)
 
   useEffect(() => {
     if (doneRef.current) return
+    startRef.current = performance.now()
+    const finish = () => { doneRef.current = true; setChars(content.length) }
+
     function tick() {
       const audio = (window as any).__ttsAudio as HTMLAudioElement | undefined
-      if (audio && audio.duration && audio.duration > 0 && !audio.paused) {
-        audioDetectedRef.current = true
-        const progress = Math.min(audio.currentTime / audio.duration, 1)
+      const playing = !!audio && audio.duration > 0 && !audio.paused
+
+      if (modeRef.current === 'type') {
+        const typed = Math.floor(((performance.now() - startRef.current - NO_AUDIO_GRACE_MS) / 1000) * TYPE_CPS)
+        setChars(Math.max(0, Math.min(content.length, typed)))
+        if (typed >= content.length) { finish(); return }
+      } else if (playing) {
+        // Voice is speaking — follow it exactly.
+        modeRef.current = 'audio'
+        const progress = Math.min(audio!.currentTime / audio!.duration, 1)
         setChars(Math.floor(progress * content.length))
-        if (progress >= 1) { doneRef.current = true; setChars(content.length); return }
-      } else if (audioDetectedRef.current && (!audio || audio.ended)) {
-        doneRef.current = true; setChars(content.length); return
+        if (progress >= 1) { finish(); return }
+      } else if (modeRef.current === 'audio' && (!audio || audio.ended)) {
+        finish(); return
+      } else if (modeRef.current === 'wait' && performance.now() - startRef.current > NO_AUDIO_GRACE_MS) {
+        // No voice arrived — commit to typing it out.
+        modeRef.current = 'type'
       }
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
-    // Fallback: if no audio ever starts (blocked autoplay, voice endpoint down,
-    // muted trial), reveal everything after a short grace — never hold the
-    // words hostage to a voice that isn't coming. Venice TTS usually starts
-    // within ~3s, so 6s covers the slow path without freezing the moment.
-    const fallback = setTimeout(() => {
-      if (!doneRef.current && !audioDetectedRef.current) {
-        doneRef.current = true; setChars(content.length)
-        if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      }
-    }, 6000)
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); clearTimeout(fallback) }
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
   }, [])
 
   if (doneRef.current) return content
   return content.slice(0, chars)
 }
 
-// ─── Auto-play TTS (returns nothing; stores audio globally for char-reveal) ──
-
-async function autoPlayTts(platform: Platform, text: string) {
-  const setActivity = useAppStore.getState().setCreatureActivity
-  try {
-    if (!platform.supportsTts) { setActivity('idle'); return }
-    if (!useAppStore.getState().ttsEnabled) { setActivity('idle'); return }
-    const b64 = await platform.ttsSpeak(text)
-    const audio = createEtherealAudio(b64)
-    ;(window as any).__ttsAudio = audio
-    // The creature speaks while its voice plays.
-    setActivity('speaking')
-    audio.onended = () => { (window as any).__ttsAudio = null; setActivity('idle') }
-    audio.onerror = () => { (window as any).__ttsAudio = null; setActivity('idle') }
-    await audio.play()
-  } catch (err) {
-    console.error('Auto-play TTS failed:', err)
-    ;(window as any).__ttsAudio = null
-    setActivity('idle')
-  }
-}
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -287,6 +284,8 @@ function MicIcon() {
 // twice in dev, and two concurrent `generateFirstMessage()` calls would persist
 // (and show) two awakenings. Shared across mounts; reset on failure for retry.
 let awakeningInFlight: Promise<import('../../src/store').Message> | null = null
+// The awakening is added exactly once even across StrictMode's double-mount.
+let awakeningRevealed = false
 
 // ─── Friendly error copy ─────────────────────────────────────────────────────
 // Branch on the typed `VeniceError.code` (duck-typed — it crosses a dynamic
@@ -317,7 +316,6 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   const messages          = useAppStore((s) => s.messages)
   const addMessage        = useAppStore((s) => s.addMessage)
   const setMessages       = useAppStore((s) => s.setMessages)
-  const updateLastMessage = useAppStore((s) => s.updateLastMessage)
   const isLoading         = useAppStore((s) => s.isLoading)
   const setIsLoading      = useAppStore((s) => s.setIsLoading)
   const setStarchildState = useAppStore((s) => s.setStarchildState)
@@ -351,6 +349,38 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     catch (err) { console.error('Failed to delete message:', err) }
   }, [platform, messages, setMessages])
 
+  // Speak a finished reply AND reveal its bubble in lockstep with the voice.
+  // The order matters: we prepare the audio FIRST (thinking dots stay up during
+  // the short TTS fetch), then drop the bubble in as the voice begins — so the
+  // words land as they're spoken, never as an ugly all-at-once pop. With voice
+  // off/unavailable the bubble types itself out instead (see useCharReveal).
+  // `id` prefix `reveal-`/`first-` flags it for the reveal.
+  const speakAndReveal = useCallback(async (text: string, id: string, awakening = false) => {
+    if (awakening) { if (awakeningRevealed) return; awakeningRevealed = true }
+    const drop = () => addMessage({ id, role: 'assistant', content: text, created_at: new Date().toISOString() })
+    const voiceWanted = platform.supportsTts && useAppStore.getState().ttsEnabled
+    if (voiceWanted) {
+      try {
+        const b64 = await platform.ttsSpeak(text)
+        const audio = createEtherealAudio(b64)
+        ;(window as any).__ttsAudio = audio
+        setIsTyping(false)
+        drop()
+        setCreatureActivity('speaking')
+        audio.onended = () => { (window as any).__ttsAudio = null; setCreatureActivity('idle') }
+        audio.onerror = () => { (window as any).__ttsAudio = null; setCreatureActivity('idle') }
+        await audio.play()
+        return
+      } catch (err) {
+        console.error('TTS failed; typing the reply instead:', err)
+      }
+    }
+    ;(window as any).__ttsAudio = null
+    setIsTyping(false)
+    drop()
+    setCreatureActivity('idle')
+  }, [platform, addMessage, setCreatureActivity])
+
   // First mount (and "try again ✦"): load history; if empty, generate the local
   // awakening message. A failure flips `initFailed` so the empty state shows a
   // real error + retry instead of doubling as an eternal "consciousness stirring".
@@ -360,32 +390,22 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       const msgs = await platform.getMessages(50)
       setMessages(msgs)
       if (msgs.length === 0) {
-        setIsTyping(true)
+        setIsTyping(true)               // dots stay up through generate + TTS
         setCreatureActivity('thinking')
         try {
           // Single-flight across StrictMode's double mount: both runs await the
-          // SAME generation (one persisted row), and only the run that finds the
-          // message absent adds it to the store — no duplicate awakening.
+          // SAME generation; `speakAndReveal(…, true)` adds it exactly once.
           awakeningInFlight ??= platform.generateFirstMessage()
           const firstMsg = await awakeningInFlight
-          const revealMsg = platform.supportsTts ? { ...firstMsg, id: `first-${firstMsg.id}` } : firstMsg
-          const present = useAppStore
-            .getState()
-            .messages.some((m) => m.id === revealMsg.id || m.id === firstMsg.id)
-          if (!present) {
-            addMessage(revealMsg)
-            setCreatureActivity('speaking')
-            autoPlayTts(platform, firstMsg.content) // manages speaking→idle
-          } else {
-            setCreatureActivity('idle')
-          }
+          // Reveals in sync with the creature's voice — its first words, spoken.
+          await speakAndReveal(firstMsg.content, `first-${firstMsg.id}`, true)
         } catch (err) {
           console.error('Failed to generate first message:', err)
           awakeningInFlight = null // let "try again" attempt a fresh generation
+          awakeningRevealed = false
           setInitFailed(true)
-          setCreatureActivity('idle')
-        } finally {
           setIsTyping(false)
+          setCreatureActivity('idle')
         }
       }
     } catch (err) {
@@ -394,7 +414,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     } finally {
       setReady(true)
     }
-  }, [platform, setMessages, addMessage])
+  }, [platform, setMessages, speakAndReveal, setCreatureActivity])
 
   useEffect(() => { void initConversation() }, [initConversation])
 
@@ -427,40 +447,32 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     setError(null); setInput(''); setIsLoading(true); setIsTyping(true)
     setCreatureActivity('thinking')
     const tmpId = `tmp-${Date.now()}`
-    let streamId: string | null = null
     addMessage({ id: tmpId, role: 'user', content: text, created_at: new Date().toISOString() })
     if (inputRef.current) inputRef.current.style.height = 'auto'
     streamAccRef.current = ''
-    let firstChunk = true
     try {
+      // Accumulate the reply SILENTLY (thinking dots stay); we reveal it in sync
+      // with the voice once it's ready — never an all-at-once pop mid-stream.
       for await (const token of platform.sendMessage(text)) {
-        if (firstChunk) {
-          firstChunk = false; setIsTyping(false); setCreatureActivity('speaking')
-          streamId = `streaming-${Date.now()}`
-          addMessage({ id: streamId, role: 'assistant', content: token, created_at: new Date().toISOString() })
-          streamAccRef.current = token
-        } else {
-          streamAccRef.current += token
-          updateLastMessage(streamAccRef.current)
-        }
+        streamAccRef.current += token
       }
-      setIsTyping(false); setIsLoading(false)
+      setIsLoading(false)
       try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
-      autoPlayTts(platform, streamAccRef.current) // manages speaking→idle
+      await speakAndReveal(streamAccRef.current, `reveal-${Date.now()}`)
       inputRef.current?.focus()
     } catch (err) {
       setIsTyping(false); setIsLoading(false); setCreatureActivity('idle')
       console.error('Failed to send message:', err)
       // The platform rolled the turn back — mirror that in the UI: drop the
-      // optimistic bubbles and hand the user their words back to retry.
+      // optimistic user bubble and hand the user their words back to retry.
       setMessages(
-        useAppStore.getState().messages.filter((m) => m.id !== tmpId && m.id !== streamId),
+        useAppStore.getState().messages.filter((m) => m.id !== tmpId),
       )
       setInput(text)
       setError(friendlyError(err))
       inputRef.current?.focus()
     }
-  }, [platform, input, isLoading, addMessage, updateLastMessage, setIsLoading, setStarchildState, setMessages])
+  }, [platform, input, isLoading, addMessage, setIsLoading, setStarchildState, setMessages, setCreatureActivity, speakAndReveal])
 
   const handleAcceptQuest = useCallback(async () => {
     setAcceptingQuest(true); setShowQuestOffer(false)
@@ -477,37 +489,28 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     setInput(''); setError(null); setIsLoading(true); setIsTyping(true)
     setCreatureActivity('thinking')
     const tmpId = `quest-proof-${Date.now()}`
-    let streamId: string | null = null
     addMessage({ id: tmpId, role: 'user', content: displayText, created_at: new Date().toISOString() })
     streamAccRef.current = ''
-    let firstChunk = true
     ;(async () => {
       try {
         for await (const token of platform.sendMessage(triggerText)) {
-          if (firstChunk) {
-            firstChunk = false; setIsTyping(false); setCreatureActivity('speaking')
-            streamId = `streaming-${Date.now()}`
-            addMessage({ id: streamId, role: 'assistant', content: token, created_at: new Date().toISOString() })
-            streamAccRef.current = token
-          } else {
-            streamAccRef.current += token; updateLastMessage(streamAccRef.current)
-          }
+          streamAccRef.current += token
         }
-        setIsTyping(false); setIsLoading(false)
+        setIsLoading(false)
         try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
-        autoPlayTts(platform, streamAccRef.current)
+        await speakAndReveal(streamAccRef.current, `reveal-${Date.now()}`)
         inputRef.current?.focus()
       } catch (err) {
         setIsTyping(false); setIsLoading(false); setCreatureActivity('idle')
         // The platform rolled the proof turn back (quest stays completable) —
-        // drop the optimistic bubbles so the thread matches what really happened.
+        // drop the optimistic user bubble so the thread matches what happened.
         setMessages(
-          useAppStore.getState().messages.filter((m) => m.id !== tmpId && m.id !== streamId),
+          useAppStore.getState().messages.filter((m) => m.id !== tmpId),
         )
         setError(friendlyError(err))
       }
     })()
-  }, [platform, addMessage, updateLastMessage, setIsLoading, setStarchildState, setMessages])
+  }, [platform, addMessage, setIsLoading, setStarchildState, setMessages, setCreatureActivity, speakAndReveal])
 
   useEffect(() => {
     return platform.subscribe('quest-completed', (payload) => {
