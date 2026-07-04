@@ -39,7 +39,7 @@ function prefersReducedMotion(): boolean {
 function useCharReveal(content: string, isAssistant: boolean, messageId: string) {
   const shouldReveal =
     isAssistant &&
-    (messageId.startsWith('first-') || messageId.startsWith('reveal-')) &&
+    freshlyRevealed.has(messageId) &&
     !prefersReducedMotion()
   const [chars, setChars] = useState(shouldReveal ? 0 : content.length)
   const doneRef = useRef(!shouldReveal)
@@ -286,6 +286,10 @@ function MicIcon() {
 let awakeningInFlight: Promise<import('../../src/store').Message> | null = null
 // The awakening is added exactly once even across StrictMode's double-mount.
 let awakeningRevealed = false
+// Ids that were just spoken/dropped THIS session and should animate in as the
+// voice lands. Drives the char-reveal instead of the message id's prefix — so a
+// message reloaded from storage (same id) renders instantly, never re-typing.
+const freshlyRevealed = new Set<string>()
 
 // ─── Friendly error copy ─────────────────────────────────────────────────────
 // Branch on the typed `VeniceError.code` (duck-typed — it crosses a dynamic
@@ -357,7 +361,10 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   // `id` prefix `reveal-`/`first-` flags it for the reveal.
   const speakAndReveal = useCallback(async (text: string, id: string, awakening = false) => {
     if (awakening) { if (awakeningRevealed) return; awakeningRevealed = true }
-    const drop = () => addMessage({ id, role: 'assistant', content: text, created_at: new Date().toISOString() })
+    const drop = () => {
+      freshlyRevealed.add(id) // mark it to animate in before it enters the list
+      addMessage({ id, role: 'assistant', content: text, created_at: new Date().toISOString() })
+    }
     const voiceWanted = platform.supportsTts && useAppStore.getState().ttsEnabled
     if (voiceWanted) {
       try {
@@ -397,8 +404,10 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
           // SAME generation; `speakAndReveal(…, true)` adds it exactly once.
           awakeningInFlight ??= platform.generateFirstMessage()
           const firstMsg = await awakeningInFlight
-          // Reveals in sync with the creature's voice — its first words, spoken.
-          await speakAndReveal(firstMsg.content, `first-${firstMsg.id}`, true)
+          // Reveal under the SAME id it was persisted with (not a re-prefixed one)
+          // so the reload-from-storage copy and this reveal-add are one message —
+          // combined with the idempotent store add, never two identical bubbles.
+          await speakAndReveal(firstMsg.content, firstMsg.id, true)
         } catch (err) {
           console.error('Failed to generate first message:', err)
           awakeningInFlight = null // let "try again" attempt a fresh generation

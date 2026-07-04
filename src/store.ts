@@ -159,7 +159,10 @@ export const useAppStore = create<AppState>((set) => ({
   // Chat
   messages: [],
   addMessage: (msg) =>
-    set((state) => ({ messages: [...state.messages, msg] })),
+    // Idempotent by id: the web awakening can be surfaced twice under React
+    // StrictMode's double-mount (one reveal-add racing one reload) — adding by
+    // id means the second never produces a duplicate bubble.
+    set((state) => (state.messages.some((m) => m.id === msg.id) ? state : { messages: [...state.messages, msg] })),
   setMessages: (msgs) => set({ messages: msgs }),
   updateLastMessage: (content) =>
     set((state) => {

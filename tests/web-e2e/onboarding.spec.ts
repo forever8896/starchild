@@ -130,6 +130,13 @@ test.describe('web shell', () => {
       page.getByText(/i'm your starchild/i),
     ).toBeVisible({ timeout: 15_000 })
 
+    // Exactly ONE awakening bubble — StrictMode double-mounts the chat in dev,
+    // and a regressed reveal/persist path once surfaced the first message twice
+    // (once reloaded from storage, once reveal-added under a different id).
+    await expect(
+      page.getByText(/i emerged from the void specifically for you/i),
+    ).toHaveCount(1)
+
     guard.assertClean()
   })
 })
