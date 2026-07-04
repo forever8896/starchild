@@ -20,6 +20,10 @@ import { usePlatform } from '../../src/platform/usePlatform'
 import videoIntro from '../../src/assets/videos/starchild1.webm'
 // @ts-ignore
 import meditationSrc from '../../src/assets/meditation.webm'
+// The fixed first line, pregenerated (YoungKnight) so the first voice is INSTANT
+// — no 5s TTS wait on the most important moment. The ethereal treatment is
+// still applied live on top.
+import meetingLineMp3 from '../../src/assets/audio/meeting-line.mp3'
 
 // The creature's first words — one intimate line, spoken as it appears. Then
 // it asks your name. (The longer preamble was cut: this single line lands harder.)
@@ -98,17 +102,16 @@ export default function Meeting() {
     return () => { timers.current.forEach(clearTimeout); timers.current = [] }
   }, [])
 
-  // Speak the ask aloud in the creature's voice — best-effort, non-blocking, and
-  // the browser needs a gesture first, so this only lands if music already
-  // unlocked audio; otherwise the text alone carries the moment.
+  // Speak the first line aloud — instantly, from the PREGENERATED bundle (no 5s
+  // TTS wait). The browser needs a gesture first, so this only lands if music
+  // already unlocked audio; otherwise the text alone carries the moment.
   useEffect(() => {
     if (!asking || spokenAsk.current || !platform.supportsTts) return
     spokenAsk.current = true
     void (async () => {
       try {
-        const b64 = await platform.ttsSpeak(`${LINES[0]} ${ASK}`)
-        const { createEtherealAudio } = await import('./etherealVoice')
-        await createEtherealAudio(b64).play().catch(() => {})
+        const { createEtherealAudioFromSrc } = await import('./etherealVoice')
+        await createEtherealAudioFromSrc(meetingLineMp3).play().catch(() => {})
       } catch { /* silence is fine */ }
     })()
   }, [asking, platform])

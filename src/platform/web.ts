@@ -205,6 +205,13 @@ const uuid = (): string =>
 
 const nowIso = (): string => new Date().toISOString()
 
+/** Short stable key for the voice cache (djb2 over the utterance text). */
+function ttsHash(text: string): string {
+  let h = 5381
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
 /**
  * Map the persisted creature row to the UI's lighter `StarchildState`. The mood
  * label is the canonical one the core already wrote onto the state (via
@@ -919,6 +926,12 @@ export const webPlatform: Platform = {
     const clean = text.trim().slice(0, 1200)
     if (!clean) throw new Error('nothing to speak')
 
+    // Voice cache: a rendered utterance is identical for the same (voice, text),
+    // so we only ever pay the ~5s TTS once — replays + reloads are instant.
+    const cacheKey = `${voice}:${ttsHash(clean)}`
+    const cached = await s.getTtsAudio(cacheKey).catch(() => null)
+    if (cached) return cached
+
     const { mode, apiKey } = await resolveInference()
     const res =
       mode === 'byok'
@@ -941,7 +954,9 @@ export const webPlatform: Platform = {
     for (let i = 0; i < bytes.length; i += CHUNK) {
       binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
     }
-    return btoa(binary)
+    const b64 = btoa(binary)
+    void s.putTtsAudio(cacheKey, b64).catch(() => {}) // cache for instant replay
+    return b64
   },
   // Mic → text (Venice Whisper). PRIVACY: this is the user's own voice and
   // there is no E2EE transcription enclave — audio transits in plaintext. It

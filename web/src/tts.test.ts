@@ -81,6 +81,15 @@ describe('platform.ttsSpeak (web voice)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 503 })))
     await expect(webPlatform.ttsSpeak('anything')).rejects.toThrow(/voice unavailable/)
   })
+
+  it('caches rendered audio — the same utterance is voiced only once', async () => {
+    const { calls } = stubFetch()
+    const line = 'a line spoken only once, then remembered'
+    const first = await webPlatform.ttsSpeak(line)
+    const second = await webPlatform.ttsSpeak(line) // must hit the cache, no fetch
+    expect(first).toBe(second)
+    expect(calls).toHaveLength(1) // only the first call touched the network
+  })
 })
 
 describe('platform.transcribe (web mic)', () => {

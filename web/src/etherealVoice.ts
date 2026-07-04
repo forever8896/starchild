@@ -56,12 +56,18 @@ function impulseResponse(c: AudioContext): AudioBuffer {
   return buf
 }
 
+/** Treated audio from a base64 mp3 (the usual TTS path). */
+export function createEtherealAudio(base64Mp3: string): HTMLAudioElement {
+  return createEtherealAudioFromSrc(`data:audio/mp3;base64,${base64Mp3}`)
+}
+
 /**
- * Build the treated audio element for a base64 mp3. Returns a normal
+ * Build the treated audio element from any src (base64 data URL or a bundled
+ * asset URL — e.g. the pregenerated meeting line). Returns a normal
  * HTMLAudioElement — play/pause/currentTime/duration all behave as usual.
  */
-export function createEtherealAudio(base64Mp3: string): HTMLAudioElement {
-  const audio = new Audio(`data:audio/mp3;base64,${base64Mp3}`)
+export function createEtherealAudioFromSrc(src: string): HTMLAudioElement {
+  const audio = new Audio(src)
 
   // Pitch + pace: turn OFF pitch preservation so a rate change shifts timbre.
   // Skipped entirely when neutral — raw means raw.

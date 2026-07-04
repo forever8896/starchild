@@ -20,7 +20,9 @@ const DB_NAME = 'starchild'
 // knowing prompt fragment read). Bumping the version triggers `onupgradeneeded`,
 // which creates the new store without touching existing data.
 // v3 adds the `great_work` store (the hermetic Great Work position).
-const DB_VERSION = 3
+// v4 adds the `tts_cache` store (pregenerated/rendered voice audio, so a message
+// is voiced instantly on replay/reload instead of paying the ~5s TTS again).
+const DB_VERSION = 4
 
 const STORE_MESSAGES = 'messages'
 const STORE_STATE = 'state'
@@ -28,6 +30,10 @@ const STORE_SETTINGS = 'settings'
 const STORE_QUESTS = 'quests'
 const STORE_KNOWING = 'knowing'
 const STORE_GREAT_WORK = 'great_work'
+const STORE_TTS = 'tts_cache'
+
+/** Keep the voice cache bounded — evict the oldest beyond this many entries. */
+const TTS_CACHE_MAX = 60
 
 /** The persisted message row — the shared `Message` plus an ordering key. */
 interface StoredMessage extends Message {
@@ -65,6 +71,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_GREAT_WORK)) {
         db.createObjectStore(STORE_GREAT_WORK, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STORE_TTS)) {
+        const store = db.createObjectStore(STORE_TTS, { keyPath: 'key' })
+        store.createIndex('at', 'at', { unique: false }) // for oldest-first eviction
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -232,7 +242,7 @@ export async function clearAllData(): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(
-      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING, STORE_GREAT_WORK],
+      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING, STORE_GREAT_WORK, STORE_TTS],
       'readwrite',
     )
     t.oncomplete = () => resolve()
@@ -243,6 +253,51 @@ export async function clearAllData(): Promise<void> {
     t.objectStore(STORE_QUESTS).clear()
     t.objectStore(STORE_KNOWING).clear()
     t.objectStore(STORE_GREAT_WORK).clear()
+    t.objectStore(STORE_TTS).clear()
+  })
+}
+
+// ─── Voice cache ──────────────────────────────────────────────────────────────
+// Rendered/pregenerated TTS audio (base64 mp3) keyed by voice+text hash, so a
+// message is voiced instantly on replay/reload. Bounded (oldest evicted).
+
+interface StoredTts {
+  key: string
+  audio: string // base64 mp3
+  at: number // insertion order (monotonic-ish) for eviction
+}
+
+/** Look up cached voice audio (base64 mp3), or null. */
+export async function getTtsAudio(key: string): Promise<string | null> {
+  const row = await tx<StoredTts | undefined>(STORE_TTS, 'readonly', (s) =>
+    s.get(key) as IDBRequest<StoredTts | undefined>,
+  )
+  return row ? row.audio : null
+}
+
+/** Cache voice audio; evicts the oldest entries past `TTS_CACHE_MAX`. */
+export async function putTtsAudio(key: string, audio: string): Promise<void> {
+  const db = await openDb()
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(STORE_TTS, 'readwrite')
+    t.oncomplete = () => resolve()
+    t.onerror = () => reject(t.error ?? new Error('tts cache write failed'))
+    const store = t.objectStore(STORE_TTS)
+    store.put({ key, audio, at: Date.now() + Math.random() } satisfies StoredTts)
+    // Trim: walk oldest-first and delete until under the cap.
+    const countReq = store.count()
+    countReq.onsuccess = () => {
+      const over = countReq.result - TTS_CACHE_MAX
+      if (over <= 0) return
+      let removed = 0
+      store.index('at').openCursor().onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue | null>).result
+        if (!cursor || removed >= over) return
+        cursor.delete()
+        removed += 1
+        cursor.continue()
+      }
+    }
   })
 }
 
@@ -262,7 +317,7 @@ export async function replaceAll(input: {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(
-      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING, STORE_GREAT_WORK],
+      [STORE_MESSAGES, STORE_STATE, STORE_SETTINGS, STORE_QUESTS, STORE_KNOWING, STORE_GREAT_WORK, STORE_TTS],
       'readwrite',
     )
     t.oncomplete = () => resolve()
@@ -273,6 +328,7 @@ export async function replaceAll(input: {
     t.objectStore(STORE_QUESTS).clear()
     t.objectStore(STORE_KNOWING).clear()
     t.objectStore(STORE_GREAT_WORK).clear()
+    t.objectStore(STORE_TTS).clear()
     let seq = Date.now()
     for (const m of input.messages) {
       t.objectStore(STORE_MESSAGES).put({ ...m, seq: seq++ } satisfies StoredMessage)

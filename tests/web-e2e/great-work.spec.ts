@@ -87,7 +87,7 @@ test('great work — position auto-initializes on first message', async ({ page 
   // Check IndexedDB for the great_work store
   const position = await page.evaluate(async () => {
     return new Promise((resolve) => {
-      const req = indexedDB.open('starchild', 3)
+      const req = indexedDB.open('starchild') // no version — match whatever the app created
       req.onsuccess = () => {
         const db = req.result
         if (!db.objectStoreNames.contains('great_work')) { resolve(null); return }
