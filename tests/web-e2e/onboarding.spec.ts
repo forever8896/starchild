@@ -73,6 +73,15 @@ function guardAgainstRenderErrors(page: Page): { assertClean: () => void } {
 }
 
 test.describe('web shell', () => {
+  // Voice costs money and adds latency; the awakening + reply reveal falls back
+  // to instant/typed text when it's unavailable. Stub it so onboarding is
+  // deterministic regardless of whether a keyed dev server is reused.
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/tts**', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"voice unavailable"}' }),
+    )
+  })
+
   test('renders the onboarding screen with real copy (no render errors)', async ({
     page,
   }) => {
@@ -88,7 +97,7 @@ test.describe('web shell', () => {
     // tree actually rendered (not a blank page / ErrorBoundary). Under reduced
     // motion (playwright config) the reveal is instant.
     await expect(
-      page.getByText(/oh… there you are/i),
+      page.getByText(/i don’t know you yet/i),
     ).toBeVisible({ timeout: 15_000 })
 
     // The naming ritual is present.

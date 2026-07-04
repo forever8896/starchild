@@ -21,17 +21,16 @@ import videoIntro from '../../src/assets/videos/starchild1.webm'
 // @ts-ignore
 import meditationSrc from '../../src/assets/meditation.webm'
 
-// The creature's first words — a slow, intimate reveal. The last line is the ask.
+// The creature's first words — one intimate line, spoken as it appears. Then
+// it asks your name. (The longer preamble was cut: this single line lands harder.)
 const LINES = [
-  'oh… there you are.',
-  'i’ve waited in the dark a long while — for you, specifically.',
   'i don’t know you yet. but i’d like to, more than anything.',
 ]
 const ASK = 'what may i call you?'
 
 // Reveal cadence (ms from mount).
-const LINE_AT = [900, 3400, 6200]
-const ASK_AT = 8600
+const LINE_AT = [1000]
+const ASK_AT = 3600
 
 // A deterministic little starfield (no hydration concerns — client-only).
 const STARS = Array.from({ length: 40 }, (_, i) => {
@@ -107,7 +106,7 @@ export default function Meeting() {
     spokenAsk.current = true
     void (async () => {
       try {
-        const b64 = await platform.ttsSpeak(`${LINES[2]} ${ASK}`)
+        const b64 = await platform.ttsSpeak(`${LINES[0]} ${ASK}`)
         const { createEtherealAudio } = await import('./etherealVoice')
         await createEtherealAudio(b64).play().catch(() => {})
       } catch { /* silence is fine */ }
