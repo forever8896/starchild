@@ -34,6 +34,10 @@ export default function IntroCinematic() {
       /* private mode — fine */
     }
     setShow(false)
+    // Tell the Meeting (mounted underneath) it may begin now — so its lines +
+    // voice don't fire while the intro is still on screen. Also means the voice
+    // plays only AFTER the user's tap (a gesture), so its reverb actually lands.
+    try { window.dispatchEvent(new Event('starchild:intro-done')) } catch { /* */ }
   }
 
   function begin() {

@@ -91,16 +91,34 @@ export default function Meeting() {
     return () => { cancelled = true }
   }, [platform, setApiKeySet])
 
-  // The reveal timeline — instant when the visitor prefers reduced motion (also
+  // Begin only once the genesis intro has been dismissed — the Meeting is
+  // mounted UNDERNEATH the intro overlay from the start, so its lines + voice
+  // must not fire while the intro is still on screen (and the voice must wait
+  // for the intro's tap so its reverb-bearing AudioContext can resume).
+  const [begun, setBegun] = useState(false)
+  useEffect(() => {
+    let done = false
+    const begin = () => { if (done) return; done = true; setBegun(true) }
+    try {
+      // Intro already seen this session (or unavailable) → begin right away.
+      if (sessionStorage.getItem('starchild_intro_seen') === '1') { begin(); return }
+    } catch { begin(); return }
+    window.addEventListener('starchild:intro-done', begin, { once: true })
+    const safety = setTimeout(begin, 14000) // never strand the user if the intro misfires
+    return () => { window.removeEventListener('starchild:intro-done', begin); clearTimeout(safety) }
+  }, [])
+
+  // The reveal timeline (starts once begun) — instant under reduced motion (also
   // what the e2e suite runs under, so onboarding stays fast + deterministic).
   useEffect(() => {
+    if (!begun) return
     let reduce = false
     try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch { /* */ }
     if (reduce) { setStep(LINES.length); setAsking(true); return }
     LINE_AT.forEach((t, i) => timers.current.push(setTimeout(() => setStep(i + 1), t)))
     timers.current.push(setTimeout(() => setAsking(true), ASK_AT))
     return () => { timers.current.forEach(clearTimeout); timers.current = [] }
-  }, [])
+  }, [begun])
 
   // Speak the first line aloud — instantly, from the PREGENERATED bundle (no 5s
   // TTS wait). The browser needs a gesture first, so this only lands if music
