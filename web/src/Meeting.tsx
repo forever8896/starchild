@@ -208,14 +208,14 @@ export default function Meeting() {
         </AnimatePresence>
       </motion.div>
 
-      {/* the words it speaks */}
-      <div className="relative max-w-lg text-center mt-2 min-h-[92px] flex flex-col justify-start gap-2.5">
+      {/* the words it speaks — height reserved so the line fades in without push */}
+      <div className="relative max-w-lg text-center mt-3 min-h-[64px] flex flex-col justify-start gap-2.5">
         {LINES.map((line, i) => (
           <AnimatePresence key={i}>
             {step > i && (
               <motion.p
                 initial={{ opacity: 0, y: 14, filter: 'blur(6px)' }}
-                animate={{ opacity: i === step - 1 && !asking ? 1 : 0.55, y: 0, filter: 'blur(0px)' }}
+                animate={{ opacity: asking ? 0.82 : 1, y: 0, filter: 'blur(0px)' }}
                 transition={{ duration: 1.1, ease: [0.2, 0.7, 0.3, 1] }}
                 className="text-[19px] leading-relaxed font-medium"
                 style={{ color: '#ede8f5', textWrap: 'balance' } as React.CSSProperties}
@@ -227,17 +227,21 @@ export default function Meeting() {
         ))}
       </div>
 
-      {/* the naming ritual */}
-      <AnimatePresence>
-        {asking && (
-          <motion.div
-            className="relative mt-7 w-full flex flex-col items-center gap-4"
-            style={{ maxWidth: 460 }}
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1.2, ease: [0.2, 0.7, 0.3, 1] }}
-          >
-            <p className="text-[16px] font-semibold" style={{ color: '#cbb8e6' }}>{ASK}</p>
+      {/* the naming ritual — its space is reserved from the START, so the field
+          fades in without ever shifting the creature or the line above it. */}
+      <div
+        className="relative mt-6 w-full flex flex-col items-center"
+        style={{ maxWidth: 460, minHeight: needsApiKey ? 208 : 150 }}
+      >
+        <AnimatePresence>
+          {asking && (
+            <motion.div
+              className="w-full flex flex-col items-center gap-4"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 1.2, ease: [0.2, 0.7, 0.3, 1] }}
+            >
+              <p className="text-[16px] font-semibold" style={{ color: '#cbb8e6' }}>{ASK}</p>
 
             {/* one luminous field */}
             <div
@@ -296,10 +300,11 @@ export default function Meeting() {
               let me stay a stranger for now
             </button>
 
-            {error && <p className="text-[13px]" style={{ color: '#e8a8b8' }} role="alert">{error}</p>}
-          </motion.div>
-        )}
-      </AnimatePresence>
+              {error && <p className="text-[13px]" style={{ color: '#e8a8b8' }} role="alert">{error}</p>}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </motion.div>
   )
 }
