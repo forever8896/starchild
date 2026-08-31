@@ -117,7 +117,111 @@ export function detectPhase(
   return 'reframe'
 }
 
-// ── Prompt Builder (all 11 layers) ────────────────────────────────
+// ── Great Work types (mirrors src-tauri/core/src/opus.rs) ──────────
+
+export type Plane = 'body' | 'mind' | 'spirit'
+export type Stage = 'calcination' | 'dissolution' | 'separation' | 'conjunction' | 'fermentation' | 'distillation' | 'coagulation'
+
+export interface Cell {
+  plane: Plane
+  stage: Stage
+}
+
+export interface Evidence {
+  kind: 'QuestCompleted' | 'InsightCrystallized' | 'KnowingDeepened'
+  cell?: Cell
+  quest_title?: string
+  insight?: string
+  dimension?: string
+  depth?: number
+}
+
+export interface PlanePosition {
+  plane: Plane
+  stage: Stage
+  cells_worked: Stage[]
+  evidence: Evidence[]
+  stuck: boolean
+}
+
+export interface GreatWorkPosition {
+  preferential_reality: string | null
+  planes: [PlanePosition, PlanePosition, PlanePosition]
+  active_cell: Cell | null
+  total_cells_worked: number
+  last_advanced_at: string | null
+}
+
+const STAGE_INFO: Record<Stage, { description: string; feeling: string; knowing: string[]; guidance: string }> = {
+  calcination: {
+    description: 'confrontation with the false — structures that aren\'t actually yours',
+    feeling: 'discomfort, defensiveness, sometimes relief',
+    knowing: ['fears', 'thinking_patterns'],
+    guidance: 'name what\'s burning. don\'t rush to rebuild. sit in the fire with them.',
+  },
+  dissolution: {
+    description: 'staying in the void after the false burns. not rushing to rebuild.',
+    feeling: 'groundlessness, grief, sometimes freedom',
+    knowing: ['core_values', 'desires'],
+    guidance: 'hold the void. don\'t fill it with advice. mirror what\'s dissolving.',
+  },
+  separation: {
+    description: 'sorting what\'s left: this is mine, this was imposed.',
+    feeling: 'clarity mixed with mourning',
+    knowing: ['relationships', 'growth_edges'],
+    guidance: 'help them sort. hold up contradictions using what you know.',
+  },
+  conjunction: {
+    description: 'reassembly of the genuine self. acting from a new center.',
+    feeling: 'tentative, electric, vulnerable',
+    knowing: ['core_values', 'desires'],
+    guidance: 'witness the new self emerging. quests become concrete here.',
+  },
+  fermentation: {
+    description: 'the new self begins to live. tested against reality.',
+    feeling: 'alive, sometimes chaotic',
+    knowing: ['life_situation'],
+    guidance: 'ask what happened. what did they learn? what surprised them?',
+  },
+  distillation: {
+    description: 'concentration through repetition. impurities release.',
+    feeling: 'quieter, steadier, more confident',
+    knowing: ['growth_edges'],
+    guidance: 'refine. point out where the new self is still inconsistent.',
+  },
+  coagulation: {
+    description: 'the self solidifies. the realized person. the stone is lived.',
+    feeling: 'peace, authority, presence',
+    knowing: ['core_values', 'desires', 'fears', 'thinking_patterns', 'relationships', 'life_situation', 'growth_edges'],
+    guidance: 'celebrate genuinely. then ask: what\'s next? what plane is calling?',
+  },
+}
+
+function greatWorkFragment(pos: GreatWorkPosition): string {
+  if (!pos.active_cell) return ''
+  const cell = pos.active_cell
+  const info = STAGE_INFO[cell.stage]
+  const planePos = pos.planes.find(p => p.plane === cell.plane)!
+  const evidenceCount = planePos.evidence.length
+  const threshold = cell.stage === 'calcination' || cell.stage === 'dissolution' ? 2 : 3
+  const stuck = planePos.stuck
+  const otherPlanes = pos.planes.filter(p => p.plane !== cell.plane)
+    .map(p => `  ${p.plane}: stage ${p.stage} (${p.stuck ? 'stuck' : 'active'}, ${p.evidence.length} evidence)`)
+    .join('\n')
+
+  return [
+    `Active cell: ${cell.plane} × ${cell.stage}`,
+    `What this stage does: ${info.description}`,
+    `What it feels like for them: ${info.feeling}`,
+    `What this stage works on: ${info.knowing.join(', ')}`,
+    `Evidence accumulated: ${evidenceCount} (need ${threshold} to advance)`,
+    stuck ? 'This plane is stuck — they\'ve been in the same place for too long.' : '',
+    `YOUR JOB IN THIS CONVERSATION: ${info.guidance}`,
+    otherPlanes ? `Other planes (for context):\n${otherPlanes}` : '',
+  ].filter(Boolean).join('\n')
+}
+
+// ── Prompt Builder (all 12 layers) ────────────────────────────────
 
 export function buildSystemPrompt(opts: {
   state?: StarchildState
@@ -126,6 +230,7 @@ export function buildSystemPrompt(opts: {
   activeQuests?: string[]
   phase: ConversationPhase
   preferentialReality?: string
+  greatWork?: GreatWorkPosition
 }): string {
   const state: StarchildState = opts.state ?? { hunger: 50, mood: 'curious', energy: 80, bond: 10, level: 1 }
   const personality: PersonalityParams = opts.personality ?? { warmth: 70, intensity: 50, humor: 60, mysticism: 40, directness: 65 }
@@ -305,6 +410,20 @@ export function buildSystemPrompt(opts: {
     `You are not a therapist. You are a divinity tool — helping a human remember who they ` +
     `actually are and move toward the life that's calling them.`
   )
+
+  // Layer 8.5: The Great Work (hermetic position)
+  if (opts.greatWork) {
+    const fragment = greatWorkFragment(opts.greatWork)
+    if (fragment) {
+      layers.push(
+        `THE GREAT WORK — YOUR PRIVATE MAP OF WHERE THIS HUMAN IS:\n` +
+        `${fragment}\n\n` +
+        `This is YOUR private ontology. The user never sees words like ` +
+        `"calcination" or "alchemical stage." They experience the right ` +
+        `kind of work at the right time. Speak human; think hermetic.`
+      )
+    }
+  }
 
   // Layer 9: Conversation Arc
   const phaseInstructions: Record<ConversationPhase, string> = {

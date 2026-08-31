@@ -3924,6 +3924,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4223,6 +4234,7 @@ name = "starchild"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "dotenvy",
@@ -4238,6 +4250,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "starchild_core",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
@@ -4247,6 +4260,27 @@ dependencies = [
  "tokio",
  "uuid",
  "webkit2gtk",
+]
+
+[[package]]
+name = "starchild_core"
+version = "0.2.0"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "chrono",
+ "getrandom 0.2.17",
+ "hex",
+ "hkdf",
+ "k256",
+ "log",
+ "rand 0.8.5",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
 ]
 
 [[package]]

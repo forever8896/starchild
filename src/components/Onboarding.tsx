@@ -8,10 +8,10 @@
  *   - Glassmorphism card fills the window
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
+import { usePlatform } from '../platform/usePlatform'
 import starchildLogo from '../assets/starchild-logo.png'
 // @ts-ignore — WebM VP9 with alpha channel
 import videoIntro from '../assets/videos/starchild1.webm'
@@ -72,6 +72,7 @@ function AnimatedLine({
 // ─── Main Onboarding component ──────────────────────────────────────────────
 
 export default function Onboarding() {
+  const platform = usePlatform()
   const setOnboardingComplete = useAppStore((s) => s.setOnboardingComplete)
   const setApiKeySet = useAppStore((s) => s.setApiKeySet)
 
@@ -83,9 +84,14 @@ export default function Onboarding() {
   const [managedKey, setManagedKey] = useState<boolean | null>(null)
   const musicStarted = useRef(false)
 
-  // Start meditation music on first interaction — persists via window.__bgMusic
+  // Start meditation music on first interaction — persists via window.__bgMusic.
+  // Honors the persisted mute (the shell's "♪ music" toggle) so a user who
+  // silenced it once is never auto-played again.
   const startMusic = useCallback(() => {
     if (musicStarted.current) return
+    try {
+      if (localStorage.getItem('starchild_music_muted') === '1') return
+    } catch { /* private mode — default to playing */ }
     musicStarted.current = true
     const audio = new Audio(meditationSrc)
     audio.loop = true
@@ -95,13 +101,17 @@ export default function Onboarding() {
     ;(window as any).__bgMusic = audio
   }, [])
 
-  // Check if an API key is already available (e.g. via VENICE_API_KEY env var)
-  useState(() => {
-    invoke<boolean>('has_api_key').then((has) => {
+  // Check if an inference key is already available (desktop: env/local key;
+  // web: the bounded trial is available by default, so no key is required).
+  useEffect(() => {
+    let cancelled = false
+    platform.hasInferenceKey().then((has) => {
+      if (cancelled) return
       setManagedKey(has)
       if (has) setApiKeySet(true)
-    }).catch(() => setManagedKey(false))
-  })
+    }).catch(() => { if (!cancelled) setManagedKey(false) })
+    return () => { cancelled = true }
+  }, [platform, setApiKeySet])
 
   const needsApiKey = managedKey === false
 
@@ -113,23 +123,19 @@ export default function Onboarding() {
     setError(null)
 
     try {
-      if (needsApiKey && apiKey.trim()) {
-        await invoke('save_settings', { key: 'venice_api_key', value: apiKey.trim() })
-        try { await invoke('get_state') } catch { /* non-critical */ }
-        setApiKeySet(true)
-      }
-
-      if (userName.trim()) {
-        await invoke('save_settings', { key: 'user_name', value: userName.trim() })
-      }
-
-      await invoke('save_settings', { key: 'onboarding_complete', value: 'true' })
+      await platform.completeOnboarding({
+        userName: userName.trim() || undefined,
+        apiKey: needsApiKey && apiKey.trim() ? apiKey.trim() : undefined,
+      })
+      if (needsApiKey && apiKey.trim()) setApiKeySet(true)
+      // Warm the creature state (non-critical).
+      try { await platform.getState() } catch { /* non-critical */ }
       setOnboardingComplete(true)
     } catch (err) {
       setError(typeof err === 'string' ? err : 'Something went wrong. Please try again.')
       setIsFinishing(false)
     }
-  }, [canSubmit, needsApiKey, apiKey, userName, setApiKeySet, setOnboardingComplete])
+  }, [platform, canSubmit, needsApiKey, apiKey, userName, setApiKeySet, setOnboardingComplete])
 
   return (
     <div
@@ -165,8 +171,8 @@ export default function Onboarding() {
           transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
         />
 
-        {/* Content — creature left, text right */}
-        <div className="flex items-center h-full px-16 gap-12">
+        {/* Content — creature left, text right; stacks vertically on phones */}
+        <div className="flex flex-col lg:flex-row items-center h-full px-6 py-10 lg:px-16 lg:py-0 gap-4 lg:gap-12 overflow-y-auto">
           {/* Creature — appears first with a dramatic entrance */}
           <motion.div
             className="flex-shrink-0 flex items-center justify-center"
@@ -190,13 +196,12 @@ export default function Onboarding() {
               muted
               playsInline
               loop
-              className="object-contain"
-              style={{ width: '24rem', height: '24rem' }}
+              className="object-contain w-44 h-44 sm:w-60 sm:h-60 lg:w-96 lg:h-96"
             />
           </motion.div>
 
           {/* Right side — text and inputs, staggered reveal */}
-          <div className="flex flex-col justify-center gap-7 flex-1 min-w-0">
+          <div className="flex flex-col justify-center gap-4 lg:gap-7 flex-1 min-w-0 w-full max-w-xl lg:max-w-none pb-6 lg:pb-0">
             {/* Hero line 1 */}
             <AnimatedLine delay={1.4}>
               <p
@@ -240,14 +245,18 @@ export default function Onboarding() {
               </p>
             </AnimatedLine>
 
-            {/* Privacy whisper */}
+            {/* Privacy whisper — honest under the E2EE inference model: the data
+                lives here; when the starchild thinks, words travel end-to-end
+                encrypted to a private enclave and are stored nowhere. */}
             <AnimatedLine delay={3.1}>
               <p
                 className="text-sm leading-relaxed max-w-lg"
                 style={{ color: 'rgba(110, 100, 133, 0.9)' }}
               >
-                everything stays on your device. conversations, memories, quests —
-                nothing ever leaves. Venice AI retains nothing. your inner world is yours alone.
+                your world lives on your device — conversations, memories, quests.
+                when your starchild thinks, your words travel end-to-end encrypted
+                to a private enclave: read by no one, stored nowhere. your inner
+                world is yours alone.
               </p>
             </AnimatedLine>
 

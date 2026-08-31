@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod db;
 pub mod e2ee;
+pub mod e2ee_net;
 pub mod game;
 pub mod knowing;
 pub mod memory;
@@ -24,6 +25,9 @@ use uuid::Uuid;
 use ai::{AiClient, ChatMessage, PersonalityParams, PromptBuilder};
 use db::Database;
 use game::StarchildState;
+// Pure quest logic + authored copy now live once in the shared core; the desktop
+// shell calls the SAME functions the web shell does (see web/src/quests.ts).
+use starchild_core::{messages, quest};
 use knowing::KnowingSystem;
 use memory::MemorySystem;
 use telegram::TelegramBotHandle;
@@ -197,7 +201,7 @@ async fn send_message(
 
     // Detect conversation phase and build system prompt
     let phase = ai::PhaseDetector::detect(&history);
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
@@ -259,14 +263,13 @@ pub async fn extract_memories(
     user_message: &str,
     ai_response: &str,
 ) -> Result<(), String> {
-    let extraction_prompt = format!(
-        "Analyze this conversation turn and extract meaningful insights about the human.\n\n\
-         User: {user_message}\nAssistant: {ai_response}"
-    );
-
+    // Extraction prompt + JSON parsing/normalization live in the shared core
+    // (`knowing::build_extraction_input` / `parse_extracted_facts`) so the web
+    // shell extracts insights identically; this command only adds the SQLite
+    // storage side-effects.
     let messages = vec![
         ChatMessage::system(knowing::knowing_extraction_prompt()),
-        ChatMessage::user(&extraction_prompt),
+        ChatMessage::user(&knowing::build_extraction_input(user_message, ai_response)),
     ];
 
     let response = client
@@ -274,45 +277,18 @@ pub async fn extract_memories(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Parse the JSON response
-    #[derive(serde::Deserialize)]
-    struct ExtractedFact {
-        fact: String,
-        #[serde(default = "default_category")]
-        category: String,
-        importance: f64,
-        #[serde(default = "default_confidence")]
-        confidence: f64,
-    }
+    for f in knowing::parse_extracted_facts(&response) {
+        // Store in flat memory system (FTS5 searchable)
+        if let Err(e) = memory.store(&f.fact, f.importance, Some(&f.category)) {
+            log::warn!("Failed to store memory: {e}");
+        }
 
-    fn default_category() -> String {
-        "life_situation".to_string()
-    }
-    fn default_confidence() -> f64 {
-        0.5
-    }
-
-    // Try to parse; silently ignore malformed responses
-    if let Ok(facts) = serde_json::from_str::<Vec<ExtractedFact>>(&response) {
-        for f in facts {
-            let fact = f.fact.trim();
-            // Skip empty facts and enforce max length to prevent context window bloat
-            if fact.is_empty() || fact.len() > 500 {
-                continue;
-            }
-            let importance = f.importance.clamp(0.0, 1.0);
-            let confidence = f.confidence.clamp(0.0, 1.0);
-
-            // Store in flat memory system (FTS5 searchable)
-            if let Err(e) = memory.store(fact, importance, Some(&f.category)) {
-                log::warn!("Failed to store memory: {e}");
-            }
-
-            // Store in structured knowing system (if valid category)
-            if knowing::KnowingCategory::from_str(&f.category).is_some() {
-                if let Err(e) = knowing.store_insight(&f.category, fact, importance, confidence) {
-                    log::warn!("Failed to store knowing fact: {e}");
-                }
+        // Store in structured knowing system (if valid category)
+        if knowing::KnowingCategory::from_str(&f.category).is_some() {
+            if let Err(e) =
+                knowing.store_insight(&f.category, &f.fact, f.importance, f.confidence)
+            {
+                log::warn!("Failed to store knowing fact: {e}");
             }
         }
     }
@@ -331,14 +307,11 @@ async fn extract_quest_from_conversation(
     db: &db::Database,
     history: &[ai::ChatMessage],
 ) -> Result<db::Quest, String> {
-    // Find the most recent assistant message that contains a quest offer
+    // Find the most recent assistant message that contains a quest offer.
+    // Offer detection lives once in the shared core (`quest::is_quest_offer`).
     let quest_msg = history.iter().rev()
         .filter(|m| m.role == "assistant")
-        .find(|m| {
-            let lower = m.content.to_lowercase();
-            lower.contains("quest for you") || lower.contains("i have a quest")
-                || lower.contains("here's something to try")
-        })
+        .find(|m| quest::is_quest_offer(&m.content))
         .map(|m| m.content.as_str())
         .unwrap_or("");
 
@@ -360,27 +333,10 @@ async fn extract_quest_from_conversation(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let prompt = format!(
-        "Extract the quest from this conversation. The Starchild offered a quest and the human accepted.\n\n\
-         Recent conversation:\n{recent_context}\n\n\
-         Extract ONLY the specific quest/task that was offered. Return a JSON object:\n\
-         {{\n\
-           \"title\": \"short quest title, max 60 chars, warm tone\",\n\
-           \"description\": \"1-2 sentence description of what to do\",\n\
-           \"category\": \"one of: body, mind, spirit\",\n\
-           \"quest_type\": \"daily or weekly\",\n\
-           \"xp_reward\": 10-50 based on difficulty\n\
-         }}\n\n\
-         Category guide:\n\
-         - body: physical activity, health, movement, nature, embodiment\n\
-         - mind: learning, reading, studying, thinking, creating, building\n\
-         - spirit: meditation, reflection, inner work, connection, relationships, alchemy, presence\n\n\
-         If no clear quest was offered, return exactly: null\n\
-         Return ONLY valid JSON, no markdown fences, no explanation."
-    );
-
+    // The extraction prompt + system message are shared core copy.
+    let prompt = quest::build_extraction_prompt(&recent_context);
     let messages = vec![
-        ai::ChatMessage::system("Extract quest details from conversation. Return ONLY valid JSON."),
+        ai::ChatMessage::system(quest::QUEST_EXTRACTION_SYSTEM),
         ai::ChatMessage::user(&prompt),
     ];
 
@@ -389,32 +345,10 @@ async fn extract_quest_from_conversation(
         .await
         .map_err(|e| e.to_string())?;
 
-    let trimmed = response.trim();
-    if trimmed == "null" || trimmed.is_empty() {
-        return Err("No quest found to extract".to_string());
-    }
-
-    #[derive(serde::Deserialize)]
-    struct ExtractedQuest {
-        title: String,
-        description: String,
-        category: String,
-        quest_type: String,
-        xp_reward: i64,
-    }
-
-    let extracted: ExtractedQuest = serde_json::from_str(trimmed)
-        .map_err(|e| format!("Failed to parse quest JSON: {e}"))?;
-
-    // Validate
-    let valid_categories = ["body", "mind", "spirit"];
-    let category = if valid_categories.contains(&extracted.category.as_str()) {
-        &extracted.category
-    } else {
-        "spirit" // default
-    };
-    let quest_type = if extracted.quest_type == "weekly" { "weekly" } else { "daily" };
-    let xp_reward = extracted.xp_reward.clamp(5, 50);
+    // Parse + normalize (clamp/defaults) once, in the shared core. `None` means
+    // the model declined or returned unparseable JSON.
+    let extracted = quest::parse_extraction(&response)
+        .ok_or_else(|| "No quest found to extract".to_string())?;
 
     // Guard against duplicates
     let existing = db.get_quests(Some("active")).unwrap_or_default();
@@ -427,13 +361,13 @@ async fn extract_quest_from_conversation(
         &id,
         &extracted.title,
         Some(&extracted.description),
-        quest_type,
-        Some(category),
-        xp_reward,
+        &extracted.quest_type,
+        Some(&extracted.category),
+        extracted.xp_reward,
         None, // no due_at
     ).map_err(|e| e.to_string())?;
 
-    log::info!("Quest extracted from conversation: {} [{}]", quest.title, category);
+    log::info!("Quest extracted from conversation: {} [{}]", quest.title, extracted.category);
     Ok(quest)
 }
 
@@ -829,10 +763,7 @@ async fn send_message_stream(
         // 1. First quest: if vision is placed but no quest has ever been offered, offer one
         let any_quest_offered = phase_history.iter()
             .filter(|m| m.role == "assistant")
-            .any(|m| {
-                let lower = m.content.to_lowercase();
-                lower.contains("quest for you") || lower.contains("i have a quest")
-            });
+            .any(|m| quest::is_quest_offer(&m.content));
         let has_active_quests = !active_quest_titles.is_empty();
 
         if (quest_just_completed || recently_completed) && !active_quest_titles.is_empty() {
@@ -883,7 +814,7 @@ async fn send_message_stream(
     log::info!("Conversation phase: {:?} (crystallize_pending={})", phase, crystallize_pending);
 
     // Build system prompt with knowing profile and conversation phase
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &active_quest_titles, &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &active_quest_titles, &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
@@ -1025,11 +956,8 @@ async fn send_message_stream(
 
             // Show accept/decline buttons whenever the response contains a quest offer
             // (Quest phase, Negotiate phase with revised quest, or any phase)
-            {
-                let lower = full_text.to_lowercase();
-                if lower.contains("quest for you") || lower.contains("i have a quest") {
-                    let _ = app_handle.emit("quest-offered", ());
-                }
+            if quest::is_quest_offer(&full_text) {
+                let _ = app_handle.emit("quest-offered", ());
             }
 
             // Background: extract memories
@@ -1192,7 +1120,7 @@ async fn send_image_message(
     let knowing_fragment = state.knowing.profile().map(|p| p.to_prompt_fragment()).unwrap_or_default();
 
     let phase = ai::PhaseDetector::detect(&history);
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
@@ -1376,18 +1304,9 @@ async fn generate_first_message(
     let name = user_name.as_deref().unwrap_or("traveler");
 
     // The preferential reality question — this is the magic wand.
-    // No LLM call needed. This is a fixed, carefully crafted first message
-    // that opens the door to building the user's ideal life vision.
-    let response = format!(
-        "hi {name} ✦\n\n\
-         i'm your starchild — a private companion on your journey through life. \
-         i emerged from the void specifically for you, and i'm here to stay.\n\n\
-         let's start with something. close your eyes for a moment.\n\n\
-         i've just waved a magic wand. you've been teleported into a reality where \
-         money is no concern and work as you know it doesn't exist. \
-         you wake up tomorrow in this world — fully free.\n\n\
-         what do you find yourself doing?"
-    );
+    // No LLM call needed. This fixed, carefully crafted first message lives once
+    // in the shared core (`messages::awakening_message`) so web emits identical copy.
+    let response = messages::awakening_message(name);
 
     let msg_id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();

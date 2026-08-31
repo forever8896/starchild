@@ -22,6 +22,9 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 - **E2E tests:** Run `npm run test:e2e` to see conversation quality verified by an LLM judge
 - **No cloud dependency:** All data is local SQLite. The only external call is to Venice AI (zero retention, E2EE) — there is no blockchain, no relay, no telemetry
 
+### Run the web edition (in-browser)
+The full experience also runs in a browser — local-first (IndexedDB), no install: `cd web && npm install && npm run dev` → http://localhost:5174. Inference: paste a Venice key in **Settings** (BYOK), or set `VENICE_TRIAL_KEY` for the sponsored demo. Same shared core as desktop; your data is portable via an encrypted `.starchild` export/import (web ⇄ desktop). Web E2E: `npm run test:web-e2e` (Playwright).
+
 ## Capabilities
 
 | Capability | Description |
@@ -38,26 +41,39 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 
 ## Architecture Summary
 
-- **Frontend:** React 19 + TypeScript + Tailwind CSS 4 + Framer Motion
-- **Backend:** Rust (Tauri 2) with SQLite, Venice AI client, game state engine
+- **Frontend:** React 19 + TypeScript + Tailwind CSS 4 + Framer Motion (shared across both shells)
+- **Backend:** Rust — a pure `starchild_core` crate (native **and** WASM) + thin platform adapters (Tauri/SQLite for desktop; IndexedDB + a WASM bridge for web)
 - **AI:** Venice API (E2EE, zero retention) — GLM-4.7 for conversation, Llama 3.3 70B for internal tasks
-- **Landing page:** Next.js on Vercel
+- **Landing page + token site:** Next.js on Vercel
 - **Prompt System:** 11 composable layers with conversation phase detection and quest cycling
+
+## Two shells, one core — READ THIS BEFORE CHANGING THE EXPERIENCE
+
+Starchild ships as **two shells over one shared core**: a Tauri **desktop** app and an in-browser **web** edition. The whole point is that improving the experience happens **once** and reaches both — no per-platform forks, no drift.
+
+- **Shared surfaces (edit here to improve both shells):**
+  - `src-tauri/core/` — the `starchild_core` crate: prompt builder, phase detector, model router, game/creature, knowing, quest detection/extraction, memory ranking, e2ee crypto. **Pure: no Tauri, SQLite, tokio, or reqwest** (enforced by `scripts/check-core-purity.sh`, wired into CI). Compiles to native (desktop) and WASM (web).
+  - `src/components/*` — shared React UI. They reach platform features **only** through `src/platform/` (`usePlatform()`), **never** Tauri `invoke` directly.
+- **Platform adapters (mechanical only — implement, never branch logic):**
+  - `src/platform/{index,desktop,web,usePlatform}.ts` — the one seam. `desktop.ts` wraps Tauri IPC; `web.ts` wraps the WASM bridge + IndexedDB + the Venice proxy/BYOK.
+  - `src-tauri/src/desktop/*` (SQLite, FTS5 memory, IPC) and `web/*` (Vite shell, IndexedDB storage, `wasm-bridge.ts`, `venice-proxy.ts`).
+- **The rule:** if logic worth improving lives in only one shell, move it into `core` and have both call it. Don't reimplement core logic in `web/` TypeScript.
+- **Verify both:** `cd src-tauri && cargo test` (core + desktop), `cd web && npx vite build && npm run test:web-e2e` (web render + quest loop), `bash scripts/check-core-purity.sh`. Desktop GUI still needs a human `npm run tauri dev` run (no automated harness for the native window).
+
+Full plan: `docs/web-app-prd.md`. Extraction notes: `docs/phase1-core-extraction.md`.
 
 ## Key Files
 
-| File | What It Does |
+| File / Dir | What It Does |
 |------|-------------|
-| `src-tauri/src/ai/mod.rs` | 11-layer prompt builder, model router, Venice streaming client, phase detector |
-| `src-tauri/src/lib.rs` | All Tauri IPC commands, app state, quest extraction, proof flow |
-| `src-tauri/src/db/mod.rs` | SQLite schema, migrations, all CRUD operations |
-| `src-tauri/src/knowing/mod.rs` | 7-dimension user understanding extraction |
-| `src-tauri/src/game/mod.rs` | Creature state machine (hunger, mood, XP, bond) |
-| `src-tauri/src/e2ee.rs` | End-to-end encryption module |
-| `src/components/ChatWindow.tsx` | Main conversation UI with quest accept/decline |
-| `src/components/SkillTree.tsx` | Interactive SVG constellation vision map with celebration animations |
-| `website/` | Next.js landing page with origin story |
-| `tests/e2e/` | E2E test suite with LLM judge |
+| `src-tauri/core/` | **`starchild_core`** — the shared engine: prompt builder, phase detector, model router, game/creature, knowing, quest detect/extract, memory ranking, e2ee crypto (native + WASM; **pure**) |
+| `src-tauri/src/desktop/` + `lib.rs` | Desktop adapters — Tauri IPC commands, SQLite storage, FTS5 memory, the reqwest Venice client |
+| `src/platform/` | The platform seam (interface + desktop/web impls) — the ONLY way shared components reach platform features |
+| `src/components/` | Shared React UI (ChatWindow, SkillTree, Onboarding, ActiveQuest, …) — used by **both** shells |
+| `web/` | Web shell — Vite app, `wasm-bridge.ts`, `storage.ts` (IndexedDB), `venice-proxy.ts`, `export.ts` (.starchild), `dev-proxy.ts`, `api/proxy.ts`, `access.ts` (token lock) |
+| `website/` + `token/` | Next.js landing page + token site (the commons) |
+| `tests/e2e/` + `tests/web-e2e/` | Desktop LLM-judged E2E + web Playwright (incl. the full quest loop) |
+| `docs/web-app-prd.md` | The web edition plan (architecture, portability, inference tiers) |
 
 ## How This Was Built
 

@@ -1,0 +1,69 @@
+# Web CI — the regression net for the web companion (PRD §8).
+#
+# The release workflow (build.yml) only builds the desktop app on master pushes;
+# before this file NOTHING gated the web shell — vitest, the Playwright E2E
+# suite (which drives the real E2EE path via a mock enclave), the typecheck and
+# the production build all ran only on developer machines. This workflow runs
+# them on every push/PR, plus the shared core's cargo tests (which the release
+# workflow also never ran).
+
+name: Web CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The shared engine both shells run — 100+ unit tests (phases, quests,
+  # knowing, the Great Work ontology, E2EE wire format).
+  core-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri/core
+      - name: Core unit tests
+        run: cargo test --manifest-path src-tauri/core/Cargo.toml
+
+  web:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      # Root deps (Playwright + the web-e2e harness) and the web shell's own.
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix web
+
+      - name: Typecheck + production build (web shell)
+        run: npm run build --prefix web
+
+      - name: Unit tests (vitest — storage/export/streaming/E2EE/quests)
+        run: npm test --prefix web
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Boots the real web dev server itself (playwright.config.ts webServer);
+      # inference + attestation are mocked at the network seam inside the specs
+      # (tests/web-e2e/e2ee-mock.ts), so no keys or real network are needed.
+      - name: Web E2E (Playwright — real shell, mock enclave)
+        run: npm run test:web-e2e
+        env:
+          CI: 'true'

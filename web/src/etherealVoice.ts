@@ -1,0 +1,108 @@
+/**
+ * etherealVoice.ts — the creature treatment for the Starchild's voice.
+ *
+ * A raw TTS voice sounds like a person. This makes it sound like a being:
+ *
+ *   • pitch + pace down (~7%) — `playbackRate` with pitch-preservation OFF, so
+ *     the voice drops ~1.3 semitones AND slows into a wiser, more deliberate
+ *     cadence (one knob, two effects — exactly the ffmpeg `asetrate` preview
+ *     the voice was auditioned with);
+ *   • a soft cosmic reverb — a ConvolverNode fed a synthetic exponential-decay
+ *     noise impulse (~1.7s), mixed gently under the dry signal, so it speaks
+ *     as if from a vast, kind place.
+ *
+ * Everything happens live in the browser on the normal HTMLAudioElement, so
+ * `window.__ttsAudio` semantics (currentTime/duration/pause — the char-reveal
+ * sync and stop buttons) are untouched. If Web Audio is unavailable the plain
+ * element still plays — the treatment degrades, the voice never dies.
+ */
+
+/**
+ * Pitch/pace drop. 1 = untouched — LOCKED (2026-07-03): Minimax YoungKnight's
+ * natural pitch and pace won over every DSP variant. Don't turn this knob.
+ */
+const ETHEREAL_RATE = 1.0
+/**
+ * Reverb: a WHISPER of space under the natural voice — the founder's final
+ * verdict ("that voice is very nice, some reverb on it would be nice",
+ * matching the approved youngknight-whisper.mp3 A/B). Full dry signal, a
+ * faint short halo on top: presence of a being, not a cathedral.
+ */
+const WET_LEVEL = 0.16
+const DRY_LEVEL = 1.0
+/** Impulse-response tail length (seconds) — the size of the "space". */
+const IR_SECONDS = 1.2
+
+let ctx: AudioContext | null = null
+let impulse: AudioBuffer | null = null
+
+function audioContext(): AudioContext {
+  if (!ctx) ctx = new AudioContext()
+  return ctx
+}
+
+/** Synthetic stereo impulse response: decaying noise = a smooth, airy hall. */
+function impulseResponse(c: AudioContext): AudioBuffer {
+  if (impulse && impulse.sampleRate === c.sampleRate) return impulse
+  const length = Math.floor(IR_SECONDS * c.sampleRate)
+  const buf = c.createBuffer(2, length, c.sampleRate)
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch)
+    for (let i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.8)
+    }
+  }
+  impulse = buf
+  return buf
+}
+
+/** Treated audio from a base64 mp3 (the usual TTS path). */
+export function createEtherealAudio(base64Mp3: string): HTMLAudioElement {
+  return createEtherealAudioFromSrc(`data:audio/mp3;base64,${base64Mp3}`)
+}
+
+/**
+ * Build the treated audio element from any src (base64 data URL or a bundled
+ * asset URL — e.g. the pregenerated meeting line). Returns a normal
+ * HTMLAudioElement — play/pause/currentTime/duration all behave as usual.
+ */
+export function createEtherealAudioFromSrc(src: string): HTMLAudioElement {
+  const audio = new Audio(src)
+
+  // Pitch + pace: turn OFF pitch preservation so a rate change shifts timbre.
+  // Skipped entirely when neutral — raw means raw.
+  if (ETHEREAL_RATE !== 1.0) {
+    try {
+      ;(audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false
+      ;(audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = false
+      audio.playbackRate = ETHEREAL_RATE
+    } catch {
+      /* rate stays 1 — still fine */
+    }
+  }
+
+  // Reverb: route the element through a convolver + dry mix. Best-effort — any
+  // failure leaves the untreated element playing normally.
+  if (WET_LEVEL > 0) {
+    try {
+      const c = audioContext()
+      void c.resume().catch(() => {})
+      const source = c.createMediaElementSource(audio)
+      const dry = c.createGain()
+      dry.gain.value = DRY_LEVEL
+      const convolver = c.createConvolver()
+      convolver.buffer = impulseResponse(c)
+      const wet = c.createGain()
+      wet.gain.value = WET_LEVEL
+      source.connect(dry)
+      dry.connect(c.destination)
+      source.connect(convolver)
+      convolver.connect(wet)
+      wet.connect(c.destination)
+    } catch {
+      /* no Web Audio — plain playback */
+    }
+  }
+
+  return audio
+}

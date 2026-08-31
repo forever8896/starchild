@@ -1,7 +1,7 @@
 # Starchild Inference Access — Technical Spec
 
 > **Lock $STARCHILD → get a funded, private Starchild inference key.**
-> The token's first real *product* utility. Status: lock contract built (PR #21); the rest specced below.
+> The token's first real *product* utility. **Status: BUILT** — `StarchildLock` (7/7 tests) + `DeployLock.s.sol`; the `/api/access/claim` + `/api/access/status` mint backend and the `/access` lock+claim page on token.starchild.software; the web app links to it (Settings → "Free private access"). Endpoints degrade gracefully until go-live. **Go-live (founder steps):** (1) deploy `StarchildLock` → set `NEXT_PUBLIC_STARCHILD_LOCK`; (2) generate a Venice **admin key** → set `VENICE_ADMIN_KEY` (token Vercel env, server-only); (3) confirm the cap tiers in §4.5.
 
 ---
 

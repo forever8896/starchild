@@ -1,0 +1,71 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+import { devProxy } from './dev-proxy'
+
+// Web shell build config.
+//
+// `vite-plugin-wasm` + `vite-plugin-top-level-await` load the shared `core/`
+// engine compiled to WASM (PRD §4.5–4.6).
+//
+// CRITICAL — single React copy: this app imports the SHARED components + store
+// from `../../src/`, which resolve react/zustand from the repo-root node_modules,
+// while `web/` has its own react. Two React copies → "Invalid hook call" → blank
+// page. Dedupe + alias react/react-dom to the root copy so the whole tree
+// (shared components + web shell) uses ONE React instance.
+const here = dirname(fileURLToPath(import.meta.url)) // web/
+const repoRoot = resolve(here, '..')
+
+export default defineConfig({
+  plugins: [react(), tailwindcss(), wasm(), topLevelAwait(), devProxy()],
+  clearScreen: false,
+  resolve: {
+    dedupe: ['react', 'react-dom', 'zustand', 'framer-motion'],
+    alias: {
+      react: resolve(repoRoot, 'node_modules/react'),
+      'react-dom': resolve(repoRoot, 'node_modules/react-dom'),
+    },
+  },
+  server: {
+    port: 5174,
+    strictPort: true,
+  },
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        // Split heavy third-party vendors out of the main entry chunk so the
+        // app shell ships small and the big dependencies load as their own
+        // cacheable chunks. The WASM core and conditionally-rendered panels
+        // (SkillTree, DataSettings, Settings) are additionally lazy-loaded via
+        // dynamic import (see wasm-bridge.ts and App.tsx), which Rollup emits as
+        // their own async chunks automatically.
+        manualChunks(id) {
+          if (id.includes('/node_modules/')) {
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/scheduler/')
+            ) {
+              return 'react-vendor'
+            }
+            if (id.includes('/framer-motion/') || id.includes('/motion-dom/') || id.includes('/motion-utils/')) {
+              return 'framer-motion'
+            }
+            if (id.includes('/@noble/')) {
+              return 'crypto'
+            }
+          }
+        },
+      },
+    },
+  },
+  worker: {
+    format: 'es',
+    plugins: () => [wasm(), topLevelAwait()],
+  },
+})
