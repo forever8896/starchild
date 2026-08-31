@@ -74,7 +74,6 @@ export default function AboutView() {
       <div className="flex flex-col" style={{ marginTop: "0.5rem" }}>
         <DetailRow label="Legal name" value={COMPANY.legalName} />
         <DetailRow label="Registration no." value={COMPANY.regNumber} />
-        {COMPANY.vatId ? <DetailRow label="VAT ID" value={COMPANY.vatId} /> : null}
         <DetailRow label="Registered seat" value={ADDRESS_INLINE} />
         <DetailRow
           label="Contact"

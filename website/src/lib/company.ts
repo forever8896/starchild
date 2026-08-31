@@ -16,8 +16,16 @@ export const COMPANY = {
   /** IČO — business registration number. */
   regNumber: "19534001",
 
-  /** DIČ / VAT ID. Set to null if not VAT-registered. */
-  vatId: "CZ0402075828" as string | null,
+  /**
+   * Whether the business is registered for VAT.
+   *
+   * The DIČ itself is deliberately absent from this repository. The Czech
+   * personal format is CZ + rodné číslo, so the number discloses a date of
+   * birth — and this module is imported by client components, meaning
+   * anything here ships in the public JS bundle. It belongs on invoices and
+   * in tax filings, not in source control.
+   */
+  vatRegistered: true,
 
   /** Which register the entity is entered in. */
   register: "Živnostenský rejstřík (Czech Trade Licence Register)",

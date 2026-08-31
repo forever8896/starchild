@@ -15,11 +15,14 @@ export default function LegalView() {
         <DetailRow label="Operator" value={COMPANY.legalName} />
         <DetailRow label="Trading as" value={COMPANY.tradeName} />
         <DetailRow label="Registration no. (IČO)" value={COMPANY.regNumber} />
-        {COMPANY.vatId ? (
-          <DetailRow label="VAT ID (DIČ)" value={COMPANY.vatId} />
-        ) : (
-          <DetailRow label="VAT ID (DIČ)" value="Not VAT-registered" />
-        )}
+        <DetailRow
+          label="VAT (DIČ)"
+          value={
+            COMPANY.vatRegistered
+              ? "Registered — number stated on invoices"
+              : "Not registered for VAT"
+          }
+        />
         <DetailRow label="Entered in" value={COMPANY.register} />
         <DetailRow
           label="Registered seat"
