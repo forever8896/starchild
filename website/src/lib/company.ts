@@ -42,8 +42,8 @@ export const COMPANY = {
   /** Year the entity began trading (register date: 17 July 2023). */
   founded: "2023",
 
-  /** Must be a real mailbox on this domain — not a forwarder. */
-  email: "hello@starchild.software",
+  /** Real mailbox on the domain (Namecheap Private Email), not a forwarder. */
+  email: "inquiries@starchild.software",
 } as const;
 
 export const ADDRESS_INLINE = COMPANY.address.join(", ");
