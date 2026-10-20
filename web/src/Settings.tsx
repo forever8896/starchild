@@ -239,7 +239,9 @@ function VoiceSection() {
       <p className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
         Speaking sends <em>its</em> words — and the mic sends <em>your</em> recorded
         speech (only when you press it) — to Venice's voice service, which isn't
-        end-to-end encrypted like the chat. Type instead for full silence on the wire.
+        end-to-end encrypted like the chat; the expressive voices run on Venice's
+        partner MiniMax, which receives the words it speaks. Type instead for full
+        silence on the wire.
       </p>
     </SectionCard>
   )
@@ -297,7 +299,7 @@ function DataSection() {
   }
 
   return (
-    <SectionCard accent="#a8c8e8" title="Where your heart's kept" subtitle="Everything lives only in this browser — encrypted, no account, no server">
+    <SectionCard accent="#a8c8e8" title="Where your heart's kept" subtitle="Everything lives only in this browser — no account, no server">
       {/* Export */}
       <div className="flex flex-col gap-2.5">
         <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
