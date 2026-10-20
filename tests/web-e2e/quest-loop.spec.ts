@@ -43,7 +43,7 @@
  */
 
 import { test, expect, type Page, type Route } from '@playwright/test'
-import { attestationBody, openProxyRequest, skipIntro, sseStreamEncrypted, sseStreamPlain } from './e2ee-mock'
+import { attestationBody, openProxyRequest, skipIntro, passMeetingTap, sseStreamEncrypted, sseStreamPlain } from './e2ee-mock'
 
 // ── The quest we inject at the extraction seam ───────────────────────────────
 // Short title (< 18 chars) so the Vision Tree renders it un-truncated as a node
@@ -263,6 +263,7 @@ test.describe('web shell — full quest loop', () => {
     // ── Onboarding ───────────────────────────────────────────────────────────
     await skipIntro(page)
     await page.goto('/')
+    await passMeetingTap(page)
     await completeOnboarding(page)
 
     const composer = page.getByPlaceholder('talk to your starchild...')

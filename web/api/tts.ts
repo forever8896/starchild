@@ -123,9 +123,9 @@ async function redisCmd(cmd: (string | number)[]): Promise<unknown> {
   return (await res.json()).result
 }
 async function redisIncrTtl(k: string, ttlSec: number): Promise<number> {
-  const n = Number(await redisCmd(['INCR', k]))
-  if (n === 1) await redisCmd(['EXPIRE', k, ttlSec])
-  return n
+  // Atomic window: SET NX EX creates the key with its TTL; INCR keeps it.
+  await redisCmd(['SET', k, 0, 'EX', ttlSec, 'NX'])
+  return Number(await redisCmd(['INCR', k]))
 }
 async function redisGetNum(k: string): Promise<number> {
   const v = await redisCmd(['GET', k])

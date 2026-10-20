@@ -23,14 +23,9 @@ import { sha256 } from '@noble/hashes/sha256'
 import { keccak_256 } from '@noble/hashes/sha3'
 import { gcm } from '@noble/ciphers/aes'
 
-/** The single Venice E2EE model the trial is pinned to. GLM-4.7's confidential
- *  enclave is kept warm (reliably ~2.5s to first token); GLM-5.2's is currently
- *  under-provisioned (10–40s, highly variable), so the trial uses 4.7 for speed.
- *  Both speak the v1 secp256k1 attestation this client implements. */
-export const E2EE_MODEL = 'e2ee-glm-4-7-p'
+import { E2EE_MODELS, E2EE_MODEL } from './e2ee-models'
+export { E2EE_MODELS, E2EE_MODEL }
 
-/** Pinned enclave identity — the attestation must attest THIS model on THIS hardware. */
-const PIN_UPSTREAM_MODEL = 'z-ai/glm-4.7'
 const PIN_TEE_HARDWARE = 'intel-tdx'
 
 /** HKDF info string — must match Venice's server-side derivation. */
@@ -63,11 +58,13 @@ export class E2eeSession {
   readonly modelPubHex: string
   /** When this session's attestation goes stale (epoch ms); re-establish past it. */
   readonly staleAt: number
+  /** The Venice E2EE model id this session's attestation was verified for. */
+  readonly model: string
 
   #clientPriv: Uint8Array
   #modelPub: Uint8Array
 
-  constructor(modelPubHex: string, staleAt: number) {
+  constructor(modelPubHex: string, staleAt: number, model: string = E2EE_MODEL) {
     // Normalize: a 128-char key without the uncompressed 04 prefix gets one.
     if (modelPubHex.length === 128 && !modelPubHex.startsWith('04')) modelPubHex = '04' + modelPubHex
     this.modelPubHex = modelPubHex
@@ -75,6 +72,7 @@ export class E2eeSession {
     this.#clientPriv = secp256k1.utils.randomPrivateKey()
     this.clientPubHex = toHex(secp256k1.getPublicKey(this.#clientPriv, false))
     this.staleAt = staleAt
+    this.model = model
   }
 
   // ECDH(x-coordinate) → HKDF-SHA256 → 32-byte AES key. The compressed shared
@@ -156,7 +154,8 @@ function keyAddress(pubHex: string): string {
  *       (keccak256(signing_key) === reportDataAddress).
  *
  *   PINNED (a relay can't silently swap these without us noticing):
- *     • the attested upstream model is GLM-4.7 and the hardware is Intel TDX.
+ *     • the attested upstream model is the one pinned for the requested id in
+ *       {@link E2EE_MODELS}, and the hardware is Intel TDX.
  *
  *   TRUSTED FROM VENICE (their server-side Intel-root DCAP result):
  *     • the TDX quote signature + PCK cert chain are valid, root CA pinned, not
@@ -168,13 +167,13 @@ function keyAddress(pubHex: string): string {
  * serves this very verifier. Full local DCAP (and it matters most on the desktop
  * fixed binary) is the labeled next step.
  */
-function verifyAttestation(att: Attestation, expectedNonce: string): void {
+function verifyAttestation(att: Attestation, expectedNonce: string, pinUpstream: string): void {
   if (att.verified === false) throw new Error('e2ee: attestation not verified')
   if (att.nonce && att.nonce !== expectedNonce) throw new Error('e2ee: attestation nonce mismatch')
 
   if (att.tee_hardware && att.tee_hardware !== PIN_TEE_HARDWARE)
     throw new Error(`e2ee: unexpected TEE hardware ${att.tee_hardware}`)
-  if (att.upstream_model && att.upstream_model !== PIN_UPSTREAM_MODEL)
+  if (att.upstream_model && att.upstream_model !== pinUpstream)
     throw new Error(`e2ee: unexpected upstream model ${att.upstream_model}`)
 
   const sv = att.server_verification
@@ -211,15 +210,40 @@ export async function establishE2eeSession(
   attestUrl: string,
   opts: { model?: string; signal?: AbortSignal } = {},
 ): Promise<E2eeSession> {
-  const model = opts.model ?? E2EE_MODEL
-  const nonce = toHex(randBytes(32))
-  const url = `${attestUrl}?model=${encodeURIComponent(model)}&nonce=${nonce}`
+  // An explicit model is tried alone; otherwise walk the ranked list so one
+  // retired or unhealthy enclave doesn't take the whole conversation down.
+  const candidates = opts.model
+    ? E2EE_MODELS.filter((m) => m.id === opts.model)
+    : E2EE_MODELS
+  if (candidates.length === 0) throw new Error(`e2ee: model ${opts.model} is not an allowed E2EE model`)
 
-  const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: opts.signal })
-  if (!res.ok) throw new Error(`e2ee: attestation failed (HTTP ${res.status})`)
+  // If every model fails, surface the preferred model's reason — it's the one
+  // that matters, and a later fallback's pin mismatch would only obscure it.
+  let firstErr: unknown
+  for (const m of candidates) {
+    try {
+      return await establishFor(attestUrl, m, opts.signal)
+    } catch (e) {
+      if (opts.signal?.aborted) throw e
+      firstErr ??= e
+    }
+  }
+  throw firstErr instanceof Error ? firstErr : new Error('e2ee: no E2EE model could be attested')
+}
+
+async function establishFor(
+  attestUrl: string,
+  m: { id: string; upstream: string },
+  signal?: AbortSignal,
+): Promise<E2eeSession> {
+  const nonce = toHex(randBytes(32))
+  const url = `${attestUrl}?model=${encodeURIComponent(m.id)}&nonce=${nonce}`
+
+  const res = await fetch(url, { headers: { Accept: 'application/json' }, signal })
+  if (!res.ok) throw new Error(`e2ee: attestation failed for ${m.id} (HTTP ${res.status})`)
   const att = (await res.json()) as Attestation
 
-  verifyAttestation(att, nonce)
+  verifyAttestation(att, nonce, m.upstream)
 
   const modelPubHex = att.signing_public_key || att.signing_key
   if (!modelPubHex) throw new Error('e2ee: attestation missing signing key')
@@ -227,5 +251,5 @@ export async function establishE2eeSession(
   // Refresh a minute before Venice marks it stale (default ~50 min out).
   const staleAfterSec = att.stale_after ?? att.freshness?.stale_after
   const staleAt = staleAfterSec ? staleAfterSec * 1000 - 60_000 : Date.now() + 50 * 60_000
-  return new E2eeSession(modelPubHex, staleAt)
+  return new E2eeSession(modelPubHex, staleAt, m.id)
 }

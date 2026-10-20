@@ -60,50 +60,64 @@ const core = async () => (await wasm()).loadCore()
 // fall back to the plaintext (cheaper/faster) trial model.
 const E2EE_TRIAL = true
 
-let e2eeSessionP: Promise<import('../../web/src/e2ee').E2eeSession> | null = null
+type E2eeSession = import('../../web/src/e2ee').E2eeSession
+
+/** One cached session per tier: the trial attests through our relay (it holds
+ *  the key), BYOK attests straight against Venice (keyless, CORS-open). */
+const e2eeSessions: Record<'trial' | 'byok', Promise<E2eeSession> | null> = { trial: null, byok: null }
+
+/** Forget cached sessions (e.g. a reply failed to decrypt — the key rotated). */
+function resetE2eeSessions(): void {
+  e2eeSessions.trial = null
+  e2eeSessions.byok = null
+}
 
 /**
- * Get (or establish) the trial E2EE session, refreshing when it goes stale.
- * THROWS on handshake failure — the trial is E2EE-or-nothing. Callers decide
+ * Get (or establish) the E2EE session for a tier, refreshing when it goes stale.
+ * THROWS on handshake failure — both tiers are E2EE-or-nothing. Callers decide
  * what failure means: `sendMessage` surfaces it to the user (fail closed — we
  * never silently downgrade the conversation to plaintext), background
  * extraction simply skips its work.
  */
-async function trialE2eeSession(): Promise<import('../../web/src/e2ee').E2eeSession | undefined> {
-  if (!E2EE_TRIAL) return undefined
+async function e2eeSessionFor(mode: 'trial' | 'byok'): Promise<E2eeSession> {
   const v = await venice()
-  const fresh = async () => v.establishE2eeSession(v.DEFAULT_ATTEST_URL)
+  const fresh = async () => v.establishE2eeSession(mode === 'trial' ? v.DEFAULT_ATTEST_URL : v.VENICE_ATTEST_URL)
   try {
-    if (!e2eeSessionP) e2eeSessionP = fresh()
-    let s = await e2eeSessionP
+    if (!e2eeSessions[mode]) e2eeSessions[mode] = fresh()
+    let s = await e2eeSessions[mode]!
     if (Date.now() >= s.staleAt) {
-      e2eeSessionP = fresh()
-      s = await e2eeSessionP
+      e2eeSessions[mode] = fresh()
+      s = await e2eeSessions[mode]!
     }
     return s
   } catch (err) {
     // Drop the failed promise so the next attempt retries the handshake.
-    e2eeSessionP = null
+    e2eeSessions[mode] = null
     throw err
   }
 }
 
+/** The trial session, or undefined when an operator has opted out of E2EE. */
+async function trialE2eeSession(): Promise<E2eeSession | undefined> {
+  return E2EE_TRIAL ? e2eeSessionFor('trial') : undefined
+}
+
 /**
  * Inference options for CONVERSATION-DERIVED content — the single policy gate.
- * BYOK goes direct to Venice with the user's key. The trial REQUIRES the E2EE
- * session; if the handshake fails the caller gets a thrown error (never a
- * silent plaintext downgrade). Background callers pass `optional: true` to get
- * `null` back instead — meaning "skip this work", still never plaintext.
+ * Both tiers REQUIRE an E2EE session: the trial through our relay, BYOK direct
+ * to Venice with the user's key. If the handshake fails the caller gets a thrown
+ * error (never a silent plaintext downgrade). Background callers pass
+ * `optional: true` to get `null` back instead — meaning "skip this work", still
+ * never plaintext.
  */
 async function privateInference(optional = false): Promise<
   { mode: 'trial' | 'byok'; apiKey?: string; e2eeSession?: import('../../web/src/e2ee').E2eeSession } | null
 > {
   const { mode, apiKey } = await resolveInference()
-  if (mode === 'byok') return { mode, apiKey }
-  if (!E2EE_TRIAL) return { mode } // explicit operator opt-out of E2EE
+  if (mode === 'trial' && !E2EE_TRIAL) return { mode } // explicit operator opt-out of E2EE
   try {
-    const e2eeSession = await trialE2eeSession()
-    return { mode, e2eeSession }
+    const e2eeSession = await e2eeSessionFor(mode)
+    return { mode, apiKey, e2eeSession }
   } catch (err) {
     if (optional) {
       console.warn('E2EE unavailable — skipping background inference (no plaintext fallback):', err)
@@ -118,11 +132,12 @@ async function privateInference(optional = false): Promise<
 // ── Enclave keep-alive ────────────────────────────────────────────────────────
 //
 // The confidential enclave can cold-start (~12s to first token) but then holds
-// warmth (~2.5s on GLM-4.7). So from app-load we ping it with a tiny throwaway
-// E2EE inference every 15s — by the time the user finishes onboarding and sends
+// warmth (~2.6s on Qwen3.8-27B). So from app-load we ping it with a tiny throwaway
+// E2EE inference every 30s — by the time the user finishes onboarding and sends
 // their first real message, the enclave is warm. Stops on the first real message
 // (real traffic keeps it warm) or after a cap, and never runs for BYOK. Each ping
-// is a few tokens (aborted at the first) — negligible cost.
+// is a single token, metered by the proxy in its own rate bucket (`warm`), so
+// warming never counts against the user's message allowance.
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null
 let keepAliveUntil = 0
 let pingInFlight = false
@@ -136,7 +151,7 @@ async function pingEnclave(): Promise<void> {
     if (!session) { stopEnclaveKeepAlive(); return }
     for await (const _tok of v.streamChat(
       [{ role: 'user', content: 'hi' }],
-      { mode: 'trial', e2eeSession: session, temperature: 0.1, signal: ctrl.signal },
+      { mode: 'trial', e2eeSession: session, temperature: 0.1, warm: true, signal: ctrl.signal },
     )) {
       ctrl.abort() // warm now — stop generating
       break
@@ -168,7 +183,7 @@ export function warmTrialE2ee(): void {
     keepAliveTimer = setInterval(() => {
       if (Date.now() >= keepAliveUntil) { stopEnclaveKeepAlive(); return }
       void pingEnclave()
-    }, 15_000)
+    }, 30_000)
   })()
 }
 
@@ -754,7 +769,7 @@ export const webPlatform: Platform = {
     } catch (err) {
       // A decrypt failure means the cached E2EE session likely went stale —
       // drop it so the user's retry performs a fresh handshake.
-      if (err instanceof Error && /decrypt/i.test(err.message)) e2eeSessionP = null
+      if (err instanceof Error && /decrypt/i.test(err.message)) resetE2eeSessions()
       await rollbackTurn()
       throw err
     }

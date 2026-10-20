@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { attestationBody, openProxyRequest, skipIntro, sseStreamEncrypted, sseStreamPlain } from './e2ee-mock'
+import { attestationBody, openProxyRequest, skipIntro, passMeetingTap, sseStreamEncrypted, sseStreamPlain } from './e2ee-mock'
 
 /**
  * Mock enclave (see e2ee-mock.ts): the fail-closed E2EE trial needs a
@@ -65,6 +65,7 @@ test('great work — position auto-initializes on first message', async ({ page 
   await mockInference(page)
   await skipIntro(page)
   await page.goto('/')
+  await passMeetingTap(page)
 
   // Complete onboarding
   await page.getByPlaceholder('a name…').fill('Test')

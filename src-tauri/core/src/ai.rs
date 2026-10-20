@@ -45,6 +45,18 @@ pub enum ModelTier {
     Vision,
 }
 
+/// Venice E2EE models Starchild may use, best first, as `(id, attested upstream
+/// model)`. Venice retires E2EE models every few months (GLM-4.7 went in Aug
+/// 2026), so callers should fall back down this list when an attestation fails.
+/// Every entry speaks the v1 attestation `e2ee.rs` implements. Ranked by measured
+/// warm time-to-first-token (2026-10-20): qwen3-8-27b ≈ 2.6s, qwen3-6-35b-a3b
+/// ≈ 13–22s, deepseek-v4-flash ≈ 50s. Keep in sync with `web/src/e2ee-models.ts`.
+pub const E2EE_MODELS: &[(&str, &str)] = &[
+    ("e2ee-qwen3-8-27b", "Qwen/Qwen3.8-27B"),
+    ("e2ee-qwen3-6-35b-a3b", "Qwen/Qwen3.6-35B-A3B-FP8"),
+    ("e2ee-deepseek-v4-flash", "deepseek-ai/DeepSeek-V4-Flash"),
+];
+
 impl ModelTier {
     /// Venice-compatible model identifier.
     pub fn model_id(&self) -> &'static str {
@@ -60,13 +72,12 @@ impl ModelTier {
     /// All user-facing tiers use the same E2EE model so a single session works.
     /// Returns None if this tier doesn't use E2EE.
     ///
-    /// GLM-4.7 (z-ai/glm-4.7): a strong, recent model that still exposes Venice's
-    /// v1 E2EE attestation (secp256k1 `signing_public_key` + ecdsa, TDX-verified) —
-    /// a drop-in for the v1 handshake in `e2ee.rs`. GLM-5.2 uses the v2 `e2e_pubkey`
-    /// scheme this client does not implement, so it is intentionally not used.
+    /// The preferred entry of [`E2EE_MODELS`]: Qwen3.8-27B still exposes Venice's
+    /// v1 E2EE attestation (secp256k1 `signing_public_key` + ecdsa, TDX-verified),
+    /// a drop-in for the v1 handshake in `e2ee.rs`, and answers in ~2.6s warm.
     pub fn e2ee_model_id(&self) -> Option<&'static str> {
         match self {
-            ModelTier::Regular | ModelTier::Deep => Some("e2ee-glm-4-7-p"),
+            ModelTier::Regular | ModelTier::Deep => Some(E2EE_MODELS[0].0),
             _ => None,
         }
     }

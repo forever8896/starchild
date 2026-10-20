@@ -34,8 +34,11 @@ export const DEFAULT_ATTEST_URL = "/api/attest";
 
 /** Default Venice REST base — overridable for BYOK (e.g. a regional endpoint). */
 export const DEFAULT_VENICE_BASE_URL = "https://api.venice.ai/api/v1";
-/** Default model for BYOK requests (a solid, widely-available Venice model). */
+/** Default model for plaintext BYOK requests (only used without an E2EE session). */
 export const DEFAULT_BYOK_MODEL = "llama-3.3-70b";
+/** Venice's own attestation endpoint — keyless and CORS-open, so BYOK sessions
+ *  attest straight from the browser with no relay in between. */
+export const VENICE_ATTEST_URL = `${DEFAULT_VENICE_BASE_URL}/tee/attestation`;
 /** Where the trial proxy lives (a same-origin Edge function). */
 export const DEFAULT_PROXY_URL = "/api/proxy";
 
@@ -51,11 +54,18 @@ export interface StreamChatOptions {
   /** TRIAL only: proxy endpoint. Defaults to {@link DEFAULT_PROXY_URL}. */
   proxyUrl?: string;
   /**
-   * TRIAL only: an established E2EE session. When present, message contents are
-   * encrypted to the enclave before leaving the browser and response deltas are
-   * decrypted here — the proxy relays only ciphertext. Absent → plaintext trial.
+   * An established E2EE session (trial or BYOK). When present, message contents
+   * are encrypted to the enclave before leaving the browser and response deltas
+   * are decrypted here — the proxy (trial) or Venice's API edge (BYOK) sees only
+   * ciphertext, and the session's attested model is the one called.
    */
   e2eeSession?: E2eeSession;
+  /**
+   * TRIAL only: this is an enclave keep-alive ping, not conversation. The proxy
+   * meters it in its own small rate bucket (so warming never eats the user's
+   * message allowance) and caps it at a single token.
+   */
+  warm?: boolean;
   /** BYOK only: Venice base URL. Defaults to {@link DEFAULT_VENICE_BASE_URL}. */
   baseUrl?: string;
   /** Abort the request (e.g. user cancels or the component unmounts). */
@@ -126,13 +136,13 @@ export async function* streamChat(
     );
   }
 
-  // E2EE trial: every SSE delta is hex ciphertext from the enclave. Decrypt each
+  // E2EE (trial or BYOK): every SSE delta is hex ciphertext from the enclave. Decrypt each
   // with the session key. Non-ciphertext chunks (keepalives, partial hex across
   // a chunk boundary) fail to decrypt and are skipped, mirroring the desktop —
   // but if a stream delivers content and NONE of it decrypts, that's a broken
   // session (stale key, tampered relay), not noise: fail loudly so the UI shows
   // an error instead of persisting a silent blank reply.
-  const session = opts.mode === "trial" ? opts.e2eeSession : undefined;
+  const session = opts.e2eeSession;
   if (session) {
     let received = 0;
     let decrypted = 0;
@@ -173,8 +183,10 @@ async function postTrial(
         e2ee: true,
         clientPubHex: session.clientPubHex,
         modelPubHex: session.modelPubHex,
+        model: session.model,
         messages: messages.map((m) => ({ role: m.role, content: session.encrypt(m.content) })),
         temperature: opts.temperature,
+        ...(opts.warm ? { warm: true } : {}),
       }
     : { messages, temperature: opts.temperature };
 
@@ -199,12 +211,26 @@ async function postByok(
     );
   }
   const base = (opts.baseUrl ?? DEFAULT_VENICE_BASE_URL).replace(/\/+$/, "");
+  const session = opts.e2eeSession;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  // E2EE: same wire format as the trial, but straight to Venice — encrypt each
+  // message to the attested enclave and name its keys in the TEE headers.
+  if (session) {
+    headers["X-Venice-TEE-Client-Pub-Key"] = session.clientPubHex;
+    headers["X-Venice-TEE-Model-Pub-Key"] = session.modelPubHex;
+    headers["X-Venice-TEE-Signing-Algo"] = "ecdsa";
+  }
   return doFetch(
     `${base}/chat/completions`,
-    { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    headers,
     {
-      model: opts.model ?? DEFAULT_BYOK_MODEL,
-      messages,
+      model: session ? session.model : (opts.model ?? DEFAULT_BYOK_MODEL),
+      messages: session
+        ? messages.map((m) => ({ role: m.role, content: session.encrypt(m.content) }))
+        : messages,
       temperature: opts.temperature ?? 0.7,
       stream: true,
       stream_options: { include_usage: true },

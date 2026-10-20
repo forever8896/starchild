@@ -4,6 +4,7 @@ import {
   formatFeedback,
   webhookRequest,
 } from "./api/format-feedback";
+import { E2EE_MODEL, isAllowedE2eeModel } from "./src/e2ee-models";
 
 /**
  * Dev-only sponsored-demo shim (PRD §6.1).
@@ -48,9 +49,15 @@ export function devProxy(): Plugin {
         const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
         // E2EE: relay ciphertext to the enclave, injecting the TEE headers.
         const e2ee = body.e2ee === true;
-        const model = e2ee
-          ? process.env.TRIAL_E2EE_MODEL || "e2ee-glm-4-7-p"
-          : process.env.TRIAL_MODEL || "llama-3.3-70b";
+        const e2eeModel = body.model ?? E2EE_MODEL;
+        if (e2ee && !isAllowedE2eeModel(e2eeModel)) {
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "model not allowed" }));
+          return;
+        }
+        const warm = e2ee && body.warm === true;
+        const model = e2ee ? e2eeModel : process.env.TRIAL_MODEL || "llama-3.3-70b";
         const headers: Record<string, string> = {
           Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
@@ -73,7 +80,7 @@ export function devProxy(): Plugin {
               model,
               messages: body.messages ?? [],
               stream: true,
-              max_tokens: 600,
+              max_tokens: warm ? 1 : 600,
             }),
           },
         );
@@ -125,7 +132,11 @@ export function devProxy(): Plugin {
       }
       try {
         const u = new URL(req.url || "", "http://localhost");
-        const model = u.searchParams.get("model") || "e2ee-glm-4-7-p";
+        const model = u.searchParams.get("model") || E2EE_MODEL;
+        if (!isAllowedE2eeModel(model)) {
+          send(400, { error: "model not allowed" });
+          return;
+        }
         const nonce = u.searchParams.get("nonce") || "";
         if (!/^[0-9a-fA-F]{16,128}$/.test(nonce)) {
           send(400, { error: "valid hex nonce required" });

@@ -28,6 +28,8 @@
 //   TRIAL_MAX_TOKENS        (optional) Hard ceiling on completion length. Def 400.
 //   TRIAL_RATE_LIMIT        (optional) Max requests per IP per window. Def 20.
 //   TRIAL_RATE_WINDOW_SEC   (optional) Rate-limit window seconds. Def 3600.
+//   TRIAL_WARM_RATE_LIMIT   (optional) Max enclave keep-alive pings per IP per
+//                           window, metered apart from messages. Def 40.
 //   TRIAL_MONTHLY_BUDGET_USD(optional) Monthly spend ceiling. Def 50.
 //   TRIAL_USD_PER_MTOK      (optional) Blended $ per 1M tokens, for the spend
 //                           estimate. Def 0.7 (cheap model ballpark; tune it).
@@ -35,17 +37,23 @@
 //   TRIAL_ALLOWED_ORIGIN    (optional) CORS origin to allow. Default: none —
 //                           same-origin only (no CORS headers emitted).
 
+import { E2EE_MODEL, isAllowedE2eeModel } from '../src/e2ee-models'
+
 export const config = { runtime: 'edge' }
 
 const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? 'https://api.venice.ai/api/v1'
 // Cheapest non-E2EE tier the desktop app already uses for internal tasks.
 const MODEL = process.env.TRIAL_MODEL ?? 'llama-3.3-70b'
 // The E2EE tier: content is encrypted browser↔enclave (this proxy only injects
-// the key + relays ciphertext). Pinned so the client can't request another.
-const E2EE_MODEL = process.env.TRIAL_E2EE_MODEL ?? 'e2ee-glm-4-7-p'
+// the key + relays ciphertext). The client names the model its session attested;
+// only allow-listed ids (`src/e2ee-models.ts`) are accepted, never a pricier one.
 const MAX_TOKENS = int(process.env.TRIAL_MAX_TOKENS, 400)
 const RATE_LIMIT = int(process.env.TRIAL_RATE_LIMIT, 20)
 const RATE_WINDOW_SEC = int(process.env.TRIAL_RATE_WINDOW_SEC, 3600)
+const WARM_RATE_LIMIT = int(process.env.TRIAL_WARM_RATE_LIMIT, 40)
+// A keep-alive ping is one encrypted "hi": ~200 hex chars. Anything bigger is
+// not a ping and doesn't get the ping bucket.
+const WARM_MAX_CONTENT = 1024
 const MONTHLY_BUDGET_USD = num(process.env.TRIAL_MONTHLY_BUDGET_USD, 50)
 const USD_PER_MTOK = num(process.env.TRIAL_USD_PER_MTOK, 0.7)
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
@@ -73,6 +81,8 @@ export default async function handler(req: Request): Promise<Response> {
     e2ee?: unknown
     clientPubHex?: unknown
     modelPubHex?: unknown
+    model?: unknown
+    warm?: unknown
   }
   try {
     body = await req.json()
@@ -91,13 +101,28 @@ export default async function handler(req: Request): Promise<Response> {
   if (e2ee && !(isHex(clientPubHex, 130) && isHex(modelPubHex, 130))) {
     return json({ error: 'e2ee requires clientPubHex and modelPubHex' }, 400)
   }
+  // The enclave key is per-model, so the model must be the one the session
+  // attested. Older clients send none → the preferred model.
+  const e2eeModel = body?.model === undefined ? E2EE_MODEL : body.model
+  if (e2ee && !isAllowedE2eeModel(e2eeModel)) {
+    return json({ error: 'model not allowed' }, 400)
+  }
+
+  // Enclave keep-alive pings get their own bucket and a 1-token cap, so warming
+  // never eats a user's message allowance. Only a tiny, encrypted, single-message
+  // request qualifies — a real prompt can't hide in the ping bucket.
+  const warm =
+    body?.warm === true &&
+    e2ee &&
+    messages.length === 1 &&
+    String((messages[0] as { content?: unknown })?.content ?? '').length <= WARM_MAX_CONTENT
 
   const ip = clientIp(req)
 
   // 1) Per-IP rate limit (fixed window). First hit in a window sets the TTL.
   try {
-    const count = await redisIncrTtl(`trial:rl:${ip}`, RATE_WINDOW_SEC)
-    if (count > RATE_LIMIT) {
+    const count = await redisIncrTtl(warm ? `trial:warm:${ip}` : `trial:rl:${ip}`, RATE_WINDOW_SEC)
+    if (count > (warm ? WARM_RATE_LIMIT : RATE_LIMIT)) {
       return json({ error: 'rate limited, take a breath and try again soon' }, 429, {
         'Retry-After': String(RATE_WINDOW_SEC),
       })
@@ -132,10 +157,10 @@ export default async function handler(req: Request): Promise<Response> {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      model: e2ee ? E2EE_MODEL : MODEL,
+      model: e2ee ? e2eeModel : MODEL,
       messages,
       temperature: clampTemp(body?.temperature),
-      max_tokens: MAX_TOKENS,
+      max_tokens: warm ? 1 : MAX_TOKENS,
       stream: true,
       stream_options: { include_usage: true },
     }),
@@ -228,9 +253,11 @@ async function redisCmd(cmd: (string | number)[]): Promise<unknown> {
 }
 
 async function redisIncrTtl(key: string, ttlSec: number): Promise<number> {
-  const n = Number(await redisCmd(['INCR', key]))
-  if (n === 1) await redisCmd(['EXPIRE', key, ttlSec]) // set window on first hit
-  return n
+  // Create the window atomically WITH its TTL first (SET NX EX), then INCR,
+  // which preserves the TTL. The old INCR-then-EXPIRE left a key with no expiry
+  // (a permanent lockout) if the function died between the two calls.
+  await redisCmd(['SET', key, 0, 'EX', ttlSec, 'NX'])
+  return Number(await redisCmd(['INCR', key]))
 }
 
 async function redisGetNum(key: string): Promise<number> {

@@ -28,7 +28,7 @@
  * stubbing React internals — so the real component + core code paths still run.
  */
 
-import { skipIntro } from './e2ee-mock'
+import { skipIntro, passMeetingTap } from './e2ee-mock'
 import { test, expect, type Page } from '@playwright/test'
 
 /**
@@ -89,6 +89,7 @@ test.describe('web shell', () => {
 
     await skipIntro(page)
     await page.goto('/')
+    await passMeetingTap(page)
 
     // Document loaded as the real Starchild shell.
     await expect(page).toHaveTitle(/starchild/i)
@@ -112,6 +113,7 @@ test.describe('web shell', () => {
 
     await skipIntro(page)
     await page.goto('/')
+    await passMeetingTap(page)
 
     // Fill the name and begin — on web `hasInferenceKey()` is true (bounded
     // trial), so no API key is required to submit.

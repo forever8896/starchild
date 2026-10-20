@@ -22,6 +22,7 @@ import { sha256 } from '@noble/hashes/sha256'
 import { keccak_256 } from '@noble/hashes/sha3'
 import { gcm } from '@noble/ciphers/aes'
 import { streamChat, establishE2eeSession, E2eeSession } from './venice-proxy'
+import { E2EE_MODELS } from './e2ee-models'
 import type { ChatMessage } from './wasm-bridge'
 
 // ── tiny helpers ──────────────────────────────────────────────────────────────
@@ -87,10 +88,10 @@ function attestation(overrides: Record<string, unknown> = {}, nonce = ''): Recor
     signing_public_key: enclavePubHex,
     verified: true,
     nonce,
-    model: 'e2ee-glm-4-7-p',
+    model: 'e2ee-qwen3-8-27b',
     stale_after: Math.floor(Date.now() / 1000) + 3600,
     tee_hardware: 'intel-tdx',
-    upstream_model: 'z-ai/glm-4.7',
+    upstream_model: 'Qwen/Qwen3.8-27B',
     signing_address: enclaveAddress,
     server_verification: {
       tdx: {
@@ -235,5 +236,26 @@ describe('establishE2eeSession — attestation verification', () => {
       },
     })
     await expect(establishE2eeSession(URL_)).rejects.toThrow(/did not fully verify/)
+  })
+
+  it('falls back down the ranked list when the preferred model is retired', async () => {
+    // Venice retires E2EE models; a 404 on the first must not end the conversation.
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      const u = new URL(String(url), 'http://x')
+      const model = u.searchParams.get('model')
+      if (model === E2EE_MODELS[0].id) return new Response('{"error":"Specified model not found"}', { status: 404 })
+      const nonce = u.searchParams.get('nonce') ?? ''
+      return new Response(JSON.stringify(attestation({ model, upstream_model: E2EE_MODELS[1].upstream }, nonce)), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    }))
+    const s = await establishE2eeSession(URL_)
+    expect(s.model).toBe(E2EE_MODELS[1].id)
+    expect(enclaveDecrypt(s.encrypt('still private'))).toBe('still private')
+  })
+
+  it('refuses a model that is not on the allow-list', async () => {
+    stubAttestFetch()
+    await expect(establishE2eeSession(URL_, { model: 'e2ee-glm-4-7-p' })).rejects.toThrow(/not an allowed/)
   })
 })

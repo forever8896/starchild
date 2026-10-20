@@ -6,7 +6,7 @@
 // carries NO conversation content and costs no inference, so it's a thin,
 // content-blind relay; the client sends a nonce and verifies the echo itself.
 //
-// Pinned to the single E2EE model the trial allows. Rate-limited per IP (best
+// Pinned to the E2EE models the trial allows (`src/e2ee-models.ts`). Rate-limited per IP (best
 // effort) to keep the relay from being trivially hammered. Fails closed if the
 // trial key is absent, matching /api/proxy.
 //
@@ -15,14 +15,14 @@
 //   VENICE_BASE_URL          (optional) default https://api.venice.ai/api/v1
 //   UPSTASH_REDIS_REST_URL   (optional) per-IP rate limit; skipped if absent.
 //   UPSTASH_REDIS_REST_TOKEN (optional)
-//   TRIAL_E2EE_MODEL         (optional) default e2ee-glm-4-7-p
 //   ATTEST_RATE_LIMIT        (optional) max attest fetches per IP per hour. Def 60.
 //   TRIAL_ALLOWED_ORIGIN     (optional) CORS origin. Default: none (same-origin only).
+
+import { E2EE_MODEL, isAllowedE2eeModel } from '../src/e2ee-models'
 
 export const config = { runtime: 'edge' }
 
 const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? 'https://api.venice.ai/api/v1'
-const E2EE_MODEL = process.env.TRIAL_E2EE_MODEL ?? 'e2ee-glm-4-7-p'
 const RATE_LIMIT = int(process.env.ATTEST_RATE_LIMIT, 60)
 const RATE_WINDOW_SEC = 3600
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
@@ -39,8 +39,8 @@ export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const model = url.searchParams.get('model') ?? E2EE_MODEL
   const nonce = url.searchParams.get('nonce') ?? ''
-  // Pin the model — the trial only ever attests the one E2EE model.
-  if (model !== E2EE_MODEL) return json({ error: 'model not allowed' }, 400)
+  // Pin the model — the trial only ever attests an allow-listed E2EE model.
+  if (!isAllowedE2eeModel(model)) return json({ error: 'model not allowed' }, 400)
   // Nonce must be client-supplied hex so the caller can verify the echo (anti-replay).
   if (!/^[0-9a-fA-F]{16,128}$/.test(nonce)) return json({ error: 'valid hex nonce required' }, 400)
 
@@ -102,9 +102,9 @@ async function redisIncrTtl(k: string, ttlSec: number): Promise<number> {
     if (!res.ok) throw new Error(`redis ${res.status}`)
     return (await res.json()).result
   }
-  const n = Number(await call(['INCR', k]))
-  if (n === 1) await call(['EXPIRE', k, ttlSec])
-  return n
+  // Atomic window: SET NX EX creates the key with its TTL; INCR keeps it.
+  await call(['SET', k, 0, 'EX', ttlSec, 'NX'])
+  return Number(await call(['INCR', k]))
 }
 
 // Trusted client IP (see proxy.ts): platform header first, else the RIGHTMOST

@@ -52,10 +52,10 @@ export function attestationBody(nonce: string): Record<string, unknown> {
     signing_public_key: enclavePubHex,
     verified: true,
     nonce,
-    model: 'e2ee-glm-4-7-p',
+    model: 'e2ee-qwen3-8-27b',
     stale_after: Math.floor(Date.now() / 1000) + 3600,
     tee_hardware: 'intel-tdx',
-    upstream_model: 'z-ai/glm-4.7',
+    upstream_model: 'Qwen/Qwen3.8-27B',
     signing_address: enclaveAddress,
     server_verification: {
       tdx: {
@@ -158,6 +158,25 @@ export async function skipIntro(page: {
       /* private mode — the intro will show; specs there would need the tap */
     }
   })
+}
+
+/**
+ * The first meeting gates its scene behind its own "tap to begin" (the tap
+ * unlocks audio). Press it when present so specs reach the naming ritual.
+ */
+export async function passMeetingTap(page: {
+  getByRole: (role: 'button', opts: { name: RegExp }) => {
+    click: (o?: { timeout?: number }) => Promise<void>
+    waitFor: (o?: { state?: 'visible'; timeout?: number }) => Promise<void>
+  }
+}): Promise<void> {
+  const tap = page.getByRole('button', { name: /tap to begin/i })
+  try {
+    await tap.waitFor({ state: 'visible', timeout: 10_000 })
+  } catch {
+    return // no gate (returning user / already past it)
+  }
+  await tap.click()
 }
 
 // Sanity: webcrypto presence (noble's randomness uses it in some paths).
