@@ -310,6 +310,34 @@ impl Database {
         Ok(facts)
     }
 
+    /// Correct a fact the human says is wrong. The flat FTS memory that holds
+    /// the same words (written alongside it by extraction) is corrected too, so
+    /// recall can't resurface the old version.
+    pub fn update_knowing_fact(&self, id: &str, fact: &str) -> Result<()> {
+        let conn = self.lock()?;
+        let old: Option<String> = conn
+            .query_row("SELECT fact FROM knowing_facts WHERE id = ?1", params![id], |r| r.get(0))
+            .ok();
+        conn.execute("UPDATE knowing_facts SET fact = ?2 WHERE id = ?1", params![id, fact])?;
+        if let Some(old) = old {
+            conn.execute("UPDATE memories SET content = ?2 WHERE content = ?1", params![old, fact])?;
+        }
+        Ok(())
+    }
+
+    /// Forget a fact — and its flat FTS memory twin, so it's truly gone.
+    pub fn delete_knowing_fact(&self, id: &str) -> Result<()> {
+        let conn = self.lock()?;
+        let old: Option<String> = conn
+            .query_row("SELECT fact FROM knowing_facts WHERE id = ?1", params![id], |r| r.get(0))
+            .ok();
+        conn.execute("DELETE FROM knowing_facts WHERE id = ?1", params![id])?;
+        if let Some(old) = old {
+            conn.execute("DELETE FROM memories WHERE content = ?1", params![old])?;
+        }
+        Ok(())
+    }
+
     pub fn get_knowing_fact_count(&self) -> Result<usize> {
         let conn = self.lock()?;
         let count: i64 =

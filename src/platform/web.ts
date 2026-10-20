@@ -1081,6 +1081,19 @@ export const webPlatform: Platform = {
   },
 
   // ── Conversation ────────────────────────────────────────────────────────────
+  async getKnowingFacts() {
+    return (await storage()).getKnowingFacts()
+  },
+  async updateKnowingFact(id: string, fact: string) {
+    const s = await storage()
+    const text = fact.trim()
+    if (text) await s.updateKnowingFact(id, text)
+    else await s.deleteKnowingFact(id)
+  },
+  async deleteKnowingFact(id: string) {
+    await (await storage()).deleteKnowingFact(id)
+  },
+
   async aiDisclosure(): Promise<string | null> {
     const c = await core()
     const now = Date.now()

@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { usePlatform } from '../../src/platform/usePlatform'
+import KnowingView from '../../src/components/KnowingView'
 import { ACCESS_URL } from './access'
 import { TTS_VOICES, DEFAULT_TTS_VOICE, TTS_VOICE_SETTING, isTtsVoice } from './voices'
 
@@ -249,6 +250,14 @@ function VoiceSection() {
 
 // ─── Your data (export + import) ──────────────────────────────────────────────
 
+function KnowingSection() {
+  return (
+    <SectionCard accent="#b8a0d8" title="What it knows about you" subtitle="Read it, correct it, forget it — stays in this browser">
+      <KnowingView />
+    </SectionCard>
+  )
+}
+
 function DataSection() {
   const platform = usePlatform()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -432,6 +441,7 @@ export default function Settings({ onClose }: { onClose?: () => void; onOpenData
 
         <IntelligenceSection />
         <VoiceSection />
+        <KnowingSection />
         <DataSection />
         <DangerSection />
       </div>

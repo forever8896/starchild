@@ -10,6 +10,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
   CompleteQuestResult,
   GreatWorkPosition,
+  KnowingFact,
   Message,
   OnboardingInput,
   Platform,
@@ -115,6 +116,16 @@ export const desktopPlatform: Platform = {
   },
   generateFirstMessage() {
     return invoke<Message>('generate_first_message')
+  },
+
+  getKnowingFacts() {
+    return invoke<KnowingFact[]>('get_knowing_facts')
+  },
+  updateKnowingFact(id: string, fact: string) {
+    return invoke<void>('update_knowing_fact', { id, fact })
+  },
+  deleteKnowingFact(id: string) {
+    return invoke<void>('delete_knowing_fact', { id })
   },
 
   async aiDisclosure(): Promise<string | null> {

@@ -204,6 +204,18 @@ export async function addKnowingFact(fact: KnownFact): Promise<void> {
   await tx(STORE_KNOWING, 'readwrite', (s) => s.put(fact))
 }
 
+/** Correct one fact's text (the human's own words). */
+export async function updateKnowingFact(id: string, fact: string): Promise<void> {
+  const row = await tx<KnownFact | undefined>(STORE_KNOWING, 'readonly', (s) => s.get(id) as IDBRequest<KnownFact | undefined>)
+  if (!row) return
+  await tx(STORE_KNOWING, 'readwrite', (s) => s.put({ ...row, fact }))
+}
+
+/** Forget one fact. */
+export async function deleteKnowingFact(id: string): Promise<void> {
+  await tx(STORE_KNOWING, 'readwrite', (s) => s.delete(id))
+}
+
 /** All stored knowing facts (the recall pool + the knowing-fragment source). */
 export async function getKnowingFacts(): Promise<KnownFact[]> {
   return getAll<KnownFact>(STORE_KNOWING)

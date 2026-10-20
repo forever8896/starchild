@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store'
+import KnowingView from './KnowingView'
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
 
@@ -1047,6 +1048,11 @@ export default function Settings() {
             Configure your Starchild connection
           </p>
         </div>
+
+        {/* What Starchild knows — read, correct, forget */}
+        <Section title="What Starchild knows about you">
+          <KnowingView />
+        </Section>
 
         {/* Venice AI section */}
         <Section title="Venice AI">

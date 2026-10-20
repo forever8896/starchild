@@ -1491,6 +1491,36 @@ async fn delete_memory(
 // Knowing commands
 // ---------------------------------------------------------------------------
 
+/// Everything Starchild has learned about the human (for the "what Starchild
+/// knows" view — read, correct, forget).
+#[tauri::command]
+async fn get_knowing_facts(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<knowing::KnownFact>, String> {
+    state.db.get_knowing_facts().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_knowing_fact(
+    id: String,
+    fact: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let fact = fact.trim();
+    if fact.is_empty() {
+        return state.db.delete_knowing_fact(&id).map_err(|e| e.to_string());
+    }
+    state.db.update_knowing_fact(&id, fact).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_knowing_fact(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.db.delete_knowing_fact(&id).map_err(|e| e.to_string())
+}
+
 #[derive(Serialize, Clone, Debug)]
 struct KnowingProfileResponse {
     stage: String,
@@ -2300,6 +2330,9 @@ pub fn run() {
             save_settings,
             get_memories,
             delete_memory,
+            get_knowing_facts,
+            update_knowing_fact,
+            delete_knowing_fact,
             get_knowing_profile,
             suggest_quests,
             create_quest,

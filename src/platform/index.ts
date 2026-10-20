@@ -13,6 +13,17 @@ export type { Message, Quest, StarchildState, GreatWorkPosition }
 export type PlatformName = 'desktop' | 'web'
 
 /** Inputs collected during first-run onboarding. */
+/** One thing Starchild has learned about the human (core `knowing::KnownFact`). */
+export interface KnowingFact {
+  id: string
+  /** core_values | desires | fears | thinking_patterns | relationships | life_situation | growth_edges */
+  category: string
+  fact: string
+  importance: number
+  confidence: number
+  created_at: string
+}
+
 export interface OnboardingInput {
   /** Venice API key (BYOK). Omitted when a key is already present. */
   apiKey?: string
@@ -67,6 +78,14 @@ export interface Platform {
   generateFirstMessage(): Promise<Message>
   /** Delete a single message from local storage. */
   deleteMessage(id: string): Promise<void>
+
+  // ── What Starchild knows (memory transparency) ──────────────────────────────
+  /** Every fact Starchild has learned about the human (the knowing profile). */
+  getKnowingFacts(): Promise<KnowingFact[]>
+  /** Correct a fact in the human's own words (empty text forgets it). */
+  updateKnowingFact(id: string, fact: string): Promise<void>
+  /** Forget a fact entirely. */
+  deleteKnowingFact(id: string): Promise<void>
 
   // ── Duty of care ────────────────────────────────────────────────────────────
   /**
