@@ -19,6 +19,13 @@ import init, {
   is_quest_offer,
   detect_crisis,
   judge_proof,
+  vision_from_crystallize,
+  conversation_temperature,
+  vision_synthesis_prompt,
+  vision_synthesis_trigger,
+  clean_vision,
+  crystallize_suffix,
+  strip_placement,
   proof_note,
   proof_max_unclear,
   crisis_active,
@@ -178,6 +185,19 @@ export interface Core {
   tickGameState(state: GameState, nowMs?: number): GameState
   /** Construct a fresh creature state at the given timestamp (epoch ms). */
   newGameState(nowMs?: number): GameState
+  // ── Crystallize: the vision line is its own call; the reply answers them ──
+  visionSynthesisPrompt(preferentialReality: string, conversation: string): string
+  visionSynthesisTrigger(): string
+  /** Tidy a synthesized vision; "" if unusable. */
+  cleanVision(raw: string): string
+  /** The vision + placement text appended after the acknowledgement. */
+  crystallizeSuffix(vision: string): string
+  /** Remove a "let's place this on your vision tree ✦" tail. */
+  stripPlacement(reply: string): string
+  /** Sampling temperature for the conversation in this phase. */
+  conversationTemperature(phase: ConversationPhase): number
+  /** The vision sentence from a Crystallize reply (what goes on the tree). */
+  visionFromCrystallize(reply: string): string
   /** Post-process a model response for the given phase. */
   postprocess(text: string, phase: ConversationPhase): string
 
@@ -284,6 +304,13 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     tickGameState: (state, nowMs = Date.now()) => tick_game_state(state, nowMs) as GameState,
     newGameState: (nowMs = Date.now()) => new_game_state(nowMs) as GameState,
     postprocess: (text, phase) => postprocess(text, phase),
+    visionFromCrystallize: (reply) => vision_from_crystallize(reply),
+    conversationTemperature: (phase) => conversation_temperature(phase),
+    visionSynthesisPrompt: (pr, conversation) => vision_synthesis_prompt(pr, conversation),
+    visionSynthesisTrigger: () => vision_synthesis_trigger(),
+    cleanVision: (raw) => clean_vision(raw),
+    crystallizeSuffix: (vision) => crystallize_suffix(vision),
+    stripPlacement: (reply) => strip_placement(reply),
     detectCrisis: (text) => detect_crisis(text),
     crisisActive: (userMessages) => crisis_active(userMessages),
     crisisResources: (region) => crisis_resources(region) as CrisisResource[],

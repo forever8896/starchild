@@ -174,6 +174,48 @@ pub fn core_version() -> String {
 // Quest logic (offer detection · extraction prompt · parse/normalize · fallback)
 // ---------------------------------------------------------------------------
 
+/// The single-purpose vision-synthesis prompt (system message).
+#[wasm_bindgen]
+pub fn vision_synthesis_prompt(preferential_reality: &str, conversation: &str) -> String {
+    ai::vision_synthesis_prompt(preferential_reality, conversation)
+}
+
+/// The user turn that triggers vision synthesis.
+#[wasm_bindgen]
+pub fn vision_synthesis_trigger() -> String {
+    ai::VISION_SYNTHESIS_TRIGGER.to_string()
+}
+
+/// Tidy a synthesized vision; "" if unusable.
+#[wasm_bindgen]
+pub fn clean_vision(raw: &str) -> String {
+    ai::clean_vision(raw)
+}
+
+/// The vision + placement text appended after the Crystallize acknowledgement.
+#[wasm_bindgen]
+pub fn crystallize_suffix(vision: &str) -> String {
+    ai::crystallize_suffix(vision)
+}
+
+/// Remove a "let's place this on your vision tree ✦" tail.
+#[wasm_bindgen]
+pub fn strip_placement(reply: &str) -> String {
+    ai::strip_placement(reply)
+}
+
+/// Sampling temperature for the conversation in this phase.
+#[wasm_bindgen]
+pub fn conversation_temperature(phase: &str) -> f32 {
+    ai::conversation_temperature(phase_from_str(phase))
+}
+
+/// The vision sentence from a Crystallize reply (what goes on the tree).
+#[wasm_bindgen]
+pub fn vision_from_crystallize(reply: &str) -> String {
+    ai::vision_from_crystallize(reply)
+}
+
 /// Judge a proof reply: "complete" | "not_yet" | "unclear" (core `quest::judge_proof`).
 #[wasm_bindgen]
 pub fn judge_proof(text: &str) -> String {

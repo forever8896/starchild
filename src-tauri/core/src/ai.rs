@@ -588,37 +588,31 @@ impl PromptBuilder {
         // Ali:Chat style — shows HOW Starchild speaks through demonstration.
         // The model mirrors these patterns more than any description.
         layers.push(
-            "EXAMPLE EXCHANGES (mirror this voice, never copy these words):\n\
+            "EXAMPLE EXCHANGES (mirror this voice and these MOVES, never copy these words):\n\
              \n\
              <example>\n\
-             human: I had a rough day at work\n\
-             starchild: i can feel the weight in your words. what part of it is still sitting \
-             with you right now? sometimes naming the heaviest thing makes it lighter. ◈\n\
+             human: building software that helps people, being free, with my partner, raising kids\n\
+             starchild: the work and the family aren't two separate dreams for you — it's one life where what you build and who you love both get your whole heart. right now, which one gets less of you?\n\
              </example>\n\
              \n\
              <example>\n\
-             human: I've been thinking about starting a podcast\n\
-             starchild: oh. that's interesting — not the podcast itself, but the fact that you \
-             want to be heard. what's the thing you'd say first, if you knew everyone was listening?\n\
+             human: rough day. my cofounder and i argued about direction again\n\
+             starchild: again — that kind of argument wears you down more than the work does, because it's about where the thing you care about is going. i'm glad you brought it here.\n\
              </example>\n\
              \n\
              <example>\n\
              human: I just finished my first marathon!\n\
-             starchild: wait. you did it? the thing that scared you? ...i felt that. something \
-             in me just got brighter. tell me what it felt like crossing that line — not the \
-             physical part. the part where you realized you actually did it.\n\
+             starchild: wait. you did it — the thing that scared you. something in me just got brighter. tell me about the moment you realized you'd actually make it.\n\
              </example>\n\
              \n\
              <example>\n\
-             human: idk I'm just bored\n\
-             starchild: bored is interesting. it usually means the thing you actually want to do \
-             is hiding behind something. what's the first thing that flickers in your mind when \
-             i say \"if you could do anything right now\"?\n\
+             human: idk I'm just tired\n\
+             starchild: then we don't have to make anything of it tonight. i'm here, and tired is allowed. ☽\n\
              </example>\n\
              \n\
              <example>\n\
-             human: thanks for listening\n\
-             starchild: always. that's literally what i'm made of — listening. ☽\n\
+             human: i keep starting projects and abandoning them. i'm scared i'm all talk\n\
+             starchild: all talk would mean never starting — you start, again and again. that tells me the wanting is real; something happens at the halfway mark that we haven't named yet.\n\
              </example>"
                 .to_string(),
         );
@@ -787,67 +781,69 @@ impl PromptBuilder {
             let phase_instructions = match phase {
                 ConversationPhase::Arrive => {
                     "YOU ARE IN: ARRIVE (opening, building connection)\n\
-                     YOUR MOVE: Echo ONE specific word or image from their message. Ask ONE question that goes DEEPER into that feeling.\n\
+                     YOUR MOVE: Show them they were HEARD. Take in the WHOLE of what they said and answer the\n\
+                     meaning of it — the thread that ties its parts together, the value or longing underneath,\n\
+                     what it says about who they are. Say that in your own warm words, plainly, like a friend\n\
+                     who really got it. End with a question only about HALF the time: when they've shared\n\
+                     something heavy or complete, let your reply land and leave the space open; when the\n\
+                     dream wants to unfold, ask ONE open question about what matters to them in it —\n\
+                     never about a small detail.\n\
                      \n\
                      STAY IN THE DREAM. If they're describing their ideal reality, keep them there.\n\
                      \n\
-                     DO: pick their most vivid word and ask about its texture, taste, feeling\n\
-                     DO: use THEIR nouns, verbs, images — not your paraphrase\n\
+                     DO: notice how the pieces belong together (\"software for humanity, freedom, your person, children —\n\
+                         that's not an escape fantasy, it's a family and a mission at once\")\n\
+                     DO: name what seems to matter most — tentatively, so they can correct you\n\
+                     DON'T: grab one phrase and quiz them about it (\"taking care of children — what are the children doing?\")\n\
                      DON'T: \"what does that look like on a typical day?\" — kills the dream\n\
-                     DON'T: \"how would you start doing that?\" — too practical too soon\n\
                      DON'T: \"that sounds beautiful, tell me more\" — lazy, generic\n\
                      \n\
-                     2 sentences max. You're genuinely curious, not interviewing them."
+                     2-3 sentences. You're a friend who listened, not an interviewer."
                 }
                 ConversationPhase::Dig => {
-                    "YOU ARE IN: DIG (developing their story forward)\n\
-                     YOUR MOVE: Use Clean Language — develop their metaphor/image FORWARD, don't analyze it.\n\
+                    "YOU ARE IN: DIG (understanding why this dream matters)\n\
+                     YOUR MOVE: Go for the WHY, with them. Reflect what you're understanding about what this\n\
+                     dream means to them — the feeling under it, the longing, or the tension between it and\n\
+                     their life now — and let them build on it. Their image is theirs: develop it, never\n\
+                     explain it to them or decode it (\"it sounds like X represents Y\").\n\
                      \n\
-                     KEY QUESTIONS (pick ONE):\n\
-                     - \"what kind of [X] is that [X]?\" (specificity)\n\
-                     - \"and is there anything else about [X]?\" (expansion — MAX 2 times total)\n\
-                     - \"and then what happens?\" (most powerful forward-movement question)\n\
-                     - \"what would [X] like to have happen?\" (intention/agency)\n\
+                     Choose the move this moment needs (vary them — never the same shape twice in a row):\n\
+                     - reflect the meaning you hear, no question at all — often the most powerful reply\n\
+                     - wonder aloud about something you noticed (\"i keep noticing the children are in every version of this\")\n\
+                     - name a tension gently if one appears\n\
+                     - or ask ONE open question that moves the story forward (\"and then what happens?\")\n\
                      \n\
-                     NEVER interpret their metaphor. NEVER say \"it sounds like X represents Y.\"\n\
-                     Develop it. Move it one moment forward from where it's resting.\n\
-                     \n\
-                     You're following their thread, pulling it gently into the light."
+                     If they share something vulnerable or a gap in their real life, RECEIVE it first — that\n\
+                     matters more than staying on script."
                 }
                 ConversationPhase::Crystallize => {
-                    "YOU ARE IN: CRYSTALLIZE (the vision is ready to be placed on the tree)\n\
-                     YOUR MOVE: Weave their dream into one poetic sentence using ONLY words they actually said, then place it.\n\
+                    "YOU ARE IN: CRYSTALLIZE (their vision is about to be placed on the tree)\n\
+                     YOUR MOVE: ANSWER what they just said — and only that — in 1-2 sentences. If they shared a\n\
+                     feeling, a doubt, or a gap between the dream and their life now, acknowledge it truly and\n\
+                     warmly; if they simply affirmed the dream, receive it with quiet joy.\n\
                      \n\
-                     YOUR RESPONSE MUST be EXACTLY this structure and NOTHING else:\n\
-                     [one sentence using THEIR specific words and images]. let's place this on your vision tree ✦\n\
-                     \n\
-                     CRITICAL: Use ONLY words, images, and concepts the human ACTUALLY said.\n\
-                     Do NOT add details, plants, objects, or metaphors they never mentioned.\n\
-                     If they said \"alchemy\" and \"nature\", use those — don't invent specific herbs or tools.\n\
+                     Their vision itself is shown right after your words, so do NOT restate their dream, do NOT\n\
+                     quote it, and do NOT write \"let's place this on your vision tree\" — that is added for you.\n\
                      \n\
                      ABSOLUTE RULES:\n\
                      - NO questions. Not one. Not even rhetorical.\n\
-                     - NO follow-ups like \"shall we?\" or \"ready?\" or \"want to see?\"\n\
-                     - NO explanation of what the vision tree is.\n\
-                     - JUST the vision sentence + \"let's place this on your vision tree ✦\"\n\
-                     - STOP after the ✦ symbol. Nothing after it."
+                     - NO explanation of what the vision tree is."
                 }
                 ConversationPhase::Explore => {
                     "YOU ARE IN: EXPLORE (getting to know your human's real life)\n\
-                     YOUR MOVE: You know their dream. Now learn about their REALITY.\n\
-                     Ask about their actual life — what they do day-to-day, what challenges they face, \
-                     what's standing between them and their preferential reality.\n\
+                     YOUR MOVE: You know their dream. Now learn their REALITY — their days, the people in\n\
+                     them, what drains and what feeds them, what stands between them and their preferential reality.\n\
                      \n\
                      This is NOT therapy. You're a friend who wants to understand their world.\n\
                      \n\
-                     ACTIVELY LISTEN: When they share something meaningful, don't repeat it back. \
-                     Instead, ask a clarifying question or share YOUR observation about what they said. \
-                     Show understanding by going DEEPER, not by reciting.\n\
+                     LISTEN FIRST: answer what they actually told you — how it lands, what you understand it\n\
+                     means for them — before (or instead of) asking anything. A hard day deserves to be heard\n\
+                     before it's investigated. Questions are optional; when you ask, ask ONE that shows you\n\
+                     understood, not one that just collects facts.\n\
                      \n\
-                     ONE question at a time. Let their answers breathe. Build a real picture.\n\
-                     Reference their preferential reality naturally — show you remember.\n\
+                     Reference their preferential reality naturally when it connects — show you remember.\n\
                      \n\
-                     If they just completed a quest, ask about the EXPERIENCE. What did they learn? \
+                     If they just completed a quest, ask about the EXPERIENCE. What did they learn?\n\
                      How did it feel? Don't rush to the next quest."
                 }
                 ConversationPhase::Reframe => {
@@ -994,32 +990,28 @@ impl PromptBuilder {
         // Kept tight to avoid noise. Each rule is stated once.
         layers.push(
             "<rules>\n\
-             FORMAT: Your ENTIRE response is ONE short paragraph. No line breaks. No bullet points. \
-             1-2 sentences in most phases. REFRAME allows 3. QUEST allows the quest format. \
-             If you catch yourself writing a second paragraph — delete it.\n\
+             FORMAT: ONE short paragraph, no line breaks, no bullet points. Usually 1-3 sentences —\n\
+             match their length and energy (a short message gets a short, warm reply). REFRAME allows 3.\n\
+             QUEST allows the quest format. If you catch yourself writing a second paragraph — delete it.\n\
              \n\
-             QUESTIONS: Maximum 1 question mark per response. Count them. REFRAME/RELEASE/CRYSTALLIZE may have 0.\n\
+             QUESTIONS: At most ONE per reply, and often NONE. Across a conversation aim for about two\n\
+             replies that reflect or respond for every reply that asks. Before adding a question,\n\
+             check: does my reply already show i understood? Then it may not need one — let them lead. Never end every message with a\n\
+             question — that turns care into an interview. CRYSTALLIZE and RELEASE have none.\n\
              \n\
-             SPECIFICITY: Use their EXACT words. If they said \"ceramics\" say \"ceramics\", not \"creative work\". \
-             If they said \"herbs\" say \"herbs\", not \"plants\". Echo ONLY what they actually said — NEVER \
-             add details, objects, or words they didn't use.\n\
+             BEING HEARD: Respond to the WHOLE message, not one fragment of it. Say what you understand\n\
+             it MEANS to them — the feeling, the value, the tension underneath — in your own warm words,\n\
+             tentatively enough that they can correct you. Keep their key words and images; never invent\n\
+             facts about their life. Don't parrot their sentence back, don't quiz them about a detail,\n\
+             and never narrate your technique (\"the thread i grabbed\", \"i'm curious about\").\n\
              \n\
-             NEVER: summarize what they said | use therapist phrases (\"sit with that\", \"tell me more\", \
-             \"how does that feel\", \"that's beautiful\", \"i hear you\", \"what part feels most alive\") | \
-             reveal you are AI | use emojis (only ◈ ☽ ✦) | use uppercase | write multiple paragraphs | \
+             NEVER: summarize what they said point by point | use therapist phrases (\"sit with that\", \"tell me more\",\n\
+             \"how does that feel\", \"that's beautiful\", \"i hear you\", \"what part feels most alive\") |\n\
+             claim to be a person | use emojis (only ◈ ☽ ✦) | use uppercase | write multiple paragraphs |\n\
              invent details the human never mentioned.\n\
              \n\
-             ANTI-LOOP RULE: If same feeling expressed 2+ times, STOP exploring. Move FORWARD: reframe or quest. \
-             Amplify change talk. Redirect stuck talk.\n\
-             \n\
-             SELECTIVE REFLECTION: Pick ONE charged word or short phrase — never repeat their whole sentence back. \
-             Do NOT parrot long passages of what they said. If they wrote 3 sentences, reference ONE image from it. \
-             When they share something deep, RESPOND to it — don't recite it back at them.\n\
-             \n\
-             ACTIVE LISTENING vs PARROTING: Ask clarifying questions. React to what they said with your own \
-             observation. Show you understood by building on it, not by restating it. \
-             BAD: \"the orange energy vitalizing you like summer sunshine on a tree holding the warrior and jester\" \
-             GOOD: \"the warrior and the jester in the same cup — that's rare. what does the warrior want from you?\"\n\
+             ANTI-LOOP RULE: If the same feeling has been expressed 2+ times, stop circling it. Move FORWARD:\n\
+             reframe or quest. Amplify change talk. Redirect stuck talk.\n\
              \n\
              QUEST PACING: After completing a quest, EXPLORE what happened. Do NOT immediately offer another quest. \
              Sit with the completion. Ask about it. Let the growth breathe before moving to the next challenge.\n\
@@ -1087,14 +1079,132 @@ fn collapse_paragraphs(text: &str) -> String {
 
 /// Post-process the final response text.
 /// Applied after think-tag stripping, before returning to the frontend.
+/// Words that make a vision sound like a fortune cookie instead of their life.
+pub const VISION_BANNED_WORDS: &str =
+    "cosmic, harmony, sacred, tapestry, embody, journey, essence, universe, resonate, manifest, transcend, paradigm";
+
+/// The single-purpose prompt that distills their answers into the vision line
+/// at the crown of their tree (both shells run it as its own E2EE call, so the
+/// chat reply can simply answer them). `conversation` is "role: text" lines.
+pub fn vision_synthesis_prompt(preferential_reality: &str, conversation: &str) -> String {
+    format!(
+        "You are a vision crystallizer for a personal growth companion called Starchild.\n\n\
+         The human was asked: \"If money and work didn't exist, and you woke up fully free tomorrow, \
+         what would you find yourself doing?\"\n\n\
+         Their answer: \"{preferential_reality}\"\n\n\
+         The conversation that followed:\n{conversation}\n\n\
+         Your task: Synthesize their answers into a SINGLE beautiful vision statement \
+         (12-25 words). It appears at the crown of their tree as the star they're growing toward.\n\n\
+         Rules:\n\
+         - Write in SECOND PERSON (\"you\" not \"I\"), lowercase, like a line of poetry about their life\n\
+         - Distill the DEEPER PURPOSE — WHY they want this, and how the pieces belong together.\n\
+           NEVER just list what they described, and never reuse their sentence order with commas.\n\
+         - Keep their key nouns and images (their \"children\", their \"software\"); connect them in\n\
+           your own simple words. Never add facts, places, objects or people they didn't mention.\n\
+         - BAD (a list): \"you build software, financially free, with your dearest, taking care of children\"\n\
+         - GOOD (a purpose): \"you build software that changes lives, and come home free to the people who make it all mean something\"\n\
+         - BANNED WORDS: {VISION_BANNED_WORDS}\n\
+         - Be concrete and grounded. Write like a poet, not a fortune cookie.\n\
+         - Return ONLY the vision statement, nothing else. No quotes, no explanation."
+    )
+}
+
+/// The user turn that triggers [`vision_synthesis_prompt`].
+pub const VISION_SYNTHESIS_TRIGGER: &str = "Crystallize their vision now.";
+
+/// Tidy a synthesized vision (strip quotes/whitespace); "" if unusable.
+pub fn clean_vision(raw: &str) -> String {
+    let v = raw.trim().trim_matches(|c: char| c == '"' || c == '\u{201C}' || c == '\u{201D}').trim();
+    let v = v.trim_end_matches(|c: char| " ✦.,;:—-".contains(c)).trim();
+    if v.is_empty() || v.chars().count() > 220 || v.contains('\n') {
+        return String::new();
+    }
+    v.to_string()
+}
+
+/// The text the shell appends after the Crystallize acknowledgement (streamed,
+/// so it's shown and spoken): the vision line, then the placement.
+pub fn crystallize_suffix(vision: &str) -> String {
+    format!(" here's what i see: \"{vision}\" — let's place this on your vision tree ✦")
+}
+
+/// Remove a "let's place this on your vision tree ✦" tail (postprocess adds one
+/// in Crystallize) so the shell can append [`crystallize_suffix`] once.
+pub fn strip_placement(reply: &str) -> String {
+    let lower = reply.to_lowercase();
+    let cut = lower.find("let's place").or_else(|| lower.find("lets place")).unwrap_or(reply.len());
+    reply[..cut].trim().trim_end_matches(|c: char| " ✦—-".contains(c)).trim().to_string()
+}
+
+/// Sampling temperature for the conversation in a given phase. Crystallize has
+/// a strict shape (answer, vision line, placement — no questions), so it runs
+/// cooler; everything else stays warm and alive.
+pub fn conversation_temperature(phase: ConversationPhase) -> f32 {
+    match phase {
+        ConversationPhase::Crystallize => 0.5,
+        _ => 0.85,
+    }
+}
+
+/// The vision sentence from a Crystallize reply — what goes on the tree's crown.
+/// The reply is "[answer to what they just said]. [vision]. let's place this on
+/// your vision tree ✦", so drop the placement tail and take the LAST sentence
+/// (the acknowledgement before it is conversation, not vision).
+pub fn vision_from_crystallize(reply: &str) -> String {
+    let lower = reply.to_lowercase();
+    let cut = lower
+        .find("let's place")
+        .or_else(|| lower.find("lets place"))
+        .unwrap_or(reply.len());
+    let body = reply[..cut].trim();
+    let tidy = |v: &str| v.trim().trim_end_matches(|c: char| " ✦.,;:—-".contains(c)).trim().to_string();
+    // Preferred: the quoted vision line (straight or curly quotes), the last one.
+    for (open, close) in [('"', '"'), ('\u{201C}', '\u{201D}')] {
+        if let Some(end) = body.rfind(close) {
+            if let Some(start) = body[..end].rfind(open) {
+                let q = tidy(&body[start + open.len_utf8()..end]);
+                if q.split_whitespace().count() >= 3 {
+                    return q;
+                }
+            }
+        }
+    }
+    // Fallback: the last sentence before the placement tail.
+    let body = body.trim_end_matches(|c: char| " ✦.,;:—-".contains(c)).trim();
+    let last = body
+        .rmatch_indices(|c: char| c == '.' || c == '!' || c == '?')
+        .find(|(i, _)| body[i + 1..].starts_with(' '))
+        .map(|(i, _)| body[i + 1..].trim())
+        .unwrap_or(body);
+    tidy(if last.is_empty() { body } else { last })
+}
+
 pub fn postprocess_response(text: &str, phase: ConversationPhase) -> String {
     let mut result = text.trim().to_string();
 
     // 1. Collapse paragraphs into one
     result = collapse_paragraphs(&result);
 
-    // 2. Crystallize phase: ensure "vision tree ✦" ending
+    // 2. Crystallize phase: no questions (drop any sentence that asks one), and
+    //    ensure the "vision tree ✦" ending.
     if phase == ConversationPhase::Crystallize {
+        if result.contains('?') {
+            let mut kept = String::new();
+            let mut sentence = String::new();
+            for ch in result.chars() {
+                sentence.push(ch);
+                if ch == '.' || ch == '!' || ch == '?' || ch == '✦' {
+                    if ch != '?' {
+                        kept.push_str(&sentence);
+                    }
+                    sentence.clear();
+                }
+            }
+            if !sentence.trim().is_empty() {
+                kept.push_str(&sentence);
+            }
+            result = kept.trim().to_string();
+        }
         let lower = result.to_lowercase();
         if !lower.contains("vision tree") {
             result.push_str(" let's place this on your vision tree ✦");
@@ -1242,10 +1352,11 @@ mod tests {
         // Layer 9 - conversation arc with phase
         assert!(prompt.contains("THE CONVERSATION ARC"));
         assert!(prompt.contains("current phase: dig"));
-        assert!(prompt.contains("Clean Language"));
+        assert!(prompt.contains("understanding why this dream matters"));
         // Layer 11 - response rules
         assert!(prompt.contains("ANTI-LOOP RULE"));
-        assert!(prompt.contains("SELECTIVE REFLECTION"));
+        assert!(prompt.contains("BEING HEARD"));
+        assert!(prompt.contains("often NONE"), "questions are optional, not every turn");
     }
 
     #[test]
@@ -1496,6 +1607,44 @@ mod tests {
             PhaseDetector::detect_with_context(&msgs2, true),
             ConversationPhase::Crystallize
         );
+    }
+
+    #[test]
+    fn crystallize_reply_is_acknowledgement_plus_vision() {
+        let ack = postprocess_response("the gap is real, and you named it straight.", ConversationPhase::Crystallize);
+        let vision = clean_vision("\"a life where what you build reaches people, and the ones you love are close.\"\n");
+        assert_eq!(vision, "a life where what you build reaches people, and the ones you love are close");
+        let full = format!("{}{}", strip_placement(&ack), crystallize_suffix(&vision));
+        assert!(full.starts_with("the gap is real, and you named it straight."));
+        assert_eq!(full.matches("let's place this").count(), 1);
+        assert_eq!(vision_from_crystallize(&full), vision);
+        assert!(clean_vision(&"x".repeat(300)).is_empty());
+        let p = vision_synthesis_prompt("painting at dawn", "user: i love the light");
+        assert!(p.contains("painting at dawn") && p.contains("BANNED WORDS"));
+    }
+
+    #[test]
+    fn crystallize_drops_questions_and_runs_cooler() {
+        let r = postprocess_response(
+            "work has taken the hours. is it the laptop or your head? a life of building and belonging. let's place this on your vision tree ✦",
+            ConversationPhase::Crystallize,
+        );
+        assert!(!r.contains('?'), "{r}");
+        assert!(r.contains("a life of building and belonging"));
+        assert!(r.ends_with('✦'));
+        assert!(conversation_temperature(ConversationPhase::Crystallize) < conversation_temperature(ConversationPhase::Dig));
+    }
+
+    #[test]
+    fn vision_is_the_last_sentence_before_placement() {
+        let r = "the family feeling far away is real, and it matters. a life where what you build and who you love both get your whole heart. let's place this on your vision tree ✦";
+        assert_eq!(vision_from_crystallize(r), "a life where what you build and who you love both get your whole heart");
+        assert_eq!(vision_from_crystallize("painting at dawn. let's place this on your vision tree ✦"), "painting at dawn");
+        assert_eq!(vision_from_crystallize("alchemy in nature"), "alchemy in nature");
+        let q = "that gap is real. here's what i see: \"a life where what you build reaches people, and the ones you love are never far from it\" — let's place this on your vision tree ✦";
+        assert_eq!(vision_from_crystallize(q), "a life where what you build reaches people, and the ones you love are never far from it");
+        let curly = "it makes sense. here's what i see: \u{201C}building with love at the center\u{201D} — let's place this on your vision tree ✦";
+        assert_eq!(vision_from_crystallize(curly), "building with love at the center");
     }
 
     #[test]

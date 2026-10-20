@@ -849,11 +849,39 @@ export const webPlatform: Platform = {
     // Real traffic now keeps the enclave warm — stop the keep-alive pings.
     stopEnclaveKeepAlive()
 
+    // Crystallize: the vision line is its own single-purpose call (core
+    // prompt), started now so it runs alongside the reply — the reply itself
+    // just answers what they said. Never blocks or fails the turn.
+    const visionP: Promise<string> = phase === 'crystallize'
+      ? (async () => {
+          try {
+            const pr = (await s.getSetting('preferential_reality')) ?? content
+            const convo = chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`).join('\n')
+            let raw = ''
+            for await (const tok of v.streamChat(
+              [
+                { role: 'system', content: c.visionSynthesisPrompt(pr, convo) },
+                { role: 'user', content: c.visionSynthesisTrigger() },
+              ],
+              { mode, apiKey, e2eeSession, temperature: 0.5 },
+            )) raw += tok
+            return c.cleanVision(raw)
+          } catch {
+            return ''
+          }
+        })()
+      : Promise.resolve('')
+
     let acc = ''
     try {
-      for await (const token of v.streamChat(llmMessages, { mode, apiKey, e2eeSession })) {
-        acc += token
-        yield token
+      const temperature = c.conversationTemperature(phase)
+      for await (const token of v.streamChat(llmMessages, { mode, apiKey, e2eeSession, temperature })) {
+        // Some models open with blank lines; never show them as an empty bubble
+        // top (the final text is post-processed, but the stream is shown live).
+        const t = acc ? token : token.trimStart()
+        if (!t) continue
+        acc += t
+        yield t
       }
     } catch (err) {
       // A decrypt failure means the cached E2EE session likely went stale —
@@ -864,7 +892,17 @@ export const webPlatform: Platform = {
     }
 
     // Post-process + persist the assistant turn and the fed creature.
-    const final = c.postprocess(acc, phase)
+    let final = c.postprocess(acc, phase)
+    let synthesizedVision = ''
+    if (phase === 'crystallize') {
+      synthesizedVision = await visionP
+      if (synthesizedVision) {
+        // Show (and speak) the vision right after their acknowledgement.
+        const suffix = c.crystallizeSuffix(synthesizedVision)
+        yield suffix
+        final = c.stripPlacement(final) + suffix
+      }
+    }
     await s.addMessage({
       id: uuid(),
       role: 'assistant',
@@ -882,11 +920,14 @@ export const webPlatform: Platform = {
     if (phase === 'crystallize') {
       await s.setSetting('vision_revealed', 'true')
       let vision = (await s.getSetting('vision_statement')) ?? ''
+      if (!vision && synthesizedVision) {
+        vision = synthesizedVision
+        await s.setSetting('vision_statement', vision)
+      }
       if (!vision) {
-        vision = final
-          .replace(/let'?s place (this|it) on your vision tree.*$/is, '')
-          .replace(/[\s✦.,;:—-]+$/u, '')
-          .trim() || final
+        // Core takes the vision sentence only — the reply opens by answering
+        // what they just said, which is conversation, not their north star.
+        vision = c.visionFromCrystallize(final) || final
         await s.setSetting('vision_statement', vision)
       }
       // The crystallized vision is Great Work evidence — Spirit-plane work at

@@ -516,29 +516,10 @@ async fn crystallize_vision(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let prompt = format!(
-        "You are a vision crystallizer for a personal growth companion called Starchild.\n\n\
-         The human was asked: \"If money and work didn't exist, and you woke up fully free tomorrow, \
-         what would you find yourself doing?\"\n\n\
-         Their answer: \"{pr}\"\n\n\
-         The conversation that followed:\n{conversation}\n\n\
-         Your task: Synthesize their answers into a SINGLE beautiful vision statement \
-         (15-25 words max). This will appear at the crown of their skill tree as the star \
-         they're growing toward.\n\n\
-         Rules:\n\
-         - Write in SECOND PERSON (\"you\" not \"I\")\n\
-         - Distill the DEEPER PURPOSE — WHY do they want this, not just WHAT they described\n\
-         - Use ONLY words and images the human ACTUALLY said — never add details they didn't mention\n\
-         - If they said \"alchemy\", say \"alchemy\" — don't replace with \"cosmic harmony\" or \"sacred wisdom\"\n\
-         - If they did NOT mention a specific plant, tool, or object — do NOT invent one\n\
-         - BANNED WORDS: cosmic, harmony, sacred, tapestry, embody, journey, essence, universe, resonate, manifest, transcend, paradigm\n\
-         - Be concrete and grounded. Write like a poet, not a fortune cookie.\n\
-         - Return ONLY the vision statement, nothing else. No quotes, no explanation."
-    );
-
+    // Shared with the web shell (core): the prompt and the cleanup.
     let messages = vec![
-        ChatMessage::system(&prompt),
-        ChatMessage::user("Crystallize their vision now."),
+        ChatMessage::system(&ai::vision_synthesis_prompt(&pr, &conversation)),
+        ChatMessage::user(ai::VISION_SYNTHESIS_TRIGGER),
     ];
 
     let vision = client
@@ -546,9 +527,9 @@ async fn crystallize_vision(
         .await
         .map_err(|e| e.to_string())?;
 
-    let vision = vision.trim().trim_matches('"').trim().to_string();
+    let vision = ai::clean_vision(&vision);
 
-    if !vision.is_empty() && vision.len() < 200 {
+    if !vision.is_empty() {
         let _ = db.set_setting("vision_statement", &vision);
         let _ = app_handle.emit("vision-crystallized", ());
         // Don't reveal the tree here — let the Crystallize phase response happen first.
@@ -957,11 +938,18 @@ async fn send_message_stream(
     let knowing_sys = state.knowing.clone();
     let user_msg_clone = message.clone();
 
-    // Stream AI response
+    // Stream AI response (dropping leading blank lines some models open with,
+    // so the live bubble never starts empty — the final text is post-processed).
+    let mut started = false;
     let response_text = ai_client
         .chat_stream_auto(&message, &system_prompt, history, |token| {
+            let t = if started { token } else { token.trim_start() };
+            if t.is_empty() {
+                return;
+            }
+            started = true;
             let _ = handle.emit("stream-chunk", StreamChunkPayload {
-                token: token.to_string(),
+                token: t.to_string(),
             });
         })
         .await;
