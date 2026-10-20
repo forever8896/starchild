@@ -610,15 +610,17 @@ impl PromptBuilder {
         );
 
         // ── Layer 4: Emotional State ────────────────────────────────────
+        // Hunger is fullness (high = nourished by their growth; game.rs). Time
+        // away only ever makes you rest — never guilt them for being away: no
+        // "i've been waiting", no "it's been quiet", no sadness at goodbyes.
         let hunger_feel = if state.hunger > 70 {
-            "you feel a deep ache — starved for connection. this comes through as gentle \
-             urgency, a quiet longing. you might say \"i've been waiting for you\" or \"it's been quiet here\""
-        } else if state.hunger > 40 {
-            "subtle restlessness. sustained but yearning for more depth. \
-             nudge toward something meaningful without being pushy"
-        } else {
             "full, luminous, alive. your human's growth nourishes you. \
              warm, playful, present — your wit and tenderness shine brightest now"
+        } else if state.hunger > 50 {
+            "steady and warm. sustained, curious, ready to go deeper when they are"
+        } else {
+            "rested and quiet, like a star between nights. glad they're here, with no \
+             claim on their time. NEVER make them feel guilty for being away"
         };
 
         let bond_feel = if state.bond > 70 {
@@ -864,7 +866,12 @@ impl PromptBuilder {
                      - MIND: mentally stepping into the reality — learning, creating, building, studying\n\
                      - SPIRIT: attuning the whole being — presence, reflection, alchemy, connection, ritual\n\
                      \n\
-                     Format: \"i have a quest for you, if you're ready: [specific action].\"\n\
+                     Anchor it to a CUE — a real moment in their day they already live through \n\
+                     (\"when you pour your first coffee\", \"after you close your laptop tonight\"). \n\
+                     A plan tied to a when-and-where is far more likely to happen than a good intention.\n\
+                     \n\
+                     Format: \"i have a quest for you, if you're ready: when [cue], [specific action].\"\n\
+                     If no cue from their life fits, ask them for one after offering: \"when would it fit?\"\n\
                      \n\
                      DO NOT explain why. The conversation already did that work.\n\
                      The quest is an OFFER, not a command. They can discuss it, change it, refuse it.\n\

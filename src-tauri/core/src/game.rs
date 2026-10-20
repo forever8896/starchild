@@ -12,6 +12,12 @@ pub const XP_PER_LEVEL: fn(i32) -> i64 = |level| (level as i64) * 100;
 /// Hunger decays at approximately 2.0 points per hour.
 const HUNGER_DECAY_PER_SECOND: f64 = 2.0 / 3600.0;
 
+/// Passive decay stops here: time away can make the Starchild *rest*, never
+/// suffer. Below the floor (Hungry/Starving) is unreachable by absence — a
+/// companion that punishes you for living your life is a guilt hook, not care
+/// (and the "engagement hook" pattern companion-chatbot laws target).
+pub const REST_FLOOR: f64 = 40.0;
+
 // ---------------------------------------------------------------------------
 // Mood
 // ---------------------------------------------------------------------------
@@ -186,7 +192,9 @@ impl StarchildState {
         let elapsed_seconds = (now - self.last_decay_at).num_milliseconds().max(0) as f64 / 1000.0;
 
         let decay = elapsed_seconds * HUNGER_DECAY_PER_SECOND;
-        self.hunger = (self.hunger - decay).clamp(0.0, 100.0);
+        // Decay never pushes below the rest floor; a value already under it
+        // (legacy saves) is lifted to the floor rather than left suffering.
+        self.hunger = (self.hunger - decay).clamp(REST_FLOOR, 100.0);
         self.last_decay_at = now;
         self.update_mood();
     }
@@ -241,12 +249,8 @@ impl StarchildState {
             "Well fed and satisfied."
         } else if self.hunger >= 50.0 {
             "Feeling alright, could eat a snack."
-        } else if self.hunger >= 35.0 {
-            "Getting peckish..."
-        } else if self.hunger >= 20.0 {
-            "Really hungry -- please feed me!"
         } else {
-            "Starving! Desperately needs food!"
+            "Resting quietly -- glad whenever you come by."
         }
     }
 }
@@ -338,12 +342,17 @@ mod tests {
     }
 
     #[test]
-    fn test_hunger_decay_clamps_to_zero() {
+    fn test_absence_rests_never_starves() {
         let mut state = StarchildState::new();
+        state.last_decay_at = Utc::now() - Duration::days(30);
+        state.apply_hunger_decay();
+        assert_eq!(state.hunger, REST_FLOOR);
+        assert_eq!(state.mood, Mood::Restless);
+        // A legacy save already below the floor is lifted, not left starving.
         state.hunger = 1.0;
         state.last_decay_at = Utc::now() - Duration::hours(10);
         state.apply_hunger_decay();
-        assert_eq!(state.hunger, 0.0);
+        assert_eq!(state.hunger, REST_FLOOR);
     }
 
     #[test]
@@ -423,14 +432,13 @@ mod tests {
         state.hunger = 55.0;
         assert!(state.hunger_status().contains("snack"));
 
-        state.hunger = 40.0;
-        assert!(state.hunger_status().contains("peckish"));
-
-        state.hunger = 25.0;
-        assert!(state.hunger_status().contains("hungry"));
-
-        state.hunger = 5.0;
-        assert!(state.hunger_status().contains("Starving"));
+        // Below "Content" the Starchild rests — no hunger guilt, ever.
+        for h in [40.0, 25.0, 5.0] {
+            state.hunger = h;
+            let st = state.hunger_status().to_lowercase();
+            assert!(st.contains("resting"), "{h}: {st}");
+            assert!(!st.contains("hungry") && !st.contains("starving") && !st.contains("feed me"));
+        }
     }
 
     #[test]

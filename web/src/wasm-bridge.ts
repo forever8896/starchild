@@ -18,6 +18,9 @@ import init, {
   core_version,
   is_quest_offer,
   detect_crisis,
+  judge_proof,
+  proof_note,
+  proof_max_unclear,
   crisis_active,
   crisis_resources,
   ai_disclosure_due,
@@ -122,6 +125,8 @@ export interface ExtractedQuest {
   category: string
   quest_type: string
   xp_reward: number
+  /** The implementation intention ("When [cue], I will [action]."), or "". */
+  if_then?: string
 }
 
 /** Result of awarding a quest's reward (core `quest_complete_reward`). */
@@ -185,6 +190,12 @@ export interface Core {
   // ── Quest logic (single source — shared with the desktop shell) ──────────
   /** True when an assistant reply contains a quest offer the UI should surface. */
   isQuestOffer(text: string): boolean
+  /** Judge a proof reply: the story (complete), a retraction (not_yet), or too little (unclear). */
+  judgeProof(text: string): 'complete' | 'not_yet' | 'unclear'
+  /** The system-prompt steer for a proof verdict ("" for complete). */
+  proofNote(verdict: 'complete' | 'not_yet' | 'unclear'): string
+  /** How many unclear proof replies before the quest is quietly disarmed. */
+  proofMaxUnclear(): number
   /** The system message for the extraction LLM call. */
   questExtractionSystem(): string
   /** Build the extraction user prompt from recent conversation context. */
@@ -263,6 +274,9 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     aiDisclosureDue: (lastShownMs, nowMs = Date.now()) => ai_disclosure_due(lastShownMs, nowMs),
     aiDisclosureText: () => ai_disclosure_text(),
     isQuestOffer: (text) => is_quest_offer(text),
+    judgeProof: (text) => judge_proof(text) as 'complete' | 'not_yet' | 'unclear',
+    proofNote: (verdict) => proof_note(verdict),
+    proofMaxUnclear: () => proof_max_unclear(),
     questExtractionSystem: () => quest_extraction_system(),
     buildQuestExtractionPrompt: (recentContext) => build_quest_extraction_prompt(recentContext),
     parseQuestExtraction: (raw) => (parse_quest_extraction(raw) as ExtractedQuest | null) ?? null,

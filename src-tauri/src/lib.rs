@@ -728,8 +728,32 @@ async fn send_message_stream(
     // ── Proof-of-completion detection ──
     // Check if user is in a proof flow (triggered by [proof:QUEST_ID] prefix)
     let proof_trigger = message.starts_with("[proof:");
-    let pending_proof = state.db.get_setting("pending_proof_quest_id").ok().flatten()
+    let mut pending_proof = state.db.get_setting("pending_proof_quest_id").ok().flatten()
         .filter(|s| !s.is_empty());
+
+    // Turn 2+: complete only if core judges the reply a story. "Not yet"
+    // disarms; a too-short reply gets one more ask (core quest::judge_proof).
+    let mut proof_verdict: Option<quest::ProofVerdict> = None;
+    if !proof_trigger && pending_proof.is_some() {
+        let mut v = quest::judge_proof(&message);
+        let unclear_so_far: u32 = state.db.get_setting("pending_proof_unclear").ok().flatten()
+            .and_then(|s| s.parse().ok()).unwrap_or(0);
+        if v == quest::ProofVerdict::Unclear && unclear_so_far + 1 >= quest::PROOF_MAX_UNCLEAR {
+            v = quest::ProofVerdict::NotYet; // asked enough — disarm quietly
+        }
+        if v == quest::ProofVerdict::Unclear {
+            let _ = state.db.set_setting("pending_proof_unclear", &(unclear_so_far + 1).to_string());
+        } else {
+            let _ = state.db.set_setting("pending_proof_unclear", "0");
+            if v == quest::ProofVerdict::NotYet {
+                let _ = state.db.set_setting("pending_proof_quest_id", "");
+                pending_proof = None;
+            }
+        }
+        proof_verdict = Some(v);
+    } else if proof_trigger {
+        let _ = state.db.set_setting("pending_proof_unclear", "0");
+    }
 
     if proof_trigger {
         // Extract quest ID from [proof:QUEST_ID] prefix
@@ -784,6 +808,9 @@ async fn send_message_stream(
         ai::ConversationPhase::Crisis
     } else if proof_trigger || pending_proof.is_some() {
         ai::ConversationPhase::Proof
+    } else if proof_verdict == Some(quest::ProofVerdict::NotYet) {
+        // They haven't done it — talk about the quest (adjust, shrink, re-cue).
+        ai::ConversationPhase::Negotiate
     } else if crystallize_pending {
         ai::PhaseDetector::detect_with_context(&phase_history, true)
     } else if !has_pr {
@@ -872,6 +899,13 @@ async fn send_message_stream(
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);
+    }
+    if let Some(v) = proof_verdict {
+        let note = quest::proof_note(v);
+        if !note.is_empty() {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(note);
+        }
     }
 
     // Inject conversation summary for long-running conversations
@@ -977,7 +1011,10 @@ async fn send_message_stream(
             // Proof phase: complete the quest after user shared their proof
             // Turn 1: user sends [proof:ID] trigger → Starchild asks "tell me about it"
             // Turn 2: user shares their story → Starchild celebrates → quest completed
-            if phase == ai::ConversationPhase::Proof && !proof_trigger {
+            if phase == ai::ConversationPhase::Proof
+                && !proof_trigger
+                && proof_verdict == Some(quest::ProofVerdict::Complete)
+            {
                 // This is Turn 2 — user shared proof, Starchild celebrated
                 if let Some(quest_id) = pending_proof.as_deref() {
                     let _ = state.db.set_setting("pending_proof_quest_id", "");

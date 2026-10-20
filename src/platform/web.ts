@@ -567,8 +567,9 @@ export const webPlatform: Platform = {
     // ── Proof-of-completion handshake (mirror desktop lib.rs) ──
     // ChatWindow sends `[proof:QUEST_ID] i did the quest …` when the user taps
     // "i did it". Turn 1 (the trigger) arms `pending_proof` and the Starchild
-    // asks for the story; turn 2 (a plain reply) completes the quest. We read
-    // the pending id BEFORE arming so turn 1 can never self-complete.
+    // asks for the story; turn 2 completes the quest ONLY if core judges it a
+    // story — "not yet" disarms it, and a too-short reply gets one more ask. We
+    // read the pending id BEFORE arming so turn 1 can never self-complete.
     const proofTrigger = text.startsWith('[proof:')
     const pendingProofBefore = ((await s.getSetting('pending_proof_quest_id')) ?? '').trim()
     let content = text
@@ -579,7 +580,23 @@ export const webPlatform: Platform = {
       const close = text.indexOf(']')
       content = (close >= 0 ? text.slice(close + 1) : text).trim() || text
     }
-    const inProof = proofTrigger || pendingProofBefore !== ''
+    let proofVerdict: 'complete' | 'not_yet' | 'unclear' | null = null
+    if (!proofTrigger && pendingProofBefore) {
+      proofVerdict = c.judgeProof(content)
+      const unclearSoFar = Number((await s.getSetting('pending_proof_unclear')) ?? '0') || 0
+      if (proofVerdict === 'unclear' && unclearSoFar + 1 >= c.proofMaxUnclear()) {
+        proofVerdict = 'not_yet' // asked enough — disarm quietly; "i did it" re-arms
+      }
+      if (proofVerdict === 'unclear') {
+        await s.setSetting('pending_proof_unclear', String(unclearSoFar + 1))
+      } else {
+        await s.setSetting('pending_proof_unclear', '0')
+        if (proofVerdict === 'not_yet') await s.setSetting('pending_proof_quest_id', '')
+      }
+    } else if (proofTrigger) {
+      await s.setSetting('pending_proof_unclear', '0')
+    }
+    const inProof = proofTrigger || (pendingProofBefore !== '' && proofVerdict !== 'not_yet')
 
     // Persist the user's turn, then assemble the conversation context.
     const userMsg: Message = {
@@ -688,6 +705,9 @@ export const webPlatform: Platform = {
       phase = 'crisis'
     } else if (inProof) {
       phase = 'proof'
+    } else if (proofVerdict === 'not_yet') {
+      // They haven't done it — talk about the quest (adjust, shrink, re-cue).
+      phase = 'negotiate'
     } else if (crystallizePending) {
       phase = c.detectPhase(chatMessages, true)
     } else {
@@ -722,6 +742,7 @@ export const webPlatform: Platform = {
       great_work: visionRevealed ? (gwPos ?? undefined) : undefined,
     })
     if (knowingFragment) system += `\n\n${knowingFragment}`
+    if (proofVerdict && proofVerdict !== 'complete') system += `\n\n${c.proofNote(proofVerdict)}`
 
     // ── Quest-branch steering (mirrors desktop's SKILL TREE BRANCHES block) ──
     // The Quest phase instruction references "SKILL TREE BRANCHES below"; supply
@@ -761,7 +782,8 @@ export const webPlatform: Platform = {
     // The UI restores the text into the composer; retrying re-persists cleanly.
     const rollbackTurn = async (): Promise<void> => {
       try { await s.deleteMessage(userMsg.id) } catch { /* best-effort */ }
-      if (proofTrigger) {
+      if (proofTrigger || proofVerdict === 'not_yet') {
+        // Undo arming (trigger) or disarming (not yet) — the turn never landed.
         try { await s.setSetting('pending_proof_quest_id', pendingProofBefore) } catch { /* best-effort */ }
       }
     }
@@ -859,7 +881,7 @@ export const webPlatform: Platform = {
 
     // ── Quest completion (proof turn 2) ──
     // phase == proof, this turn was NOT the trigger, and a quest was armed.
-    if (phase === 'proof' && !proofTrigger && pendingProofBefore) {
+    if (phase === 'proof' && !proofTrigger && pendingProofBefore && proofVerdict === 'complete') {
       await s.setSetting('pending_proof_quest_id', '')
       try {
         await completeQuestAndEmit(pendingProofBefore)

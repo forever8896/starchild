@@ -48,7 +48,8 @@ pub fn build_extraction_prompt(recent_context: &str) -> String {
          \"description\": \"1-2 sentence description of what to do\",\n\
          \"category\": \"one of: body, mind, spirit\",\n\
          \"quest_type\": \"daily or weekly\",\n\
-         \"xp_reward\": 10-50 based on difficulty\n\
+         \"xp_reward\": 10-50 based on difficulty,\n\
+         \"if_then\": \"the plan as 'When [cue from their day], I will [action].' — empty string if no cue was agreed\"\n\
          }}\n\n\
          Category guide:\n\
          - body: physical activity, health, movement, nature, embodiment\n\
@@ -70,6 +71,11 @@ pub struct ExtractedQuest {
     pub category: String,
     pub quest_type: String,
     pub xp_reward: i64,
+    /// The implementation intention, "When [cue], I will [action]." — the
+    /// best-evidenced part of the loop (Gollwitzer; d≈.3–.6). Empty when no cue
+    /// was agreed. Optional on the wire so older extractions still parse.
+    #[serde(default)]
+    pub if_then: String,
 }
 
 /// Apply the category/type defaults and the XP clamp (5–50), trim the
@@ -89,12 +95,20 @@ pub fn normalize_quest(e: ExtractedQuest) -> ExtractedQuest {
     let xp = if e.xp_reward == 0 { 10 } else { e.xp_reward };
     let xp_reward = xp.clamp(5, 50);
     let title: String = e.title.trim().chars().take(200).collect();
+    let if_then: String = e.if_then.trim().chars().take(240).collect();
+    let mut description = e.description.trim().to_string();
+    // Lead the description with the plan so every shell shows it on the quest
+    // card with no schema change — unless the description already carries it.
+    if !if_then.is_empty() && !description.to_lowercase().contains(&if_then.to_lowercase()) {
+        description = if description.is_empty() { if_then.clone() } else { format!("{if_then}\n{description}") };
+    }
     ExtractedQuest {
         title,
-        description: e.description.trim().to_string(),
+        description,
         category,
         quest_type,
         xp_reward,
+        if_then,
     }
 }
 
@@ -161,6 +175,11 @@ pub fn parse_extraction(raw: &str) -> Option<ExtractedQuest> {
         .and_then(|v| v.as_f64())
         .map(|f| f.round() as i64)
         .unwrap_or(10);
+    let if_then = obj
+        .get("if_then")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     Some(normalize_quest(ExtractedQuest {
         title,
@@ -168,7 +187,72 @@ pub fn parse_extraction(raw: &str) -> Option<ExtractedQuest> {
         category,
         quest_type,
         xp_reward,
+        if_then,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Proof — did they actually do it?
+// ---------------------------------------------------------------------------
+
+/// What the human's reply to "tell me what happened" means for an armed quest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProofVerdict {
+    /// They told the story — complete the quest and celebrate.
+    Complete,
+    /// They said they haven't done it (yet) — disarm without completing, and
+    /// talk about the quest instead of celebrating.
+    NotYet,
+    /// Too little to tell ("yes", "done") — keep the quest armed and let the
+    /// Starchild ask once more for the story.
+    Unclear,
+}
+
+/// Phrases that take back a completion claim. Phrase-level on purpose: a bare
+/// "didn't" appears in real stories ("i didn't expect how calm it felt").
+const NOT_YET_MARKERS: &[&str] = &[
+    "not yet", "haven't done", "havent done", "haven't yet", "havent yet", "have not done",
+    "didn't do", "didnt do", "did not do", "didn't get to", "didnt get to", "didn't manage",
+    "didn't actually", "didnt actually", "never did", "i lied", "just kidding", "jk",
+    "couldn't do", "couldnt do", "couldn't make", "wasn't able", "wasnt able", "forgot to",
+    "gave up", "changed my mind", "i'll do it", "ill do it", "i will do it", "do it tomorrow",
+    "do it later", "going to do it", "gonna do it", "not done",
+];
+
+/// Minimum words for a reply to count as the story of what happened.
+const PROOF_MIN_WORDS: usize = 4;
+
+/// How many unclear proof replies in a row before the quest is quietly disarmed
+/// (they can tap "i did it" again any time).
+pub const PROOF_MAX_UNCLEAR: u32 = 2;
+
+/// A system-prompt note steering the reply for a non-complete verdict, so the
+/// Starchild never celebrates a quest the shell didn't complete.
+pub fn proof_note(verdict: ProofVerdict) -> &'static str {
+    match verdict {
+        ProofVerdict::Complete => "",
+        ProofVerdict::Unclear => "PROOF NOTE: they haven't told you what happened yet. Do NOT celebrate yet. \
+            Ask once more, warmly and briefly, what it was like — one question.",
+        ProofVerdict::NotYet => "PROOF NOTE: they say they haven't done the quest (yet). Do NOT celebrate and do NOT \
+            mark it done. No guilt, no pressure: be curious about what got in the way, and offer to make \
+            the quest smaller or tie it to a better moment in their day if they want.",
+    }
+}
+
+/// Judge the human's proof reply (the turn after the proof trigger). Without
+/// this, ANY next message — "actually not yet" included — completed the quest.
+pub fn judge_proof(text: &str) -> ProofVerdict {
+    let t = text.to_lowercase().replace(['\u{2019}', '\u{2018}'], "'");
+    let words: Vec<&str> = t.split(|c: char| !c.is_alphanumeric() && c != '\'').filter(|w| !w.is_empty()).collect();
+    let joined = format!(" {} ", words.join(" "));
+    if NOT_YET_MARKERS.iter().any(|m| joined.contains(&format!(" {m} "))) {
+        return ProofVerdict::NotYet;
+    }
+    if words.len() < PROOF_MIN_WORDS {
+        return ProofVerdict::Unclear;
+    }
+    ProofVerdict::Complete
 }
 
 /// Return the first sentence of `s` (text up to and including the first
@@ -235,6 +319,7 @@ pub fn fallback_extract(offer_text: &str) -> ExtractedQuest {
         category: "spirit".to_string(),
         quest_type: "daily".to_string(),
         xp_reward: 15,
+        if_then: String::new(),
     })
 }
 
@@ -245,6 +330,29 @@ pub fn fallback_extract(offer_text: &str) -> ExtractedQuest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proof_needs_a_story_and_respects_not_yet() {
+        assert_eq!(judge_proof("it is complete — i stepped out at dawn and it was still and calm"), ProofVerdict::Complete);
+        assert_eq!(judge_proof("I didn't expect how calm it felt, honestly"), ProofVerdict::Complete);
+        assert_eq!(judge_proof("actually not yet, sorry"), ProofVerdict::NotYet);
+        assert_eq!(judge_proof("I haven’t done it, I’ll do it tomorrow"), ProofVerdict::NotYet);
+        assert_eq!(judge_proof("jk"), ProofVerdict::NotYet);
+        assert_eq!(judge_proof("yes"), ProofVerdict::Unclear);
+        assert_eq!(judge_proof("done!"), ProofVerdict::Unclear);
+    }
+
+    #[test]
+    fn if_then_plan_leads_the_description() {
+        let q = parse_extraction(r#"{"title":"Dawn breath","description":"Ten slow breaths outside.","category":"body","quest_type":"daily","xp_reward":15,"if_then":"When I pour my first coffee, I will step outside."}"#).unwrap();
+        assert_eq!(q.if_then, "When I pour my first coffee, I will step outside.");
+        assert!(q.description.starts_with("When I pour my first coffee"));
+        assert!(q.description.contains("Ten slow breaths"));
+        // Older extractions without the field still parse.
+        let old = parse_extraction(r#"{"title":"Walk","description":"Walk.","category":"body","quest_type":"daily","xp_reward":10}"#).unwrap();
+        assert_eq!(old.if_then, "");
+        assert_eq!(old.description, "Walk.");
+    }
 
     #[test]
     fn offer_detection_matches_markers() {
@@ -306,6 +414,7 @@ mod tests {
             category: "bogus".to_string(),
             quest_type: "monthly".to_string(),
             xp_reward: 999,
+            if_then: String::new(),
         });
         assert_eq!(n.title, "hi");
         assert_eq!(n.description, "there");
@@ -323,6 +432,7 @@ mod tests {
                 category: "mind".into(),
                 quest_type: "weekly".into(),
                 xp_reward: 1,
+                if_then: String::new(),
             })
             .xp_reward,
             5
@@ -334,6 +444,7 @@ mod tests {
                 category: "mind".into(),
                 quest_type: "weekly".into(),
                 xp_reward: 0,
+                if_then: String::new(),
             })
             .xp_reward,
             10

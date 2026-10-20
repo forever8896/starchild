@@ -173,6 +173,34 @@ pub fn core_version() -> String {
 // Quest logic (offer detection · extraction prompt · parse/normalize · fallback)
 // ---------------------------------------------------------------------------
 
+/// Judge a proof reply: "complete" | "not_yet" | "unclear" (core `quest::judge_proof`).
+#[wasm_bindgen]
+pub fn judge_proof(text: &str) -> String {
+    match quest::judge_proof(text) {
+        quest::ProofVerdict::Complete => "complete",
+        quest::ProofVerdict::NotYet => "not_yet",
+        quest::ProofVerdict::Unclear => "unclear",
+    }
+    .to_string()
+}
+
+/// The system-prompt steer for a proof verdict ("" for complete).
+#[wasm_bindgen]
+pub fn proof_note(verdict: &str) -> String {
+    let v = match verdict {
+        "not_yet" => quest::ProofVerdict::NotYet,
+        "unclear" => quest::ProofVerdict::Unclear,
+        _ => quest::ProofVerdict::Complete,
+    };
+    quest::proof_note(v).to_string()
+}
+
+/// How many unclear proof replies before the quest is quietly disarmed.
+#[wasm_bindgen]
+pub fn proof_max_unclear() -> u32 {
+    quest::PROOF_MAX_UNCLEAR
+}
+
 /// True when an assistant reply contains a quest offer the UI should surface.
 #[wasm_bindgen]
 pub fn is_quest_offer(text: &str) -> bool {
