@@ -273,11 +273,25 @@ pub async fn extract_memories(
     ];
 
     let response = client
-        .chat(messages, ai::ModelTier::Quick)
+        .chat(messages, ai::ModelTier::Internal)
         .await
         .map_err(|e| e.to_string())?;
 
+    // Dedup on write (core): the extractor re-finds the same insight most turns.
+    let mut existing = knowing.profile().map(|p| p.facts).unwrap_or_default();
     for f in knowing::parse_extracted_facts(&response) {
+        if starchild_core::knowing::is_duplicate_fact(&f.category, &f.fact, &existing) {
+            continue;
+        }
+        existing.push(starchild_core::knowing::KnownFact {
+            id: String::new(),
+            category: f.category.clone(),
+            fact: f.fact.clone(),
+            importance: f.importance,
+            confidence: f.confidence,
+            created_at: String::new(),
+        });
+
         // Store in flat memory system (FTS5 searchable)
         if let Err(e) = memory.store(&f.fact, f.importance, Some(&f.category)) {
             log::warn!("Failed to store memory: {e}");
@@ -341,7 +355,7 @@ async fn extract_quest_from_conversation(
     ];
 
     let response = client
-        .chat(messages, ai::ModelTier::Quick)
+        .chat(messages, ai::ModelTier::Internal)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -382,52 +396,30 @@ async fn update_conversation_summary(
     db: &db::Database,
     msg_count: i64,
 ) -> Result<(), String> {
-    // Fetch messages outside the recent 14-message window
-    let all_msgs = db.get_messages(msg_count).map_err(|e| e.to_string())?;
+    use starchild_core::summary;
     // all_msgs is DESC order — reverse to chronological, then take the older ones
+    let all_msgs = db.get_messages(msg_count).map_err(|e| e.to_string())?;
     let chronological: Vec<_> = all_msgs.into_iter().rev().collect();
-    let older_count = chronological.len().saturating_sub(14);
-    if older_count < 10 {
+    let Some(older_count) = summary::older_count(chronological.len()) else {
         return Ok(()); // Not enough older messages to warrant summarization
-    }
-
-    let older_msgs: Vec<_> = chronological[..older_count].iter().collect();
-
-    // Build a transcript of older messages
-    let mut transcript = String::new();
-    for m in &older_msgs {
-        let role_label = if m.role == "user" { "Human" } else { "Starchild" };
-        transcript.push_str(&format!("{}: {}\n", role_label, m.content));
-    }
+    };
+    let older: Vec<(&str, &str)> = chronological[..older_count]
+        .iter()
+        .map(|m| (m.role.as_str(), m.content.as_str()))
+        .collect();
 
     // Load existing summary for continuity
     let existing_summary = db.get_setting("conversation_summary")
         .ok().flatten()
         .unwrap_or_default();
 
-    let prompt = format!(
-        "Compress this conversation into a concise summary (max 300 words). \
-         Preserve: key facts about the human, their dreams/fears/values, \
-         important decisions made, quests discussed, emotional turning points. \
-         Drop: greetings, filler, repetition.\n\n\
-         {}\
-         CONVERSATION:\n{}",
-        if existing_summary.is_empty() {
-            String::new()
-        } else {
-            format!("PREVIOUS SUMMARY (update and extend, don't repeat):\n{}\n\n", existing_summary)
-        },
-        transcript,
-    );
-
     let messages = vec![
-        ai::ChatMessage::system(
-            "You are a precise summarizer. Return ONLY the summary, no preamble."
-        ),
-        ai::ChatMessage::user(&prompt),
+        ai::ChatMessage::system(summary::SUMMARY_SYSTEM),
+        ai::ChatMessage::user(&summary::build_summary_prompt(&existing_summary, &older)),
     ];
 
-    let summary = client.chat(messages, ai::ModelTier::Quick)
+    // E2EE (Internal tier) — the transcript is the most sensitive thing we send.
+    let summary = client.chat(messages, ai::ModelTier::Internal)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -479,7 +471,7 @@ async fn classify_conversation_phase(
         ai::ChatMessage::user(&prompt),
     ];
 
-    let response = client.chat(messages, ai::ModelTier::Quick)
+    let response = client.chat(messages, ai::ModelTier::Internal)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -550,7 +542,7 @@ async fn crystallize_vision(
     ];
 
     let vision = client
-        .chat(messages, ai::ModelTier::Quick)
+        .chat(messages, ai::ModelTier::Internal)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -909,9 +901,10 @@ async fn send_message_stream(
     }
 
     // Inject conversation summary for long-running conversations
-    if !conversation_summary.is_empty() {
-        system_prompt.push_str("\n\nCONVERSATION HISTORY SUMMARY (older messages, compressed):\n");
-        system_prompt.push_str(&conversation_summary);
+    let summary_fragment = starchild_core::summary::summary_fragment(&conversation_summary);
+    if !summary_fragment.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&summary_fragment);
     }
 
     // Add skill tree branch balance info for quest generation
@@ -1076,8 +1069,8 @@ async fn send_message_stream(
                     .ok().flatten()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
-                // Re-summarize every 20 new messages beyond the 14-message window
-                if msg_count > 30 && msg_count - last_summarized >= 20 {
+                // Re-summarize every 20 new messages beyond the recent window (core).
+                if starchild_core::summary::summary_due(msg_count.max(0) as usize, last_summarized.max(0) as usize) {
                     tokio::spawn(async move {
                         if let Err(e) = update_conversation_summary(
                             &summary_client,

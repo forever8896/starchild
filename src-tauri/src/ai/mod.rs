@@ -236,6 +236,8 @@ pub struct AiClient {
     http_client: reqwest::Client,
     /// E2EE session — established lazily on first use, shared across clones.
     e2ee_session: Arc<RwLock<Option<E2eeSession>>>,
+    /// The Venice E2EE model the current session attested (from `E2EE_MODELS`).
+    e2ee_model: Arc<RwLock<Option<String>>>,
     /// Whether E2EE is enabled. When true, all user-facing chat uses E2EE models.
     e2ee_enabled: bool,
 }
@@ -252,19 +254,23 @@ impl AiClient {
             api_key,
             http_client,
             e2ee_session: Arc::new(RwLock::new(None)),
+            e2ee_model: Arc::new(RwLock::new(None)),
             e2ee_enabled: true,
         }
     }
 
-    /// Ensure the E2EE session is established for the given model.
-    /// Returns Ok(true) if E2EE is ready, Ok(false) if disabled/unavailable.
-    async fn ensure_e2ee(&self, model: &str) -> std::result::Result<bool, AiError> {
-        if !self.e2ee_enabled {
-            return Ok(false);
-        }
-
-        // Only E2EE for user-facing models (Regular and Deep), not Quick/Vision
-        if model == ModelTier::Quick.model_id() || model == ModelTier::Vision.model_id() {
+    /// Ensure the E2EE session is established for a tier that carries
+    /// conversation content (Regular, Deep, Internal — see
+    /// `ModelTier::e2ee_model_id`). Returns Ok(true) when E2EE is ready,
+    /// Ok(false) for tiers that never carry conversation (Quick, Vision) or when
+    /// E2EE is disabled.
+    ///
+    /// FAIL CLOSED: if no model on the ranked `E2EE_MODELS` list can be
+    /// attested, this errors — conversation is never silently sent in plaintext
+    /// (it used to fall back to "standard", which is how desktop chat went out
+    /// unencrypted after Venice retired GLM-4.7).
+    async fn ensure_e2ee(&self, tier: ModelTier) -> std::result::Result<bool, AiError> {
+        if !self.e2ee_enabled || tier.e2ee_model_id().is_none() {
             return Ok(false);
         }
 
@@ -276,41 +282,25 @@ impl AiClient {
             }
         }
 
-        // Map to actual Venice E2EE model name
-        let e2ee_model = if model == ModelTier::Regular.model_id() {
-            ModelTier::Regular.e2ee_model_id()
-        } else if model == ModelTier::Deep.model_id() {
-            ModelTier::Deep.e2ee_model_id()
-        } else {
-            None
-        };
-
-        let e2ee_model = match e2ee_model {
-            Some(m) => m.to_string(),
-            None => return Ok(false),
-        };
-
-        log::info!("Establishing E2EE session for {e2ee_model}...");
-
-        match crate::e2ee_net::establish(
-            &self.http_client,
-            &self.api_key,
-            VENICE_BASE_URL,
-            &e2ee_model,
-        )
-        .await
-        {
-            Ok(session) => {
-                let mut guard = self.e2ee_session.write().await;
-                *guard = Some(session);
-                log::info!("E2EE session established successfully");
-                Ok(true)
-            }
-            Err(e) => {
-                log::warn!("E2EE setup failed, falling back to standard: {e}");
-                Ok(false)
+        let mut last_err = String::new();
+        for (model, _upstream) in E2EE_MODELS {
+            log::info!("Establishing E2EE session for {model}...");
+            match crate::e2ee_net::establish(&self.http_client, &self.api_key, VENICE_BASE_URL, model).await {
+                Ok(session) => {
+                    *self.e2ee_session.write().await = Some(session);
+                    *self.e2ee_model.write().await = Some(model.to_string());
+                    log::info!("E2EE session established on {model}");
+                    return Ok(true);
+                }
+                Err(e) => {
+                    log::warn!("E2EE setup failed on {model}, trying the next: {e}");
+                    last_err = e.to_string();
+                }
             }
         }
+        Err(AiError::E2ee(format!(
+            "could not open the encrypted channel — your words were not sent ({last_err})"
+        )))
     }
 
     /// Encrypt all messages for E2EE. Venice requires every message content
@@ -342,7 +332,7 @@ impl AiClient {
         tier: ModelTier,
     ) -> Result<String> {
         let model = tier.model_id();
-        let use_e2ee = self.ensure_e2ee(model).await?;
+        let use_e2ee = self.ensure_e2ee(tier).await?;
 
         if use_e2ee {
             // E2EE requires streaming — collect silently
@@ -426,14 +416,19 @@ impl AiClient {
         F: FnMut(&str),
     {
         let model = tier.model_id();
-        let use_e2ee = self.ensure_e2ee(model).await?;
+        let use_e2ee = self.ensure_e2ee(tier).await?;
 
         // Prepare model name and messages
         let (actual_model, actual_messages) = if use_e2ee {
             let guard = self.e2ee_session.read().await;
             let session = guard.as_ref().unwrap(); // safe: ensure_e2ee returned true
             let encrypted = Self::encrypt_messages(session, &messages)?;
-            let e2ee_name = tier.e2ee_model_id().unwrap_or(model).to_string();
+            let e2ee_name = self
+                .e2ee_model
+                .read()
+                .await
+                .clone()
+                .unwrap_or_else(|| tier.e2ee_model_id().unwrap_or(model).to_string());
             (e2ee_name, encrypted)
         } else {
             (model.to_string(), messages)

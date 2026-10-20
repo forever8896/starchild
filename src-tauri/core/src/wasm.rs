@@ -75,6 +75,7 @@ pub fn route_model(user_message: &str) -> Result<JsValue, JsValue> {
         ai::ModelTier::Regular => "regular",
         ai::ModelTier::Deep => "deep",
         ai::ModelTier::Vision => "vision",
+        ai::ModelTier::Internal => "internal",
     };
     let out = RouteResult {
         tier: name.to_string(),
@@ -357,6 +358,49 @@ pub fn parse_knowing_facts(raw: &str) -> Result<JsValue, JsValue> {
     Ok(serde_wasm_bindgen::to_value(&knowing::parse_extracted_facts(
         raw,
     ))?)
+}
+
+// ---------------------------------------------------------------------------
+// Rolling conversation summary (core `summary`)
+// ---------------------------------------------------------------------------
+
+/// Whether a (re)summary is due for `total` stored messages.
+#[wasm_bindgen]
+pub fn summary_due(total: u32, last_summarized: u32) -> bool {
+    crate::summary::summary_due(total as usize, last_summarized as usize)
+}
+
+/// How many oldest messages to summarize (0 = not worth it yet).
+#[wasm_bindgen]
+pub fn summary_older_count(total: u32) -> u32 {
+    crate::summary::older_count(total as usize).unwrap_or(0) as u32
+}
+
+/// The summarizer system message.
+#[wasm_bindgen]
+pub fn summary_system() -> String {
+    crate::summary::SUMMARY_SYSTEM.to_string()
+}
+
+/// The summarizer user prompt from the previous summary + older `ChatMessage[]`.
+#[wasm_bindgen]
+pub fn build_summary_prompt(existing: &str, older: JsValue) -> Result<String, JsValue> {
+    let older: Vec<ChatMessage> = serde_wasm_bindgen::from_value(older)?;
+    let pairs: Vec<(&str, &str)> = older.iter().map(|m| (m.role.as_str(), m.content.as_str())).collect();
+    Ok(crate::summary::build_summary_prompt(existing, &pairs))
+}
+
+/// The system-prompt fragment carrying the summary ("" when none).
+#[wasm_bindgen]
+pub fn summary_fragment(summary: &str) -> String {
+    crate::summary::summary_fragment(summary)
+}
+
+/// True when a newly extracted fact repeats a stored one (`existing: KnownFact[]`).
+#[wasm_bindgen]
+pub fn is_duplicate_fact(category: &str, fact: &str, existing: JsValue) -> Result<bool, JsValue> {
+    let existing: Vec<KnownFact> = serde_wasm_bindgen::from_value(existing)?;
+    Ok(knowing::is_duplicate_fact(category, fact, &existing))
 }
 
 /// Build the knowing prompt fragment from the stored facts (`KnownFact[]`):

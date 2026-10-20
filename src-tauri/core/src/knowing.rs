@@ -144,6 +144,55 @@ pub struct KnownFact {
 }
 
 // ---------------------------------------------------------------------------
+// Fact hygiene — dedup on write, a budget on read
+// ---------------------------------------------------------------------------
+
+/// Facts per category that reach the prompt (the strongest, newest first).
+pub const FRAGMENT_PER_CATEGORY: usize = 6;
+/// Total facts that reach the prompt — the profile grows forever in storage,
+/// but the prompt must not (cost, latency, and attention all degrade).
+pub const FRAGMENT_TOTAL: usize = 30;
+/// Content-word overlap at or above which a new fact repeats an existing one.
+const DUPLICATE_JACCARD: f64 = 0.7;
+
+const STOPWORDS: &[&str] = &[
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for", "with", "about",
+    "is", "are", "was", "were", "be", "been", "they", "them", "their", "he", "she", "his", "her",
+    "user", "human", "has", "have", "had", "that", "this", "it", "its", "as", "by", "from", "very",
+    "really", "feels", "feel", "wants", "want", "who", "which",
+];
+
+fn content_words(s: &str) -> std::collections::BTreeSet<String> {
+    s.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 1 && !STOPWORDS.contains(w))
+        .map(|w| w.trim_end_matches('s').to_string()) // crude plural fold
+        .collect()
+}
+
+/// True when `fact` (in `category`) says what a stored fact already says — the
+/// extractor re-finds the same insight most turns, which used to pile up
+/// near-identical bullets in every prompt. Same category + high content-word
+/// overlap, or one containing the other, counts as a duplicate.
+pub fn is_duplicate_fact(category: &str, fact: &str, existing: &[KnownFact]) -> bool {
+    let new_words = content_words(fact);
+    if new_words.is_empty() {
+        return true; // nothing to add
+    }
+    let new_lower = fact.trim().to_lowercase();
+    existing.iter().filter(|f| f.category == category).any(|f| {
+        let old_lower = f.fact.trim().to_lowercase();
+        if old_lower.contains(&new_lower) || new_lower.contains(&old_lower) {
+            return true;
+        }
+        let old_words = content_words(&f.fact);
+        let inter = new_words.intersection(&old_words).count() as f64;
+        let union = new_words.union(&old_words).count() as f64;
+        union > 0.0 && inter / union >= DUPLICATE_JACCARD
+    })
+}
+
+// ---------------------------------------------------------------------------
 // The Knowing Profile — full structured understanding
 // ---------------------------------------------------------------------------
 
@@ -188,14 +237,24 @@ impl KnowingProfile {
     pub fn to_prompt_fragment(&self) -> String {
         let mut parts = Vec::new();
 
-        // What we know, organized by category
+        // What we know, organized by category — within a budget: the strongest
+        // (importance × confidence), newest-first on ties, per category and in total.
         let mut has_any = false;
+        let mut budget = FRAGMENT_TOTAL;
         for cat in KnowingCategory::ALL {
-            let cat_facts: Vec<&KnownFact> = self
+            let mut cat_facts: Vec<&KnownFact> = self
                 .facts
                 .iter()
                 .filter(|f| f.category == cat.as_str())
                 .collect();
+            cat_facts.sort_by(|a, b| {
+                (b.importance * b.confidence)
+                    .partial_cmp(&(a.importance * a.confidence))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| b.created_at.cmp(&a.created_at))
+            });
+            cat_facts.truncate(FRAGMENT_PER_CATEGORY.min(budget));
+            budget -= cat_facts.len();
 
             if !cat_facts.is_empty() {
                 has_any = true;
@@ -360,6 +419,34 @@ pub fn parse_extracted_facts(raw: &str) -> Vec<ExtractedFact> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fact(cat: &str, text: &str, imp: f64, at: &str) -> KnownFact {
+        KnownFact { id: text.into(), category: cat.into(), fact: text.into(), importance: imp, confidence: 1.0, created_at: at.into() }
+    }
+
+    #[test]
+    fn dedup_catches_rephrasings_not_new_facts() {
+        let stored = vec![fact("values", "Values creative freedom above stability", 0.8, "2026-01-01")];
+        assert!(is_duplicate_fact("values", "values creative freedom above stability", &stored));
+        assert!(is_duplicate_fact("values", "They value creative freedom above stability.", &stored));
+        assert!(is_duplicate_fact("values", "creative freedom", &stored), "contained in an existing fact");
+        assert!(!is_duplicate_fact("values", "Values honesty in close friendships", &stored));
+        assert!(!is_duplicate_fact("fears", "Values creative freedom above stability", &stored), "other category");
+        assert!(is_duplicate_fact("values", "   ", &stored), "empty adds nothing");
+    }
+
+    #[test]
+    fn fragment_stays_within_budget_and_keeps_the_strongest() {
+        let mut facts = Vec::new();
+        for i in 0..20 {
+            facts.push(fact("core_values", &format!("value number {i}"), i as f64 / 20.0, "2026-01-01"));
+        }
+        let frag = KnowingProfile::from_facts(facts).to_prompt_fragment();
+        let bullets = frag.lines().filter(|l| l.trim_start().starts_with("- value number")).count();
+        assert_eq!(bullets, FRAGMENT_PER_CATEGORY);
+        assert!(frag.contains("value number 19"), "strongest kept");
+        assert!(!frag.contains("value number 0\n"), "weakest dropped");
+    }
 
     #[test]
     fn from_facts_matches_stage_and_gaps() {

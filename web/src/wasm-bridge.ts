@@ -38,6 +38,12 @@ import init, {
   build_knowing_extraction_input,
   parse_knowing_facts,
   build_knowing_fragment,
+  is_duplicate_fact,
+  summary_due,
+  summary_older_count,
+  summary_system,
+  build_summary_prompt,
+  summary_fragment,
   derive_state_from_position,
   apply_evidence,
 } from './wasm/starchild_core.js'
@@ -224,6 +230,16 @@ export interface Core {
   parseKnowingFacts(raw: string): ExtractedFact[]
   /** Render the knowing prompt fragment (stage + gaps) from stored facts. */
   buildKnowingFragment(facts: KnownFact[]): string
+  // ── Rolling conversation summary (memory beyond the recent window) ─────────
+  summaryDue(total: number, lastSummarized: number): boolean
+  /** How many oldest messages to summarize (0 = not worth it yet). */
+  summaryOlderCount(total: number): number
+  summarySystem(): string
+  buildSummaryPrompt(existing: string, older: ChatMessage[]): string
+  /** The system-prompt fragment carrying the summary ("" when none). */
+  summaryFragment(summary: string): string
+  /** True when a newly extracted fact repeats a stored one (dedup on write). */
+  isDuplicateFact(category: string, fact: string, existing: KnownFact[]): boolean
 
   // ── The Great Work (hermetic macro state) ────────────────────────────────
   /** Derive creature state from a Great Work position (homunculus mirror). */
@@ -291,6 +307,12 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
       build_knowing_extraction_input(userMessage, aiResponse),
     parseKnowingFacts: (raw) => parse_knowing_facts(raw) as ExtractedFact[],
     buildKnowingFragment: (facts) => build_knowing_fragment(facts),
+    isDuplicateFact: (category, fact, existing) => is_duplicate_fact(category, fact, existing),
+    summaryDue: (total, last) => summary_due(total, last),
+    summaryOlderCount: (total) => summary_older_count(total),
+    summarySystem: () => summary_system(),
+    buildSummaryPrompt: (existing, older) => build_summary_prompt(existing, older),
+    summaryFragment: (summary) => summary_fragment(summary),
     deriveStateFromPosition: (position, nowMs = Date.now()) =>
       derive_state_from_position(position, nowMs) as GameState,
     applyEvidence: (position, evidence, nowIso = new Date().toISOString()) =>

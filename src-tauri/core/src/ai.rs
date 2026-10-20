@@ -35,8 +35,12 @@ pub type Result<T> = std::result::Result<T, AiError>;
 /// Selects which backing model to use for a given interaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelTier {
-    /// Internal tasks only (memory extraction, classification)
+    /// Content-free internal tasks only — never conversation text (plaintext).
     Quick,
+    /// Internal tasks OVER conversation content (memory/quest extraction,
+    /// summaries, phase classification) — E2EE like the conversation itself,
+    /// tuned for structured output (low temperature, room for JSON/summaries).
+    Internal,
     /// All conversation — the Starchild's true voice
     Regular,
     /// Emotional depth, life purpose work, breakthroughs
@@ -61,7 +65,7 @@ impl ModelTier {
     /// Venice-compatible model identifier.
     pub fn model_id(&self) -> &'static str {
         match self {
-            ModelTier::Quick => "llama-3.3-70b",
+            ModelTier::Quick | ModelTier::Internal => "llama-3.3-70b",
             ModelTier::Regular => "venice-uncensored-role-play",
             ModelTier::Deep => "deepseek-v3.2",
             ModelTier::Vision => "qwen3-vl-235b-a22b",
@@ -77,7 +81,7 @@ impl ModelTier {
     /// a drop-in for the v1 handshake in `e2ee.rs`, and answers in ~2.6s warm.
     pub fn e2ee_model_id(&self) -> Option<&'static str> {
         match self {
-            ModelTier::Regular | ModelTier::Deep => Some(E2EE_MODELS[0].0),
+            ModelTier::Regular | ModelTier::Deep | ModelTier::Internal => Some(E2EE_MODELS[0].0),
             _ => None,
         }
     }
@@ -89,6 +93,7 @@ impl ModelTier {
             ModelTier::Regular => 0.88,
             ModelTier::Deep => 0.85,
             ModelTier::Vision => 0.3,
+            ModelTier::Internal => 0.2,
         }
     }
 
@@ -99,6 +104,7 @@ impl ModelTier {
             ModelTier::Regular => 300,
             ModelTier::Deep => 2000,
             ModelTier::Vision => 500,
+            ModelTier::Internal => 1000,
         }
     }
 }

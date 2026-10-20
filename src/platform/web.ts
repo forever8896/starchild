@@ -438,6 +438,44 @@ function deferBackground(fn: () => void): void {
 }
 
 /**
+ * Refresh the rolling conversation summary when core says it's due — the web
+ * mirror of desktop's `update_conversation_summary`. Only the last messages go
+ * to the model verbatim; this keeps the arc of everything older. Background,
+ * E2EE-or-skip (never plaintext), errors swallowed.
+ */
+async function updateSummary(): Promise<void> {
+  try {
+    const [s, c, v] = await Promise.all([storage(), core(), venice()])
+    const all = await s.getMessages(0) // chronological
+    const last = Number((await s.getSetting('summary_msg_count')) ?? '0') || 0
+    if (!c.summaryDue(all.length, last)) return
+    const olderCount = c.summaryOlderCount(all.length)
+    if (olderCount === 0) return
+    const inference = await privateInference(true)
+    if (!inference) return
+    const { mode, apiKey, e2eeSession } = inference
+    const existing = (await s.getSetting('conversation_summary')) ?? ''
+    const older = all.slice(0, olderCount).map((m) => ({ role: m.role, content: m.content }))
+    let acc = ''
+    for await (const token of v.streamChat(
+      [
+        { role: 'system', content: c.summarySystem() },
+        { role: 'user', content: c.buildSummaryPrompt(existing, older) },
+      ],
+      { mode, apiKey, e2eeSession, temperature: 0.2 },
+    )) {
+      acc += token
+    }
+    if (acc.trim()) {
+      await s.setSetting('conversation_summary', acc.trim())
+      await s.setSetting('summary_msg_count', String(all.length))
+    }
+  } catch (err) {
+    console.warn('Conversation summary update failed:', err)
+  }
+}
+
+/**
  * Extract the 7-dimension "knowing" insights from one conversation turn and
  * persist them to IndexedDB — the web mirror of desktop's `extract_memories`.
  * Uses the SAME core extraction prompt + JSON normalization, so both shells
@@ -467,27 +505,34 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
     }
 
     const extracted = c.parseKnowingFacts(acc)
+    // Dedup on write (core): the extractor re-finds the same insight most turns.
+    const existing = await s.getKnowingFacts()
+    const added: typeof extracted = []
     for (const f of extracted) {
-      await s.addKnowingFact({
+      if (c.isDuplicateFact(f.category, f.fact, existing)) continue
+      const fact = {
         id: uuid(),
         category: f.category,
         fact: f.fact,
         importance: f.importance,
         confidence: f.confidence,
         created_at: nowIso(),
-      })
+      }
+      await s.addKnowingFact(fact)
+      existing.push(fact)
+      added.push(f)
     }
 
     // A turn that deepened the knowing profile is Great Work evidence too —
     // `KnowingDeepened` lands on all three planes (it feeds the homunculus's
     // bond, not stage advancement). Previously this kind was never emitted.
-    if (extracted.length > 0) {
+    if (added.length > 0) {
       try {
         const gw = await s.getGreatWorkPosition<import('./index').GreatWorkPosition>()
         if (gw) {
           const updated = c.applyEvidence(
             gw,
-            { kind: 'KnowingDeepened', dimension: extracted[0].category, depth: extracted.length },
+            { kind: 'KnowingDeepened', dimension: added[0].category, depth: added.length },
             nowIso(),
           )
           await s.setGreatWorkPosition(updated)
@@ -742,6 +787,8 @@ export const webPlatform: Platform = {
       great_work: visionRevealed ? (gwPos ?? undefined) : undefined,
     })
     if (knowingFragment) system += `\n\n${knowingFragment}`
+    const summaryFragment = c.summaryFragment((await s.getSetting('conversation_summary')) ?? '')
+    if (summaryFragment) system += `\n\n${summaryFragment}`
     if (proofVerdict && proofVerdict !== 'complete') system += `\n\n${c.proofNote(proofVerdict)}`
 
     // ── Quest-branch steering (mirrors desktop's SKILL TREE BRANCHES block) ──
@@ -878,6 +925,7 @@ export const webPlatform: Platform = {
     // Deferred so this E2EE extraction never contends with the reply's VOICE
     // (TTS + audio decode want the main thread for the first seconds after send).
     if (!isCrisis) deferBackground(() => void extractKnowing(content, final))
+    deferBackground(() => void updateSummary())
 
     // ── Quest completion (proof turn 2) ──
     // phase == proof, this turn was NOT the trigger, and a quest was armed.
