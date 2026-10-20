@@ -26,8 +26,9 @@ const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? 'https://api.venice.ai/ap
 const RATE_LIMIT = int(process.env.ATTEST_RATE_LIMIT, 60)
 const RATE_WINDOW_SEC = 3600
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
+// Upstash direct names, or the Vercel Marketplace integration's KV_* names.
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() })

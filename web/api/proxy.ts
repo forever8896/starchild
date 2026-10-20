@@ -58,8 +58,9 @@ const MONTHLY_BUDGET_USD = num(process.env.TRIAL_MONTHLY_BUDGET_USD, 50)
 const USD_PER_MTOK = num(process.env.TRIAL_USD_PER_MTOK, 0.7)
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
+// Upstash direct names, or the Vercel Marketplace integration's KV_* names.
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() })

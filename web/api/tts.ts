@@ -35,8 +35,9 @@ const USD_PER_MCHAR = num(process.env.TRIAL_TTS_USD_PER_MCHAR, 125)
 const MONTHLY_BUDGET_USD = num(process.env.TRIAL_MONTHLY_BUDGET_USD, 50)
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
+// Upstash direct names, or the Vercel Marketplace integration's KV_* names.
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
 
 // Pinned voice list (tts-minimax-speech-02-hd) — the client can't pick models,
 // only one of these names.

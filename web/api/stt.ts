@@ -37,8 +37,9 @@ const USD_PER_SEC = num(process.env.TRIAL_STT_USD_PER_SEC, 0.0001)
 const MONTHLY_BUDGET_USD = num(process.env.TRIAL_MONTHLY_BUDGET_USD, 50)
 const ALLOWED_ORIGIN = process.env.TRIAL_ALLOWED_ORIGIN ?? ''
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
+// Upstash direct names, or the Vercel Marketplace integration's KV_* names.
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
 
 // 16-bit mono 44.1 kHz WAV ≈ 88,200 bytes/second — good enough for metering.
 const WAV_BYTES_PER_SEC = 88_200
