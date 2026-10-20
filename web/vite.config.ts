@@ -6,6 +6,7 @@ import topLevelAwait from 'vite-plugin-top-level-await'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { devProxy } from './dev-proxy'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // Web shell build config.
 //
@@ -21,7 +22,36 @@ const here = dirname(fileURLToPath(import.meta.url)) // web/
 const repoRoot = resolve(here, '..')
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), wasm(), topLevelAwait(), devProxy()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    wasm(),
+    topLevelAwait(),
+    devProxy(),
+    // Installable, offline-capable PWA. The manifest is a static file
+    // (public/manifest.webmanifest, linked from index.html) so it is served in
+    // dev too; the plugin only builds + precaches the service worker
+    // (sw/sw.ts → dist/sw.js). Registration happens in src/pwa.ts, and only in
+    // production builds — dev/HMR never sees a service worker.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'sw',
+      filename: 'sw.ts',
+      manifest: false,
+      injectRegister: false,
+      devOptions: { enabled: false },
+      injectManifest: {
+        rollupFormat: 'iife',
+        // App shell only: HTML, JS, CSS, the WASM core, fonts, icons, manifest.
+        // Large media (video/audio) and the big PNG art are runtime-cached on
+        // first use instead (see sw/sw.ts). /api is a serverless route, never
+        // part of dist, and the SW never routes it.
+        globPatterns: ['**/*.{html,js,css,wasm,woff2,webmanifest}', 'icons/{icon-192,favicon-32,apple-touch-icon}.png'],
+        globIgnores: ['**/node_modules/**', 'sw.js', 'api/**'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
+    }),
+  ],
   clearScreen: false,
   resolve: {
     dedupe: ['react', 'react-dom', 'zustand', 'framer-motion'],
