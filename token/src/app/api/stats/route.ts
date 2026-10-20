@@ -24,10 +24,9 @@ export async function GET() {
     volume24h: number | null; chartUrl: string | null; burns: CachedBurn[]
   } = { price: null, marketCap: null, liquidity: null, volume24h: null, chartUrl: null, burns: [] }
 
-  const [dex] = await Promise.all([
-    fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${STARCHILD_TOKEN}`),
-    refreshBurns(), // throttled, best-effort forward-scan
-  ])
+  const dex = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${STARCHILD_TOKEN}`)
+  // The burn ledger is a best-effort Redis read — never let it blank the price/stats.
+  await refreshBurns().catch(() => {})
 
   const pairs: Array<Record<string, unknown>> = (dex as { pairs?: Array<Record<string, unknown>> })?.pairs ?? []
   const p = pairs.sort((a, b) => (((b.liquidity as { usd?: number })?.usd ?? 0) - ((a.liquidity as { usd?: number })?.usd ?? 0)))[0]
@@ -39,6 +38,6 @@ export async function GET() {
     out.chartUrl = (p.url as string) ?? null
   }
 
-  out.burns = await getBurns()
+  out.burns = await getBurns().catch(() => [])
   return NextResponse.json(out)
 }

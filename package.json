@@ -13,7 +13,8 @@
     "tauri:build": "tauri build",
     "test:e2e": "tsx tests/e2e/run.ts",
     "test:e2e:verbose": "tsx tests/e2e/run.ts --verbose",
-    "test:e2e:fast": "tsx tests/e2e/run.ts --no-judge"
+    "test:e2e:fast": "tsx tests/e2e/run.ts --no-judge",
+    "test:web-e2e": "playwright test --config tests/web-e2e/playwright.config.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.0",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.49.1",
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",

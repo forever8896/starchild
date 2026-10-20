@@ -334,7 +334,7 @@ async fn process_message(
 
     // Detect conversation phase and build system prompt
     let phase = crate::ai::PhaseDetector::detect(&history);
-    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase);
+    let mut system_prompt = PromptBuilder::build(&ai_state, &personality, &memories, &[], &[], phase, None);
     if !knowing_fragment.is_empty() {
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&knowing_fragment);

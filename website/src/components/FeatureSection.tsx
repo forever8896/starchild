@@ -8,12 +8,12 @@ interface FeatureSectionProps {
   /** "left" = video on left, text on right. "right" = video on right, text on left. */
   alignment: "left" | "right";
   eyebrow?: string;
-  title: string;
+  title: React.ReactNode;
   body: string;
   footnote?: string;
   /** Optional ambient glow colour behind the video (CSS color string) */
   glowColor?: string;
-  /** Whether video is an MP4 (wider / different sizing) */
+  /** Full-width stacked layout (for the vision tree) */
   wide?: boolean;
 }
 
@@ -21,6 +21,8 @@ const fadeUp = {
   hidden: { opacity: 0, y: 40 },
   visible: { opacity: 1, y: 0 },
 };
+
+const ease = [0.16, 1, 0.3, 1] as const;
 
 export default function FeatureSection({
   videoSrc,
@@ -41,15 +43,13 @@ export default function FeatureSection({
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, amount: 0.25 }}
-      transition={{ duration: 0.9, ease: "easeOut", delay: 0.1 }}
-      style={{ flex: wide ? "0 0 auto" : "1 1 0", minWidth: 0 }}
+      transition={{ duration: 0.9, ease, delay: 0.1 }}
     >
-      {/* Ambient glow blob */}
       <div
         aria-hidden="true"
         style={{
           position: "absolute",
-          inset: "-20%",
+          inset: "-22%",
           background: `radial-gradient(ellipse 70% 70% at 50% 50%, ${glowColor}, transparent 70%)`,
           pointerEvents: "none",
           zIndex: 0,
@@ -60,13 +60,13 @@ export default function FeatureSection({
         loop
         className={wide ? "" : "glow-lavender"}
         style={{
-          width: wide
-            ? "clamp(320px, 72vw, 900px)"
-            : "clamp(220px, 36vw, 520px)",
+          width: wide ? "clamp(320px, 72vw, 900px)" : "clamp(220px, 34vw, 480px)",
           height: "auto",
           display: "block",
           position: "relative",
           zIndex: 1,
+          borderRadius: wide ? "var(--r-lg)" : undefined,
+          border: wide ? "1px solid var(--line)" : undefined,
         }}
       />
     </motion.div>
@@ -79,56 +79,33 @@ export default function FeatureSection({
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, amount: 0.25 }}
-      transition={{ duration: 0.9, ease: "easeOut", delay: 0.25 }}
-      style={{ flex: "1 1 0", minWidth: 0, maxWidth: wide ? "100%" : "480px" }}
+      transition={{ duration: 0.9, ease, delay: 0.22 }}
+      style={{ maxWidth: wide ? "42rem" : "30rem" }}
     >
-      {eyebrow && (
-        <p
-          style={{
-            fontSize: "0.75rem",
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "var(--lavender)",
-            marginBottom: "0.85rem",
-            fontWeight: 600,
-          }}
-        >
-          {eyebrow}
-        </p>
-      )}
+      {eyebrow && <p className="eyebrow mb-4">{eyebrow}</p>}
       <h2
+        className="font-display"
         style={{
-          fontSize: "clamp(1.5rem, 3vw, 2.4rem)",
-          fontWeight: 300,
-          lineHeight: 1.22,
-          letterSpacing: "-0.01em",
+          fontSize: "clamp(1.7rem, 3.4vw, 2.7rem)",
+          lineHeight: 1.16,
           color: "#fff",
-          marginBottom: "1.2rem",
-          fontStyle: "italic",
+          marginBottom: "1.3rem",
         }}
       >
         {title}
       </h2>
-      <p
-        style={{
-          fontSize: "clamp(0.95rem, 1.6vw, 1.05rem)",
-          lineHeight: 1.75,
-          color: "rgba(255,255,255,0.52)",
-          fontWeight: 400,
-          marginBottom: footnote ? "1.2rem" : 0,
-        }}
-      >
+      <p className="lead" style={{ fontSize: "clamp(0.98rem, 1.5vw, 1.08rem)" }}>
         {body}
       </p>
       {footnote && (
         <p
+          className="mt-6"
           style={{
-            fontSize: "0.8rem",
-            lineHeight: 1.65,
-            color: "rgba(184, 160, 216, 0.6)",
-            fontStyle: "italic",
-            borderLeft: "2px solid rgba(184, 160, 216, 0.3)",
-            paddingLeft: "0.9rem",
+            fontSize: "0.82rem",
+            lineHeight: 1.7,
+            color: "rgba(184, 160, 216, 0.62)",
+            borderLeft: "2px solid var(--line-strong)",
+            paddingLeft: "1rem",
           }}
         >
           {footnote}
@@ -138,24 +115,22 @@ export default function FeatureSection({
   );
 
   if (wide) {
-    // Full-width stacked layout for the vision tree section
     return (
       <section
-        className="relative flex flex-col items-center gap-12 overflow-hidden bg-black px-6 py-28"
-        aria-label={title}
+        className="relative flex flex-col items-center gap-14 overflow-hidden bg-black"
+        style={{ paddingBlock: "var(--section-y)", paddingInline: "var(--pad-x)" }}
+        aria-label={typeof title === "string" ? title : eyebrow}
       >
         <div
+          className="aurora"
           aria-hidden="true"
           style={{
-            position: "absolute",
-            inset: 0,
             background:
-              "radial-gradient(ellipse 80% 60% at 50% 50%, rgba(90, 60, 140, 0.1), transparent 70%)",
-            pointerEvents: "none",
+              "radial-gradient(ellipse 80% 55% at 50% 45%, rgba(90, 60, 140, 0.14), transparent 70%)",
           }}
         />
-        {videoBlock}
-        <div className="flex w-full max-w-3xl flex-col items-center text-center">
+        <div className="relative z-10">{videoBlock}</div>
+        <div className="relative z-10 flex w-full max-w-3xl flex-col items-center text-center">
           {textBlock}
         </div>
       </section>
@@ -164,24 +139,24 @@ export default function FeatureSection({
 
   return (
     <section
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black px-6 py-24"
-      aria-label={title}
+      className="relative flex min-h-[100dvh] items-center overflow-hidden bg-black"
+      style={{ paddingBlock: "var(--section-y)", paddingInline: "var(--pad-x)" }}
+      aria-label={typeof title === "string" ? title : eyebrow}
     >
       <div
+        className="aurora"
         aria-hidden="true"
         style={{
-          position: "absolute",
-          inset: 0,
           background:
-            "radial-gradient(ellipse 70% 60% at 50% 50%, rgba(30, 10, 60, 0.6), transparent 70%)",
-          pointerEvents: "none",
+            "radial-gradient(ellipse 60% 55% at 50% 50%, rgba(30, 10, 60, 0.55), transparent 72%)",
         }}
       />
       <div
-        className="relative z-10 flex w-full max-w-6xl flex-col items-center gap-16 lg:flex-row lg:gap-20"
-        style={{
-          flexDirection: videoFirst ? undefined : "row-reverse",
-        }}
+        className={`relative z-10 mx-auto grid w-full max-w-[var(--maxw)] items-center gap-12 lg:gap-16 ${
+          videoFirst
+            ? "lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]"
+            : "lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
+        }`}
       >
         {videoFirst ? (
           <>
@@ -190,8 +165,8 @@ export default function FeatureSection({
           </>
         ) : (
           <>
-            {textBlock}
-            {videoBlock}
+            <div className="lg:order-2">{videoBlock}</div>
+            <div className="lg:order-1">{textBlock}</div>
           </>
         )}
       </div>

@@ -41,12 +41,51 @@ export interface StarchildState {
   level: number
 }
 
+// ─── Great Work types (mirrors src-tauri/core/src/opus.rs) ──────────────────
+
+export type Plane = 'body' | 'mind' | 'spirit'
+export type Stage = 'calcination' | 'dissolution' | 'separation' | 'conjunction' | 'fermentation' | 'distillation' | 'coagulation'
+
+export interface Cell {
+  plane: Plane
+  stage: Stage
+}
+
+export interface Evidence {
+  kind: 'QuestCompleted' | 'InsightCrystallized' | 'KnowingDeepened'
+  cell?: Cell
+  quest_title?: string
+  insight?: string
+  dimension?: string
+  depth?: number
+}
+
+export interface PlanePosition {
+  plane: Plane
+  stage: Stage
+  cells_worked: Stage[]
+  evidence: Evidence[]
+  stuck: boolean
+}
+
+export interface GreatWorkPosition {
+  preferential_reality: string | null
+  planes: [PlanePosition, PlanePosition, PlanePosition]
+  active_cell: Cell | null
+  total_cells_worked: number
+  last_advanced_at: string | null
+}
+
 // ─── Store interface ─────────────────────────────────────────────────────────
 
 interface AppState {
   // Navigation
   currentView: 'chat' | 'settings' | 'tree'
   setCurrentView: (view: AppState['currentView']) => void
+  // True for one tree visit: the vision just crystallized, so the tree should
+  // play its cinematic intro (video → star reveal) rather than open flat.
+  treeIntro: boolean
+  setTreeIntro: (v: boolean) => void
 
   // Chat
   messages: Message[]
@@ -103,6 +142,12 @@ interface AppState {
   ttsPlaying: string | null  // message id currently playing
   setTtsPlaying: (id: string | null) => void
 
+  // Creature activity — drives which clip plays (conversation-aware, not just
+  // hunger). 'speaking' while a reply is voiced/streamed, 'thinking' while
+  // composing, else the resting mood clip.
+  creatureActivity: 'idle' | 'thinking' | 'speaking'
+  setCreatureActivity: (a: 'idle' | 'thinking' | 'speaking') => void
+
   // Background music
   bgMusicMuted: boolean
   setBgMusicMuted: (muted: boolean) => void
@@ -114,11 +159,16 @@ export const useAppStore = create<AppState>((set) => ({
   // Navigation
   currentView: 'chat',
   setCurrentView: (view) => set({ currentView: view }),
+  treeIntro: false,
+  setTreeIntro: (treeIntro) => set({ treeIntro }),
 
   // Chat
   messages: [],
   addMessage: (msg) =>
-    set((state) => ({ messages: [...state.messages, msg] })),
+    // Idempotent by id: the web awakening can be surfaced twice under React
+    // StrictMode's double-mount (one reveal-add racing one reload) — adding by
+    // id means the second never produces a duplicate bubble.
+    set((state) => (state.messages.some((m) => m.id === msg.id) ? state : { messages: [...state.messages, msg] })),
   setMessages: (msgs) => set({ messages: msgs }),
   updateLastMessage: (content) =>
     set((state) => {
@@ -181,6 +231,9 @@ export const useAppStore = create<AppState>((set) => ({
   setTtsVoice: (ttsVoice) => set({ ttsVoice }),
   ttsPlaying: null,
   setTtsPlaying: (ttsPlaying) => set({ ttsPlaying }),
+
+  creatureActivity: 'idle',
+  setCreatureActivity: (creatureActivity) => set({ creatureActivity }),
 
   bgMusicMuted: false,
   setBgMusicMuted: (bgMusicMuted) => set({ bgMusicMuted }),

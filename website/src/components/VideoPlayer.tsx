@@ -34,7 +34,7 @@ export default function VideoPlayer({
         const entry = entries[0];
         if (entry.isIntersecting) {
           video.play().catch(() => {
-            // Autoplay blocked — silently ignore
+            // Autoplay blocked - silently ignore
           });
         } else {
           video.pause();

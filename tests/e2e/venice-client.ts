@@ -10,9 +10,12 @@ const VENICE_BASE_URL = 'https://api.venice.ai/api/v1'
 export type ModelTier = 'quick' | 'regular' | 'deep'
 
 const MODEL_CONFIG: Record<ModelTier, { model: string; temperature: number; maxTokens: number }> = {
+  // GLM-4.7 is a reasoning model — it uses tokens for internal reasoning
+  // before emitting the visible response. 300 tokens (the old value) left
+  // zero room for the actual content. 2000 gives reasoning + response.
   quick:   { model: 'llama-3.3-70b',                temperature: 0.7,  maxTokens: 500  },
-  regular: { model: 'venice-uncensored-role-play',   temperature: 0.88, maxTokens: 300  },
-  deep:    { model: 'deepseek-v3.2',                 temperature: 0.85, maxTokens: 2000 },
+  regular: { model: 'zai-org-glm-4.7',              temperature: 0.88, maxTokens: 2000 },
+  deep:    { model: 'zai-org-glm-4.7',              temperature: 0.85, maxTokens: 4000 },
 }
 
 export interface ChatMessage {

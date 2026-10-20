@@ -3,67 +3,60 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { APP_URL, LINKS } from "@/lib/links";
 
 export default function Navbar() {
   const pathname = usePathname();
   const isOrigin = pathname === "/origin";
 
-  const linkStyle = {
-    fontSize: "0.75rem",
-    letterSpacing: "0.12em",
-    textTransform: "uppercase" as const,
-    color: "var(--lavender)",
-    fontWeight: 600,
-    opacity: 0.5,
-    transition: "opacity 0.2s",
-  };
-
   return (
-    <div
-      className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between"
-      style={{ padding: "32px" }}
-    >
-      <Link href="/">
-        <Image
-          src="/starchild-logo.png"
-          alt="Starchild"
-          width={120}
-          height={36}
-          priority
-          style={{ objectFit: "contain", opacity: 0.85 }}
-        />
-      </Link>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
-        <Link
-          href={isOrigin ? "/" : "/origin"}
-          style={linkStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-          title={isOrigin ? "back to starchild" : "how the starchild came to be"}
-        >
-          {isOrigin ? "home" : "origin story"}
+    <header className="fixed inset-x-0 top-0 z-50">
+      <nav
+        className="mx-auto flex h-[68px] max-w-[var(--maxw)] items-center justify-between"
+        style={{ paddingLeft: "var(--pad-x)", paddingRight: "var(--pad-x)" }}
+        aria-label="Primary"
+      >
+        <Link href="/" aria-label="Starchild home" className="flex items-center">
+          <Image
+            src="/starchild-logo.png"
+            alt="Starchild"
+            width={116}
+            height={35}
+            priority
+            style={{ objectFit: "contain", opacity: 0.9 }}
+          />
         </Link>
 
-        <Link
-          href="/contributors"
-          style={linkStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-        >
-          contributors
-        </Link>
+        <div className="flex items-center gap-6 md:gap-8">
+          <Link href={isOrigin ? "/" : "/origin"} className="nav-link hidden sm:inline">
+            {isOrigin ? "home" : "origin story"}
+          </Link>
+          <Link href="/contributors" className="nav-link hidden sm:inline">
+            contributors
+          </Link>
+          <Link href={LINKS.repo} target="_blank" className="nav-link hidden sm:inline">
+            github
+          </Link>
+          <a href={APP_URL} className="btn btn-primary" style={{ padding: "0.6rem 1.2rem", fontSize: "0.85rem" }}>
+            try in browser
+          </a>
+        </div>
+      </nav>
 
-        <Link
-          href="https://github.com/forever8896/starchild"
-          target="_blank"
-          style={linkStyle}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-        >
-          github
-        </Link>
-      </div>
-    </div>
+      <style jsx>{`
+        .nav-link {
+          font-size: 0.75rem;
+          font-weight: 600;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: var(--lavender);
+          opacity: 0.55;
+          transition: opacity 0.2s ease;
+        }
+        .nav-link:hover {
+          opacity: 1;
+        }
+      `}</style>
+    </header>
   );
 }

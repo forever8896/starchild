@@ -8,17 +8,17 @@
  * Animated with framer-motion spring physics and claymorphism surfaces.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
-import { useAppStore, type Quest } from '../store'
+import { type Quest } from '../store'
+import { usePlatform } from '../platform/usePlatform'
 
 export default function ActiveQuest({
   onRequestProof,
 }: {
   onRequestProof: (quest: Quest) => void
 }) {
+  const platform = usePlatform()
   const [quests, setQuests] = useState<Quest[]>([])
   const [expanded, setExpanded] = useState(false)
 
@@ -27,7 +27,7 @@ export default function ActiveQuest({
     let cancelled = false
     async function load() {
       try {
-        const result = await invoke<Quest[]>('get_quests', { status: 'active' })
+        const result = await platform.getQuests('active')
         if (!cancelled) setQuests(result)
       } catch {
         // ignore
@@ -37,12 +37,10 @@ export default function ActiveQuest({
     // Reload every 30s in case quests change
     const interval = setInterval(load, 30_000)
     // Reload when quests are accepted or completed
-    let ul1: (() => void) | null = null
-    let ul2: (() => void) | null = null
-    listen('quest-accepted', () => { load() }).then((fn) => { ul1 = fn })
-    listen('quest-completed', () => { load() }).then((fn) => { ul2 = fn })
-    return () => { cancelled = true; clearInterval(interval); ul1?.(); ul2?.() }
-  }, [])
+    const ul1 = platform.subscribe('quest-accepted', () => { load() })
+    const ul2 = platform.subscribe('quest-completed', () => { load() })
+    return () => { cancelled = true; clearInterval(interval); ul1(); ul2() }
+  }, [platform])
 
   if (quests.length === 0) return null
 

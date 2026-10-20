@@ -2,6 +2,8 @@
 
 /* Shared visual primitives for the token site — kept in sync across pages. */
 
+import { useState } from 'react'
+
 export const LAV = '#b8a0d8'
 export const GOLD = '#e8d8a8'
 
@@ -81,4 +83,23 @@ export function Stat({ label, value, href }: { label: string; value: string; hre
   return href
     ? <a href={href} target="_blank" rel="noreferrer" style={{ textAlign: 'center', textDecoration: 'none', display: 'block' }}>{inner}</a>
     : <div style={{ textAlign: 'center' }}>{inner}</div>
+}
+
+/** A copyable contract-address chip with a Basescan link. */
+export function CopyAddress({ address, href, label = 'contract' }: { address: string; href?: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  const short = `${address.slice(0, 6)}…${address.slice(-4)}`
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderRadius: 999,
+      border: '1px solid rgba(184,160,216,0.22)', background: 'rgba(184,160,216,0.06)' }}>
+      <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>{label}</span>
+      <code style={{ fontFamily: 'monospace', fontSize: 12.5, color: 'rgba(255,255,255,0.78)' }}>{short}</code>
+      <button
+        onClick={() => { navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400) }).catch(() => {}) }}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: LAV, fontSize: 11, fontWeight: 600, padding: 0 }}>
+        {copied ? 'copied ✓' : 'copy'}
+      </button>
+      {href && <a href={href} target="_blank" rel="noreferrer" style={{ ...link, fontSize: 11 }}>basescan ↗</a>}
+    </div>
+  )
 }

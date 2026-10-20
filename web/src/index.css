@@ -1,0 +1,20 @@
+/*
+ * Web shell stylesheet.
+ *
+ * The web edition is a second shell over the same UI, so it reuses the shared
+ * design system verbatim (Tailwind + the `.clay*` claymorphism classes + CSS
+ * variables) from `src/index.css`. `@source` registers the shared component tree
+ * for Tailwind's content scanning, since the web build's working directory is
+ * `web/` and Tailwind would otherwise miss the classes used in `src/components`.
+ */
+
+@import '../../src/index.css';
+@source '../../src';
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}

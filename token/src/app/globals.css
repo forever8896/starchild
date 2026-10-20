@@ -128,3 +128,34 @@ body {
     gap: 2rem !important;
   }
 }
+
+/* ─── Redesign (Starchild.dc) — fonts imported at top ─────────────────── */
+@keyframes twinkle{0%,100%{opacity:.15}50%{opacity:1}}
+@keyframes breathe{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.12);opacity:.85}}
+@keyframes breatheSlow{0%,100%{transform:scale(1);opacity:.4}50%{transform:scale(1.18);opacity:.7}}
+@keyframes drift{0%,100%{transform:translateY(0)}50%{transform:translateY(-16px)}}
+@keyframes driftSlow{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+@keyframes pulseStar{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+@keyframes spinAura{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.reveal{animation:fadeUp .9s cubic-bezier(.2,.7,.2,1) both;animation-timeline:view();animation-range:entry 0% cover 32%}
+
+/* hover utilities (stand in for the design's style-hover) */
+.navlink{transition:color .3s}
+.navlink:hover{color:#fff}
+.dao-pill{transition:.3s}
+.dao-pill:hover{border-color:rgba(184,160,216,0.6)!important;background:rgba(184,160,216,0.08)}
+.lift{transition:transform .35s,border-color .35s,box-shadow .35s}
+.lift:hover{transform:translateY(-4px)}
+.card-glow{transition:border-color .35s,box-shadow .35s,transform .35s}
+.card-glow:hover{border-color:rgba(184,160,216,0.45)!important;box-shadow:0 18px 50px rgba(120,80,180,0.18)}
+.gold-glow:hover{border-color:rgba(232,216,168,0.45)!important;box-shadow:0 0 60px rgba(180,150,90,0.18)}
+.btn-cta{transition:.35s}
+.btn-cta:hover{box-shadow:0 0 50px rgba(120,80,180,0.45);transform:translateY(-2px)}
+.row-hov{transition:background .3s}
+.row-hov:hover{background:rgba(184,160,216,0.06)}
+.link-hov{transition:color .3s}
+.link-hov:hover{color:#b8a0d8}
+
+@media (prefers-reduced-motion:reduce){
+  .reveal{opacity:1!important;transform:none!important}
+}
