@@ -28,7 +28,7 @@ export default function AboutView() {
 
       <p>
         The product is a Tauri and Rust application with a React front end,
-        shipping today as version 0.2.0 on all three desktop platforms. Every
+        shipping today as version 0.3.0 on all three desktop platforms. Every
         conversation is encrypted on the user&apos;s device and decrypted only
         inside hardware-verified trusted execution environments, so no operator
         in the chain — ourselves included — can read it. Conversation state lives

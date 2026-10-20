@@ -12,7 +12,7 @@ export const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? "https://app.starchild.software";
 
 export const REPO = "https://github.com/forever8896/starchild";
-export const RELEASE_BASE = `${REPO}/releases/download/v0.2.0`;
+export const RELEASE_BASE = `${REPO}/releases/download/v0.3.0`;
 
 export const LINKS = {
   repo: REPO,
@@ -32,7 +32,7 @@ export const DOWNLOADS: {
   sublabel: string;
   href: string;
 }[] = [
-  { key: "mac", label: "Mac", sublabel: "macOS 12+", href: `${RELEASE_BASE}/starchild_0.2.0_aarch64.dmg` },
-  { key: "windows", label: "Windows", sublabel: "Windows 10+", href: `${RELEASE_BASE}/starchild_0.2.0_x64-setup.exe` },
-  { key: "linux", label: "Linux", sublabel: ".AppImage", href: `${RELEASE_BASE}/starchild_0.2.0_amd64.AppImage` },
+  { key: "mac", label: "Mac", sublabel: "macOS 12+", href: `${RELEASE_BASE}/starchild_0.3.0_aarch64.dmg` },
+  { key: "windows", label: "Windows", sublabel: "Windows 10+", href: `${RELEASE_BASE}/starchild_0.3.0_x64-setup.exe` },
+  { key: "linux", label: "Linux", sublabel: ".AppImage", href: `${RELEASE_BASE}/starchild_0.3.0_amd64.AppImage` },
 ];
