@@ -116,6 +116,10 @@ export const desktopPlatform: Platform = {
   generateFirstMessage() {
     return invoke<Message>('generate_first_message')
   },
+
+  async aiDisclosure(): Promise<string | null> {
+    return invoke<string | null>('ai_disclosure')
+  },
   async deleteMessage(id: string): Promise<void> {
     await invoke('delete_message', { id })
   },

@@ -18,6 +18,10 @@ import init, {
   core_version,
   is_quest_offer,
   detect_crisis,
+  crisis_active,
+  crisis_resources,
+  ai_disclosure_due,
+  ai_disclosure_text,
   quest_extraction_system,
   build_quest_extraction_prompt,
   parse_quest_extraction,
@@ -36,6 +40,17 @@ import init, {
 } from './wasm/starchild_core.js'
 
 // ── Boundary types (mirror the core Rust structs) ─────────────────────────
+
+/** A human crisis help line (core `safety::CrisisResource`). */
+export interface CrisisResource {
+  name: string
+  /** Where it serves and when, e.g. "US & Canada · call or text, 24/7". */
+  detail: string
+  /** What to dial / text / visit, shown verbatim. */
+  contact: string
+  /** A tappable link (tel:, sms:, https:). */
+  href: string
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | string
@@ -158,6 +173,14 @@ export interface Core {
   // ── Safety ───────────────────────────────────────────────────────────────
   /** True when a human message signals crisis / self-harm (never capture/quest it). */
   detectCrisis(text: string): boolean
+  /** True when any of the last few human messages (oldest-first) signalled crisis. */
+  crisisActive(userMessages: string[]): boolean
+  /** Human help lines for a region (ISO alpha-2), most local first. */
+  crisisResources(region: string): CrisisResource[]
+  /** Whether the AI disclosure is due (`lastShownMs` 0 = not yet this session). */
+  aiDisclosureDue(lastShownMs: number, nowMs?: number): boolean
+  /** The plain-language AI disclosure text. */
+  aiDisclosureText(): string
 
   // ── Quest logic (single source — shared with the desktop shell) ──────────
   /** True when an assistant reply contains a quest offer the UI should surface. */
@@ -235,6 +258,10 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     newGameState: (nowMs = Date.now()) => new_game_state(nowMs) as GameState,
     postprocess: (text, phase) => postprocess(text, phase),
     detectCrisis: (text) => detect_crisis(text),
+    crisisActive: (userMessages) => crisis_active(userMessages),
+    crisisResources: (region) => crisis_resources(region) as CrisisResource[],
+    aiDisclosureDue: (lastShownMs, nowMs = Date.now()) => ai_disclosure_due(lastShownMs, nowMs),
+    aiDisclosureText: () => ai_disclosure_text(),
     isQuestOffer: (text) => is_quest_offer(text),
     questExtractionSystem: () => quest_extraction_system(),
     buildQuestExtractionPrompt: (recentContext) => build_quest_extraction_prompt(recentContext),

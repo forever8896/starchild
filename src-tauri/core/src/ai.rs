@@ -253,39 +253,24 @@ impl ConversationPhase {
             Self::Crisis => "crisis",
         }
     }
+
+    /// Every phase, for exhaustive round-trip checks.
+    pub const ALL: [ConversationPhase; 10] = [
+        Self::Arrive, Self::Dig, Self::Crystallize, Self::Quest, Self::Explore,
+        Self::Reframe, Self::Negotiate, Self::Proof, Self::Release, Self::Crisis,
+    ];
+
+    /// Parse a phase tag (the inverse of [`as_str`](Self::as_str)). Unknown or
+    /// empty tags fall back to `Arrive`, the safe opening phase, so a bad string
+    /// from a shell never panics — but every real phase round-trips (tested), so
+    /// a shell can't silently lose one (as `crisis` once was on web).
+    pub fn from_tag(s: &str) -> Self {
+        Self::ALL.into_iter().find(|p| p.as_str() == s).unwrap_or(Self::Arrive)
+    }
 }
 
-/// True when a message signals acute crisis / self-harm / suicidal intent.
-///
-/// Deliberately high-recall and dependency-free — a keyword net, not an ML
-/// classifier. False positives (routing a dark-but-safe message to Crisis) are
-/// far cheaper than false negatives here. Extend the phrase list as needed; the
-/// unit tests pin the must-catch cases.
-pub fn detect_crisis(text: &str) -> bool {
-    let t = text.to_lowercase();
-    const STRONG: [&str; 17] = [
-        "kill myself", "killing myself", "end my life", "ending my life",
-        "take my own life", "hurt myself", "harm myself", "self harm", "self-harm",
-        "cut myself", "cutting myself", "don't want to exist", "dont want to exist",
-        "don't want to be alive", "not want to be alive", "suicidal", "suicide",
-    ];
-    if STRONG.iter().any(|m| t.contains(m)) {
-        return true;
-    }
-    // "want to die" family — real, but ambiguous with the "die/dye my hair"
-    // false friend, so guard it.
-    let hair = t.contains("die my hair") || t.contains("dye my hair") || t.contains("die your hair");
-    if !hair && (t.contains("want to die") || t.contains("wanna die")) {
-        return true;
-    }
-    // "disappear forever" — vanish-intent; require a nearby self/pain cue to avoid
-    // flagging e.g. "i wish this deadline would disappear forever" (still allowed
-    // to over-flag — false positives are cheaper than misses here).
-    let vanish = t.contains("disappear forever") || t.contains("disappear and never");
-    let self_pain = t.starts_with("i ") || t.contains(" i ") || t.contains("myself")
-        || t.contains("the pain") || t.contains("my pain");
-    vanish && self_pain
-}
+/// Crisis detection lives in [`crate::safety`]; re-exported for existing callers.
+pub use crate::safety::detect_crisis;
 
 // ---------------------------------------------------------------------------
 // PhaseDetector — heuristic arc tracker
@@ -322,9 +307,10 @@ impl PhaseDetector {
         let exchange_count = user_msgs.len();
 
         // ── Priority 0: Crisis overrides EVERYTHING ──
-        // If the most recent human message signals self-harm, never capture it as
-        // a vision, crystallize it, or turn it into a quest. Meet the person.
-        if user_msgs.last().is_some_and(|m| detect_crisis(m)) {
+        // If any of the human's last few messages signalled self-harm, never
+        // capture it as a vision, crystallize it, or turn it into a quest. Meet
+        // the person — and stay there for a few turns, not just the one message.
+        if crate::safety::crisis_active(&user_msgs) {
             return ConversationPhase::Crisis;
         }
 
@@ -1486,6 +1472,14 @@ mod tests {
             PhaseDetector::detect_with_context(&msgs2, true),
             ConversationPhase::Crystallize
         );
+    }
+
+    #[test]
+    fn every_phase_round_trips_through_its_tag() {
+        for p in ConversationPhase::ALL {
+            assert_eq!(ConversationPhase::from_tag(p.as_str()), p, "{p:?}");
+        }
+        assert_eq!(ConversationPhase::from_tag("nonsense"), ConversationPhase::Arrive);
     }
 
     // -- Guardrail: crisis / self-harm ---------------------------------------

@@ -66,7 +66,10 @@ export default function Meeting() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
   const needsApiKey = managedKey === false
-  const canSubmit = !!name.trim() && (managedKey === true || apiKey.trim().length > 0)
+  // Starchild is for adults, and must not be mistaken for therapy (companion-
+  // chatbot laws; Illinois/Nevada AI-therapy rules). Both paths in need this.
+  const [adultConsent, setAdultConsent] = useState(false)
+  const canSubmit = adultConsent && (!!name.trim() && (managedKey === true || apiKey.trim().length > 0))
 
   // Meditation music on first interaction (respects the persisted mute).
   const startMusic = useCallback(() => {
@@ -156,6 +159,7 @@ export default function Meeting() {
     setBurst(true)
     setError(null)
     try {
+      await platform.setSetting('adult_consent_at', new Date().toISOString())
       await platform.completeOnboarding({
         userName: name.trim() || undefined,
         apiKey: needsApiKey && apiKey.trim() ? apiKey.trim() : undefined,
@@ -170,6 +174,7 @@ export default function Meeting() {
       setBurst(false)
     }
   }, [finishing, name, apiKey, needsApiKey, platform, setApiKeySet, setOnboardingComplete, startMusic])
+  const finishIfConsented = useCallback(() => { if (adultConsent) void finish() }, [adultConsent, finish])
 
   return (
     <motion.div
@@ -358,10 +363,27 @@ export default function Meeting() {
               />
             )}
 
+            <label
+              className="flex items-start gap-2.5 text-left text-[12.5px] leading-snug cursor-pointer select-none"
+              style={{ color: '#a99cc0', maxWidth: 380 }}
+            >
+              <input
+                type="checkbox"
+                checked={adultConsent}
+                onChange={(e) => setAdultConsent(e.target.checked)}
+                className="mt-0.5 shrink-0 accent-[#e8a8b8]"
+                aria-label="I'm 18 or older and understand Starchild is an AI, not therapy"
+              />
+              <span>
+                I'm 18 or older, and I understand Starchild is an AI companion — not a
+                therapist, and not a crisis service.
+              </span>
+            </label>
+
             <button
-              onClick={() => void finish()}
-              disabled={finishing}
-              className="text-[13px] transition-opacity hover:opacity-100"
+              onClick={finishIfConsented}
+              disabled={finishing || !adultConsent}
+              className="text-[13px] transition-opacity hover:opacity-100 disabled:opacity-40"
               style={{ background: 'none', border: 'none', color: '#6e6485', opacity: 0.85, cursor: 'pointer' }}
             >
               let me stay a stranger for now

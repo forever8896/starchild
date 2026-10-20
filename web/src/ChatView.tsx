@@ -17,6 +17,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore, type Message, type StarchildState } from '../../src/store'
 import { usePlatform } from '../../src/platform/usePlatform'
 import ActiveQuest from '../../src/components/ActiveQuest'
+import CrisisCard, { type CrisisResource } from '../../src/components/CrisisCard'
+import AiDisclosure from '../../src/components/AiDisclosure'
 import CreaturePresence from './CreaturePresence'
 import avatarFace from '../../src/assets/starchild-avatar.png'
 import { createEtherealAudio } from './etherealVoice'
@@ -372,6 +374,8 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   const [isTyping, setIsTyping] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [crisisResources, setCrisisResources] = useState<CrisisResource[]>([])
+  const [disclosure, setDisclosure] = useState<string | null>(null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
@@ -693,6 +697,29 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   }
   const canSend = input.trim().length > 0 && !isLoading
 
+  // ── Duty of care ──
+  // Crisis help lines: core raises `crisis-state` on every turn; show the card
+  // while it's active (it stays up after a calm turn until dismissed).
+  useEffect(() => {
+    return platform.subscribe('crisis-state', (payload) => {
+      const p = payload as { active?: boolean; resources?: CrisisResource[] }
+      if (p?.active && p.resources?.length) setCrisisResources(p.resources)
+    })
+  }, [platform])
+
+  // AI disclosure: at session start, then whenever core says it's due again
+  // (every 3h). Polling is cheap — it's a local check, no network.
+  useEffect(() => {
+    if (!ready) return
+    let alive = true
+    const check = () => {
+      void platform.aiDisclosure().then((t) => { if (alive && t) setDisclosure(t) }).catch(() => {})
+    }
+    check()
+    const id = setInterval(check, 5 * 60_000)
+    return () => { alive = false; clearInterval(id) }
+  }, [platform, ready])
+
   return (
     <div className="absolute inset-0 flex" style={{ animation: 'fade-in .7s ease' }}>
       {/* creature presence — wide layout only */}
@@ -739,6 +766,12 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
             )}
           </div>
         </header>
+
+        {disclosure && (
+          <div className="px-[30px] pb-2">
+            <AiDisclosure text={disclosure} onDismiss={() => setDisclosure(null)} />
+          </div>
+        )}
 
         {/* active quest card (real) */}
         {ready && <div className="px-[30px]"><ActiveQuest onRequestProof={handleRequestProof} /></div>}
@@ -809,6 +842,12 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
           </AnimatePresence>
           <div ref={bottomRef} />
         </div>
+
+        {crisisResources.length > 0 && (
+          <div className="px-[30px] pb-2">
+            <CrisisCard resources={crisisResources} onDismiss={() => setCrisisResources([])} />
+          </div>
+        )}
 
         {/* xp gain */}
         <AnimatePresence>

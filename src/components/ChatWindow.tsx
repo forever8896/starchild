@@ -13,6 +13,8 @@ import { usePlatform } from '../platform/usePlatform'
 import type { Platform } from '../platform'
 import StarchildAvatar from './StarchildAvatar'
 import ActiveQuest from './ActiveQuest'
+import CrisisCard, { type CrisisResource } from './CrisisCard'
+import AiDisclosure from './AiDisclosure'
 import starchildLogo from '../assets/starchild-logo.png'
 
 // ─── Typing indicator ────────────────────────────────────────────────────────
@@ -257,6 +259,8 @@ export default function ChatWindow() {
   const setStarchildState = useAppStore((s) => s.setStarchildState)
   const setCurrentView    = useAppStore((s) => s.setCurrentView)
   const [ready, setReady] = useState(false)
+  const [crisisResources, setCrisisResources] = useState<CrisisResource[]>([])
+  const [disclosure, setDisclosure] = useState<string | null>(null)
   const showQuestOffer = useAppStore((s) => s.showQuestOffer)
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const [acceptingQuest, setAcceptingQuest] = useState(false)
@@ -580,6 +584,25 @@ export default function ChatWindow() {
 
   const canSend = input.trim().length > 0 && !isLoading
 
+  // ── Duty of care (logic in core `safety`; this only renders) ──
+  useEffect(() => {
+    return platform.subscribe('crisis-state', (payload) => {
+      const p = payload as { active?: boolean; resources?: CrisisResource[] }
+      if (p?.active && p.resources?.length) setCrisisResources(p.resources)
+    })
+  }, [platform])
+
+  useEffect(() => {
+    if (!ready) return
+    let alive = true
+    const check = () => {
+      void platform.aiDisclosure().then((t) => { if (alive && t) setDisclosure(t) }).catch(() => {})
+    }
+    check()
+    const id = setInterval(check, 5 * 60_000)
+    return () => { alive = false; clearInterval(id) }
+  }, [platform, ready])
+
   return (
     <div className="relative flex h-full w-full">
       {/* ── Solid dark background ─────────────────────────────────────── */}
@@ -618,6 +641,12 @@ export default function ChatWindow() {
 
       {/* ── Chat panel (right) ─────────────────────────────────────────── */}
       <div className="relative z-20 flex-1 flex flex-col min-w-0">
+        {disclosure && (
+          <div className="px-4 pt-3">
+            <AiDisclosure text={disclosure} onDismiss={() => setDisclosure(null)} />
+          </div>
+        )}
+
         {/* Active quest card */}
         {ready && <ActiveQuest onRequestProof={handleRequestProof} />}
 
@@ -689,6 +718,12 @@ export default function ChatWindow() {
           </AnimatePresence>
           <div ref={bottomRef} />
         </div>
+
+        {crisisResources.length > 0 && (
+          <div className="px-4 pb-2">
+            <CrisisCard resources={crisisResources} onDismiss={() => setCrisisResources([])} />
+          </div>
+        )}
 
         {/* XP gain celebration */}
         <AnimatePresence>

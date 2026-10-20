@@ -44,6 +44,10 @@ export default function Footer() {
           privacy
         </Link>
         <span className="foot-sep">/</span>
+        <Link href="/safety" className="foot-link foot-link-quiet">
+          safety
+        </Link>
+        <span className="foot-sep">/</span>
         <Link href="/legal" className="foot-link foot-link-quiet">
           legal
         </Link>

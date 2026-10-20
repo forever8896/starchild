@@ -184,6 +184,7 @@ async function completeOnboarding(page: Page): Promise<void> {
   await page
     .getByPlaceholder('a name…')
     .fill('Quest Traveler')
+  await page.getByRole('checkbox', { name: /18 or older/i }).check()
   const begin = page.getByRole('button', { name: /^begin$/i })
   await expect(begin).toBeEnabled()
   await begin.click()

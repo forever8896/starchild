@@ -69,6 +69,7 @@ test('great work — position auto-initializes on first message', async ({ page 
 
   // Complete onboarding
   await page.getByPlaceholder('a name…').fill('Test')
+  await page.getByRole('checkbox', { name: /18 or older/i }).check()
   const begin = page.getByRole('button', { name: /^begin$/i })
   await expect(begin).toBeEnabled()
   await begin.click()

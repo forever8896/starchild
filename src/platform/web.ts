@@ -213,6 +213,21 @@ function emit(event: string, payload: unknown): void {
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
+/** When the AI disclosure was last shown in this session (page load); 0 = not
+ *  yet, so every fresh session discloses. Core owns the cadence. */
+let aiDisclosureShownAt = 0
+
+/** The person's region (ISO alpha-2) from the browser locale, e.g. "en-GB" → "GB";
+ *  "" when unknown. Only used locally to order crisis help lines. */
+function userRegion(): string {
+  try {
+    const loc = new Intl.Locale(navigator.language || '')
+    return (loc.maximize().region ?? '').toUpperCase()
+  } catch {
+    return ''
+  }
+}
+
 const uuid = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -566,12 +581,6 @@ export const webPlatform: Platform = {
     }
     const inProof = proofTrigger || pendingProofBefore !== ''
 
-    // ── Safety guardrail ──
-    // If the human signals self-harm, this turn NEVER becomes a vision, a
-    // crystallization, or a quest. We meet them (phase = crisis) and do not
-    // capture their words as the permanent north star.
-    const isCrisis = c.detectCrisis(content)
-
     // Persist the user's turn, then assemble the conversation context.
     const userMsg: Message = {
       id: uuid(),
@@ -583,6 +592,17 @@ export const webPlatform: Platform = {
 
     const history = await s.getMessages(20)
     const chatMessages = history.map((m) => ({ role: m.role, content: m.content }))
+
+    // ── Safety guardrail ──
+    // If the human signals self-harm (in this message or the last few — the
+    // crisis state is sticky in core), this turn NEVER becomes a vision, a
+    // crystallization, or a quest. We meet them (phase = crisis), never capture
+    // their words as the permanent north star, and the shell puts real human
+    // help lines on screen — before inference, so they show even if it fails.
+    const isCrisis =
+      c.detectCrisis(content) ||
+      c.crisisActive(chatMessages.filter((m) => m.role === 'user').map((m) => m.content))
+    emit('crisis-state', { active: isCrisis, resources: isCrisis ? c.crisisResources(userRegion()) : [] })
 
     // ── Preferential reality + vision crystallization (mirror desktop lib.rs) ──
     // The awakening message asks the "magic wand" question; the user's answer to
@@ -851,7 +871,8 @@ export const webPlatform: Platform = {
     // ── Quest offer detection ──
     // An assistant reply that proposes a quest surfaces the accept/decline UI
     // (web App listens for `quest-offered`).
-    if (c.isQuestOffer(final)) {
+    // Never on a crisis turn — even if the model slipped into quest wording.
+    if (!isCrisis && c.isQuestOffer(final)) {
       emit('quest-offered', {})
     }
 
@@ -990,6 +1011,14 @@ export const webPlatform: Platform = {
   },
 
   // ── Conversation ────────────────────────────────────────────────────────────
+  async aiDisclosure(): Promise<string | null> {
+    const c = await core()
+    const now = Date.now()
+    if (!c.aiDisclosureDue(aiDisclosureShownAt, now)) return null
+    aiDisclosureShownAt = now
+    return c.aiDisclosureText()
+  },
+
   async getMessages(limit: number): Promise<Message[]> {
     return (await storage()).getMessages(limit)
   },

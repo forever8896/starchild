@@ -115,7 +115,10 @@ export default function Onboarding() {
 
   const needsApiKey = managedKey === false
 
-  const canSubmit = userName.trim() && (managedKey === true || apiKey.trim())
+  // Starchild is for adults, and must not be mistaken for therapy (companion-
+  // chatbot laws; Illinois/Nevada AI-therapy rules).
+  const [adultConsent, setAdultConsent] = useState(false)
+  const canSubmit = adultConsent && userName.trim() && (managedKey === true || apiKey.trim())
 
   const handleFinish = useCallback(async () => {
     if (!canSubmit) return
@@ -123,6 +126,7 @@ export default function Onboarding() {
     setError(null)
 
     try {
+      await platform.setSetting('adult_consent_at', new Date().toISOString())
       await platform.completeOnboarding({
         userName: userName.trim() || undefined,
         apiKey: needsApiKey && apiKey.trim() ? apiKey.trim() : undefined,
@@ -327,6 +331,20 @@ export default function Onboarding() {
                   </motion.p>
                 )}
               </AnimatePresence>
+
+              <label className="flex items-start gap-2.5 text-left text-xs leading-snug cursor-pointer select-none" style={{ color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={adultConsent}
+                  onChange={(e) => setAdultConsent(e.target.checked)}
+                  className="mt-0.5 shrink-0"
+                  aria-label="I'm 18 or older and understand Starchild is an AI, not therapy"
+                />
+                <span>
+                  I'm 18 or older, and I understand Starchild is an AI companion — not a
+                  therapist, and not a crisis service.
+                </span>
+              </label>
 
               <motion.button
                 onClick={handleFinish}

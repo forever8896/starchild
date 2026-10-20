@@ -63,3 +63,25 @@ describe('crisis routing (core.detectPhase)', () => {
     expect(core.detectPhase(msgs, true)).toBe('crystallize')
   })
 })
+
+describe('duty of care over the bridge (core safety.rs)', () => {
+  it('keeps a crisis active for a few turns, then lets it go', () => {
+    expect(core.crisisActive(['i want to kill myself', 'ok', 'thanks'])).toBe(true)
+    expect(core.crisisActive(['i want to kill myself', 'ok', 'thanks', "i called my sister, i'm safe"])).toBe(false)
+  })
+
+  it('returns local help lines first, never an empty list', () => {
+    expect(core.crisisResources('US')[0].contact).toBe('988')
+    expect(core.crisisResources('GB')[0].name).toBe('Samaritans')
+    const anywhere = core.crisisResources('')
+    expect(anywhere.map((r) => r.name)).toEqual(['Find a Helpline', 'Emergency services'])
+  })
+
+  it('discloses at session start, then every three hours', () => {
+    const now = Date.now()
+    expect(core.aiDisclosureDue(0, now)).toBe(true)
+    expect(core.aiDisclosureDue(now - 60_000, now)).toBe(false)
+    expect(core.aiDisclosureDue(now - 3 * 3600_000, now)).toBe(true)
+    expect(core.aiDisclosureText()).toMatch(/AI/)
+  })
+})

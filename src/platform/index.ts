@@ -68,6 +68,15 @@ export interface Platform {
   /** Delete a single message from local storage. */
   deleteMessage(id: string): Promise<void>
 
+  // ── Duty of care ────────────────────────────────────────────────────────────
+  /**
+   * The "you're talking to an AI" disclosure text when it is due now (core
+   * decides: start of every session, then at least every three hours), else
+   * null. Calling it while due marks it shown. Crisis help lines arrive as the
+   * `crisis-state` event (`{ active, resources }`) during `sendMessage`.
+   */
+  aiDisclosure(): Promise<string | null>
+
   // ── Voice (capability-gated; throw/no-op where unsupported) ──────────────────
   /** Synthesize speech for `text`; resolves to base64-encoded MP3 audio. */
   ttsSpeak(text: string): Promise<string>

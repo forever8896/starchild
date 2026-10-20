@@ -27,7 +27,7 @@ use db::Database;
 use game::StarchildState;
 // Pure quest logic + authored copy now live once in the shared core; the desktop
 // shell calls the SAME functions the web shell does (see web/src/quests.ts).
-use starchild_core::{messages, quest};
+use starchild_core::{messages, quest, safety};
 use knowing::KnowingSystem;
 use memory::MemorySystem;
 use telegram::TelegramBotHandle;
@@ -591,6 +591,38 @@ struct StreamErrorPayload {
 // Streaming command
 // ---------------------------------------------------------------------------
 
+/// When the AI disclosure was last shown this run (f64 epoch ms as bits; 0 = not
+/// yet), so every launch discloses. Core owns the cadence.
+static AI_DISCLOSURE_SHOWN_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The "you're talking to an AI" text when it is due (start of session, then
+/// every three hours — core `safety::ai_disclosure_due`), else None. Marks it shown.
+#[tauri::command]
+fn ai_disclosure() -> Option<String> {
+    use std::sync::atomic::Ordering;
+    let now = chrono::Utc::now().timestamp_millis() as f64;
+    let last = f64::from_bits(AI_DISCLOSURE_SHOWN_AT.load(Ordering::Relaxed));
+    if !safety::ai_disclosure_due(Some(last), now) {
+        return None;
+    }
+    AI_DISCLOSURE_SHOWN_AT.store(now.to_bits(), Ordering::Relaxed);
+    Some(safety::AI_DISCLOSURE_TEXT.to_string())
+}
+
+/// The person's region (ISO alpha-2) from the OS locale (LANG / LC_ALL, e.g.
+/// "en_GB.UTF-8" → "GB"); "" when unknown. Only orders crisis help lines.
+fn user_region() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .find_map(|v| {
+            let tag = v.split('.').next().unwrap_or("");
+            let region = tag.split(['_', '-']).nth(1)?;
+            (region.len() == 2).then(|| region.to_ascii_uppercase())
+        })
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 async fn send_message_stream(
     message: String,
@@ -604,8 +636,9 @@ async fn send_message_stream(
         .save_message(&user_msg_id, "desktop", "user", &message)
         .map_err(|e| e.to_string())?;
 
-    // Save preferential reality if this is the first substantial user message
-    if message.len() > 20 {
+    // Save preferential reality if this is the first substantial user message —
+    // never a crisis disclosure (that must not become the permanent north star).
+    if message.len() > 20 && !safety::detect_crisis(&message) {
         if let Ok(None) = state.db.get_setting("preferential_reality") {
             let _ = state.db.set_setting("preferential_reality", &message);
             log::info!("Preferential reality saved (raw)");
@@ -724,11 +757,32 @@ async fn send_message_stream(
         content: message.clone(),
     });
 
+    // ── Safety guardrail (core `safety`) ──
+    // If this or one of the last few human messages signalled self-harm, the
+    // turn is Crisis: no vision, no quest, no memory mining — and the UI puts
+    // real help lines on screen (before inference, so they show even if it fails).
+    let user_texts: Vec<&str> = phase_history
+        .iter()
+        .filter(|m| m.role == "user")
+        .map(|m| m.content.as_str())
+        .collect();
+    let is_crisis = safety::crisis_active(&user_texts);
+    let _ = app_handle.emit(
+        "crisis-state",
+        serde_json::json!({
+            "active": is_crisis,
+            "resources": if is_crisis { safety::crisis_resources(&user_region()) } else { vec![] },
+        }),
+    );
+
     // Phase detection:
-    // - Proof flow takes absolute priority
+    // - Crisis overrides everything
+    // - Proof flow takes priority next
     // - Pre-vision: deterministic (Arrive / Crystallize)
     // - Post-vision: heuristic overrides first, then LLM classifier
-    let phase = if proof_trigger || pending_proof.is_some() {
+    let phase = if is_crisis {
+        ai::ConversationPhase::Crisis
+    } else if proof_trigger || pending_proof.is_some() {
         ai::ConversationPhase::Proof
     } else if crystallize_pending {
         ai::PhaseDetector::detect_with_context(&phase_history, true)
@@ -955,14 +1009,16 @@ async fn send_message_stream(
             }
 
             // Show accept/decline buttons whenever the response contains a quest offer
-            // (Quest phase, Negotiate phase with revised quest, or any phase)
-            if quest::is_quest_offer(&full_text) {
+            // (Quest phase, Negotiate phase with revised quest, or any phase) —
+            // never on a crisis turn, even if the model slipped into quest wording.
+            if !is_crisis && quest::is_quest_offer(&full_text) {
                 let _ = app_handle.emit("quest-offered", ());
             }
 
-            // Background: extract memories
+            // Background: extract memories — skipped on a crisis turn; we don't
+            // mine a self-harm disclosure into the profile.
             let extraction_client = ai_client.clone();
-            tokio::spawn(async move {
+            if !is_crisis { tokio::spawn(async move {
                 if let Err(e) = extract_memories(
                     &extraction_client,
                     &memory_sys,
@@ -972,7 +1028,7 @@ async fn send_message_stream(
                 ).await {
                     log::warn!("Memory extraction failed: {e}");
                 }
-            });
+            }); }
 
             // Background: update conversation summary when history grows long
             {
@@ -2205,6 +2261,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             send_message,
             send_message_stream,
+            ai_disclosure,
             send_image_message,
             get_messages,
             generate_first_message,

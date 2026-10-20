@@ -119,6 +119,8 @@ test.describe('web shell', () => {
     // trial), so no API key is required to submit.
     await page.getByPlaceholder('a name…').fill('Playwright Traveler')
 
+    await page.getByRole('checkbox', { name: /18 or older/i }).check()
+
     const begin = page.getByRole('button', { name: /^begin$/i })
     await expect(begin).toBeEnabled()
     await begin.click()

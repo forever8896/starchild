@@ -33,20 +33,10 @@ fn phase_to_str(p: ConversationPhase) -> &'static str {
     p.as_str()
 }
 
-/// Parse a phase tag back into the enum. Unknown/empty tags fall back to
-/// `Arrive` (the safe opening phase) so a bad string never panics the bridge.
+/// Parse a phase tag back into the enum (core [`ConversationPhase::from_tag`]:
+/// every phase round-trips; unknown tags fall back to `Arrive`).
 fn phase_from_str(s: &str) -> ConversationPhase {
-    match s {
-        "dig" => ConversationPhase::Dig,
-        "crystallize" => ConversationPhase::Crystallize,
-        "quest" => ConversationPhase::Quest,
-        "explore" => ConversationPhase::Explore,
-        "reframe" => ConversationPhase::Reframe,
-        "negotiate" => ConversationPhase::Negotiate,
-        "proof" => ConversationPhase::Proof,
-        "release" => ConversationPhase::Release,
-        _ => ConversationPhase::Arrive,
-    }
+    ConversationPhase::from_tag(s)
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +184,34 @@ pub fn is_quest_offer(text: &str) -> bool {
 #[wasm_bindgen]
 pub fn detect_crisis(text: &str) -> bool {
     ai::detect_crisis(text)
+}
+
+/// True when any of the human's last few messages (oldest-first array of
+/// strings) signalled crisis — the crisis state is sticky for a few turns.
+#[wasm_bindgen]
+pub fn crisis_active(user_messages: JsValue) -> Result<bool, JsValue> {
+    let msgs: Vec<String> = serde_wasm_bindgen::from_value(user_messages)?;
+    Ok(crate::safety::crisis_active(&msgs))
+}
+
+/// Crisis help lines for a region (ISO alpha-2, e.g. "US", "GB"), most local
+/// first; always includes a worldwide directory and emergency services.
+#[wasm_bindgen]
+pub fn crisis_resources(region: &str) -> Result<JsValue, JsValue> {
+    Ok(serde_wasm_bindgen::to_value(&crate::safety::crisis_resources(region))?)
+}
+
+/// Whether to show the "you're talking to an AI" disclosure now. Pass 0 when it
+/// hasn't been shown this session.
+#[wasm_bindgen]
+pub fn ai_disclosure_due(last_shown_ms: f64, now_ms: f64) -> bool {
+    crate::safety::ai_disclosure_due(Some(last_shown_ms), now_ms)
+}
+
+/// The plain-language AI disclosure text.
+#[wasm_bindgen]
+pub fn ai_disclosure_text() -> String {
+    crate::safety::AI_DISCLOSURE_TEXT.to_string()
 }
 
 /// The system message for the extraction LLM call.
