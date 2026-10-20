@@ -1,6 +1,6 @@
 [package]
 name = "starchild_core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Shared, platform-agnostic engine for Starchild (native + WASM)"
 license = "MIT"
 edition = "2021"

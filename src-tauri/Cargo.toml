@@ -3,7 +3,7 @@ members = ["core"]
 
 [package]
 name = "starchild"
-version = "0.2.0"
+version = "0.3.0"
 description = "An alien AI entity that helps you grow"
 authors = ["you"]
 license = "MIT"
