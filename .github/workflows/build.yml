@@ -54,7 +54,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -77,6 +77,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      # The desktop typecheck includes the shared platform seam, which imports
+      # the web shell's WASM bindings (web/src/wasm, gitignored) — generate them.
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+      - name: Build the WASM core bindings
+        run: wasm-pack build src-tauri/core --target web --out-dir ../../web/src/wasm
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
