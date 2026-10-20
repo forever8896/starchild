@@ -80,10 +80,12 @@ jobs:
 
       # The desktop typecheck includes the shared platform seam, which imports
       # the web shell's WASM bindings (web/src/wasm, gitignored) — generate them.
+      # --no-opt: desktop only needs the bindings to typecheck, and the Windows
+      # wasm-opt rejects the module ("Only 1 table definition allowed in MVP").
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
       - name: Build the WASM core bindings
-        run: wasm-pack build src-tauri/core --target web --out-dir ../../web/src/wasm
+        run: wasm-pack build src-tauri/core --target web --no-opt --out-dir ../../web/src/wasm
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
