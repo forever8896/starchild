@@ -63,6 +63,10 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    // The shared UI lives in ../src (components, styles, self-hosted fonts).
+    // Assets reached via CSS url() — the Nunito woff2 files — are outside the
+    // module graph Vite trusts, so allow the shared tree explicitly (dev only).
+    fs: { allow: [here, resolve(repoRoot, 'src'), resolve(repoRoot, 'node_modules')] },
   },
   build: {
     target: 'esnext',
