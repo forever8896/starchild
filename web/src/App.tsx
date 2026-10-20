@@ -23,6 +23,7 @@ import NavRail from './NavRail'
 import ChatView from './ChatView'
 import QuestAcceptScene from './QuestAcceptScene'
 import * as sound from './sound'
+import { initPwa, requestPersistentStorage, probeIndexedDb } from './pwa'
 import {
   FEEDBACK_UNLOCKED_KEY,
   FEEDBACK_SUBMITTED_KEY,
@@ -81,6 +82,22 @@ export default function App() {
   const [feedbackNudge, setFeedbackNudge] = useState(false)
   // The quest-accept cinematic (overlaid as the tree mounts beneath it).
   const [acceptScene, setAcceptScene] = useState<{ title: string; color: string } | null>(null)
+
+  // PWA: register the service worker (prod only) and check this window can
+  // actually keep data (IndexedDB is unavailable in some private modes).
+  const [noStorage, setNoStorage] = useState(false)
+  useEffect(() => {
+    initPwa()
+    let cancelled = false
+    void probeIndexedDb().then((ok) => { if (!cancelled && !ok) setNoStorage(true) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Once the human has actually started (onboarding done), ask — once — for
+  // persistent storage so the browser won't evict their story. Silent if denied.
+  useEffect(() => {
+    if (onboardingComplete) void requestPersistentStorage()
+  }, [onboardingComplete])
 
   // Warm the E2EE trial handshake + enclave early (during intro/onboarding) so
   // the first message doesn't wait on the attestation round-trip or a cold
@@ -194,10 +211,13 @@ export default function App() {
     return <div style={{ width: '100vw', height: '100vh', backgroundColor: 'var(--bg-deep)' }} />
   }
 
+  const storageNotice = noStorage ? <StorageNotice onDismiss={() => setNoStorage(false)} /> : null
+
   if (!onboardingComplete) {
     return (
       <ErrorBoundary>
         <Meeting />
+        {storageNotice}
       </ErrorBoundary>
     )
   }
@@ -315,6 +335,32 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {storageNotice}
     </ErrorBoundary>
+  )
+}
+
+/** Calm, dismissible note shown when this window can't keep data (no IndexedDB). */
+function StorageNotice({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div
+      role="status"
+      data-testid="storage-notice"
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl"
+      style={{ backgroundColor: 'var(--bg-card)', border: '1.5px solid var(--outline)', maxWidth: 'calc(100vw - 32px)' }}
+    >
+      <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        this window can’t keep anything — private browsing, maybe. whatever we share here will fade when it closes.
+      </span>
+      <button
+        onClick={onDismiss}
+        className="text-xs shrink-0"
+        style={{ color: 'var(--text-muted)' }}
+        aria-label="Dismiss"
+      >
+        okay
+      </button>
+    </div>
   )
 }

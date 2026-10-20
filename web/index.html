@@ -2,10 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Starchild</title>
+    <meta name="description" content="A private companion that helps you find your purpose, one gentle quest at a time." />
+
+    <!-- Installable PWA: manifest here; the service worker is registered from src/pwa.ts (production builds only). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#1c1526" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Starchild" />
   </head>
-  <body>
+  <body style="background-color: #0c0a14">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
