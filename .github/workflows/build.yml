@@ -84,6 +84,10 @@ jobs:
       # wasm-opt rejects the module ("Only 1 table definition allowed in MVP").
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          # Pinned: unpinned, the action installed an old wasm-pack on Linux
+          # that lacks --no-opt. 0.13.1 is the version the repo is built with.
+          version: v0.13.1
       - name: Build the WASM core bindings
         run: wasm-pack build src-tauri/core --target web --no-opt --out-dir ../../web/src/wasm
 
