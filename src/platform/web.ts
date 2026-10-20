@@ -384,6 +384,30 @@ async function extractOfferedQuest(): Promise<import('../../web/src/wasm-bridge'
 }
 
 /**
+ * Run latency-insensitive background work OFF the reply's voice-critical window.
+ * For the few seconds after a reply lands, the TTS fetch + audio decode + the
+ * ethereal-reverb WebAudio graph want the main thread and a network slot; a
+ * concurrent E2EE extraction call (which decrypts a streamed response on the
+ * SAME main thread) can stall the voice for many seconds. These background
+ * calls have no in-turn dependency, so we defer them until the browser is idle
+ * (or a short timeout) — the voice always wins the race.
+ */
+function deferBackground(fn: () => void): void {
+  const run = () => {
+    try {
+      fn()
+    } catch (err) {
+      console.error('deferred background task threw:', err)
+    }
+  }
+  const g = globalThis as unknown as {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void
+  }
+  if (typeof g.requestIdleCallback === 'function') g.requestIdleCallback(run, { timeout: 5000 })
+  else setTimeout(run, 2500)
+}
+
+/**
  * Extract the 7-dimension "knowing" insights from one conversation turn and
  * persist them to IndexedDB — the web mirror of desktop's `extract_memories`.
  * Uses the SAME core extraction prompt + JSON normalization, so both shells
@@ -447,6 +471,47 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
   }
 }
 
+/**
+ * Distill the (often long) crystallized vision into a short north-star phrase for
+ * the tree's crown — the full statement overflows the star and gets clipped. Runs
+ * once at Crystallize; the crown prefers `vision_short` when present. Fire-and-
+ * forget: on any failure the crown simply falls back to the full statement.
+ *
+ * Carries the vision text, so — like every derived-content call — E2EE is required
+ * on the trial; if the private channel is unavailable we skip (NEVER plaintext).
+ */
+async function distillVisionShort(fullVision: string): Promise<void> {
+  try {
+    const [s, v] = await Promise.all([storage(), venice()])
+    const inference = await privateInference(true)
+    if (!inference) return
+    const { mode, apiKey, e2eeSession } = inference
+
+    let acc = ''
+    for await (const token of v.streamChat(
+      [
+        {
+          role: 'system',
+          content:
+            'You distill a personal vision into its essence. Reply with ONLY a short north-star phrase — at most 6 words, no quotes, no punctuation at the end, lowercase, capturing the heart of it.',
+        },
+        { role: 'user', content: `Vision: ${fullVision}\n\nThe essence, in ≤6 words:` },
+      ],
+      { mode, apiKey, e2eeSession, temperature: 0.3 },
+    )) {
+      acc += token
+    }
+
+    const short = acc.trim().replace(/^["']|["']$/g, '').replace(/[.]+$/, '').trim()
+    // Guard against a model that ignored the limit — only keep a genuinely short line.
+    if (short && short.split(/\s+/).length <= 8 && short.length <= 60) {
+      await s.setSetting('vision_short', short)
+    }
+  } catch (err) {
+    console.warn('Vision distillation failed (non-fatal):', err)
+  }
+}
+
 // ── The platform implementation ───────────────────────────────────────────────
 
 export const webPlatform: Platform = {
@@ -486,6 +551,12 @@ export const webPlatform: Platform = {
     }
     const inProof = proofTrigger || pendingProofBefore !== ''
 
+    // ── Safety guardrail ──
+    // If the human signals self-harm, this turn NEVER becomes a vision, a
+    // crystallization, or a quest. We meet them (phase = crisis) and do not
+    // capture their words as the permanent north star.
+    const isCrisis = c.detectCrisis(content)
+
     // Persist the user's turn, then assemble the conversation context.
     const userMsg: Message = {
       id: uuid(),
@@ -508,7 +579,7 @@ export const webPlatform: Platform = {
     // "good morning!" can never become the permanent north star.
     const assistantTurns = chatMessages.filter((m) => m.role === 'assistant')
     const lastAssistant = [...chatMessages].reverse().find((m) => m.role === 'assistant')?.content ?? ''
-    if (!inProof && content.trim().length >= 20) {
+    if (!inProof && !isCrisis && content.trim().length >= 20) {
       const existingPr = (await s.getSetting('preferential_reality')) ?? ''
       const answersAwakening = /magic wand/i.test(lastAssistant) || assistantTurns.length <= 2
       if (!existingPr && answersAwakening) {
@@ -577,7 +648,10 @@ export const webPlatform: Platform = {
     //     last 5 minutes forces Explore ("let it breathe"; desktop's cooldown),
     //     so the companion never chains straight into the next assignment.
     let phase: import('../../web/src/wasm-bridge').ConversationPhase
-    if (inProof) {
+    if (isCrisis) {
+      // Crisis wins over proof, crystallize, and quest overrides alike.
+      phase = 'crisis'
+    } else if (inProof) {
       phase = 'proof'
     } else if (crystallizePending) {
       phase = c.detectPhase(chatMessages, true)
@@ -728,12 +802,25 @@ export const webPlatform: Platform = {
       } catch (err) {
         console.warn('Failed to record crystallize evidence:', err)
       }
+      // Distill a short north star for the crown (the full statement overflows
+      // the star). Fire-and-forget — starts now so it's ready by the time the
+      // reply finishes revealing and the tree opens.
+      void distillVisionShort(vision)
+
+      // The north star was just woven onto the tree — let the UI witness it.
+      // Unlike quests (accept button) the crystallize placement is automatic, so
+      // without this signal the vision lands silently and the user never sees the
+      // tree animate. The web App carries them to the tree once the reply settles.
+      emit('vision-crystallized', { vision })
     }
 
     // ── Background: extract knowing insights from this turn ──
     // Fire-and-forget (mirrors desktop's background `extract_memories`): the
     // facts land in IndexedDB and enrich the NEXT turn's recall + knowing slot.
-    void extractKnowing(content, final)
+    // Skip on a crisis turn — we don't mine a self-harm disclosure into a profile.
+    // Deferred so this E2EE extraction never contends with the reply's VOICE
+    // (TTS + audio decode want the main thread for the first seconds after send).
+    if (!isCrisis) deferBackground(() => void extractKnowing(content, final))
 
     // ── Quest completion (proof turn 2) ──
     // phase == proof, this turn was NOT the trigger, and a quest was armed.
@@ -752,6 +839,14 @@ export const webPlatform: Platform = {
     if (c.isQuestOffer(final)) {
       emit('quest-offered', {})
     }
+
+    // Re-arm enclave warming for the NEXT turn. Keep-alive stopped when this
+    // request started (real traffic warmed it), but a companion invites long
+    // pauses — the user reflects, reads, steps away — and the enclave re-cools
+    // in ~a minute, so the next reply would pay the ~12s cold first-token again.
+    // Re-warming here holds it warm across an ACTIVE session (self-caps 5 min
+    // after the last message), so replies stay ~6s, not ~12s, throughout.
+    warmTrialE2ee()
   },
 
   // ── Data portability (§5) ────────────────────────────────────────────────────

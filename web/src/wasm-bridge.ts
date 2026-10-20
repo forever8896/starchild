@@ -17,6 +17,7 @@ import init, {
   postprocess,
   core_version,
   is_quest_offer,
+  detect_crisis,
   quest_extraction_system,
   build_quest_extraction_prompt,
   parse_quest_extraction,
@@ -52,6 +53,7 @@ export type ConversationPhase =
   | 'negotiate'
   | 'proof'
   | 'release'
+  | 'crisis'
 
 /** Lightweight creature snapshot used by the prompt builder (ai::StarchildState). */
 export interface PromptState {
@@ -153,6 +155,10 @@ export interface Core {
   /** Post-process a model response for the given phase. */
   postprocess(text: string, phase: ConversationPhase): string
 
+  // ── Safety ───────────────────────────────────────────────────────────────
+  /** True when a human message signals crisis / self-harm (never capture/quest it). */
+  detectCrisis(text: string): boolean
+
   // ── Quest logic (single source — shared with the desktop shell) ──────────
   /** True when an assistant reply contains a quest offer the UI should surface. */
   isQuestOffer(text: string): boolean
@@ -228,6 +234,7 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     tickGameState: (state, nowMs = Date.now()) => tick_game_state(state, nowMs) as GameState,
     newGameState: (nowMs = Date.now()) => new_game_state(nowMs) as GameState,
     postprocess: (text, phase) => postprocess(text, phase),
+    detectCrisis: (text) => detect_crisis(text),
     isQuestOffer: (text) => is_quest_offer(text),
     questExtractionSystem: () => quest_extraction_system(),
     buildQuestExtractionPrompt: (recentContext) => build_quest_extraction_prompt(recentContext),

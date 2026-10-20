@@ -5,8 +5,8 @@ import { motion } from "framer-motion";
 function LockIcon() {
   return (
     <svg
-      width="48"
-      height="48"
+      width="44"
+      height="44"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -26,7 +26,7 @@ function LockIcon() {
 const badges = [
   { label: "E2EE", title: "End-to-End Encrypted" },
   { label: "TEE Attestation", title: "Trusted Execution Environment" },
-  { label: "Zero Data Retention", title: "Nothing stored on our servers" },
+  { label: "Zero Retention", title: "Nothing stored on our servers" },
   { label: "Local-First", title: "Your data lives on your device" },
 ];
 
@@ -35,36 +35,35 @@ const fadeUp = {
   visible: { opacity: 1, y: 0 },
 };
 
+const ease = [0.16, 1, 0.3, 1] as const;
+
 export default function Privacy() {
   return (
     <section
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black px-6 py-28"
+      className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden bg-black"
+      style={{ paddingBlock: "var(--section-y)", paddingInline: "var(--pad-x)" }}
       aria-label="Privacy and security"
     >
-      {/* Subtle background glow */}
       <div
+        className="aurora"
         aria-hidden="true"
         style={{
-          position: "absolute",
-          inset: 0,
           background:
-            "radial-gradient(ellipse 50% 50% at 50% 50%, rgba(60, 40, 100, 0.25), transparent 65%)",
-          pointerEvents: "none",
+            "radial-gradient(ellipse 48% 48% at 50% 50%, rgba(60, 40, 100, 0.24), transparent 66%)",
         }}
       />
 
-      <div className="relative z-10 flex max-w-2xl flex-col items-center text-center gap-8">
-        {/* Icon */}
+      <div className="relative z-10 flex max-w-2xl flex-col items-center gap-8 text-center">
         <motion.div
           variants={fadeUp}
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
+          transition={{ duration: 0.8, ease }}
           style={{
             padding: "1.2rem",
-            borderRadius: "50%",
-            border: "1px solid rgba(184, 160, 216, 0.2)",
+            borderRadius: "var(--r-full)",
+            border: "1px solid var(--line-strong)",
             background: "rgba(184, 160, 216, 0.06)",
             display: "inline-flex",
           }}
@@ -72,76 +71,50 @@ export default function Privacy() {
           <LockIcon />
         </motion.div>
 
-        {/* Title */}
         <motion.h2
+          className="font-display"
           variants={fadeUp}
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+          transition={{ duration: 0.8, ease, delay: 0.1 }}
           style={{
-            fontSize: "clamp(1.6rem, 3.5vw, 2.6rem)",
-            fontWeight: 300,
-            letterSpacing: "-0.01em",
-            lineHeight: 1.2,
+            fontSize: "clamp(1.7rem, 3.6vw, 2.8rem)",
+            lineHeight: 1.16,
             color: "#fff",
-            fontStyle: "italic",
           }}
         >
           your deepest thoughts,{" "}
-          <span style={{ color: "var(--lavender)" }}>
-            cryptographically protected
-          </span>
+          <span className="accent">cryptographically protected</span>
         </motion.h2>
 
-        {/* Body */}
         <motion.p
+          className="lead"
           variants={fadeUp}
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.8, ease: "easeOut", delay: 0.2 }}
-          style={{
-            fontSize: "clamp(0.95rem, 1.6vw, 1.05rem)",
-            lineHeight: 1.8,
-            color: "rgba(255,255,255,0.52)",
-          }}
+          transition={{ duration: 0.8, ease, delay: 0.2 }}
+          style={{ fontSize: "clamp(0.98rem, 1.5vw, 1.08rem)" }}
         >
-          End-to-end encrypted with hardware-verified trusted execution
+          End-to-end encrypted, with hardware-verified trusted execution
           environments. Your conversations are encrypted on your device and only
           decrypted inside verified enclaves. Not even the AI provider can read
           them.
         </motion.p>
 
-        {/* Badges */}
         <motion.div
           className="flex flex-wrap items-center justify-center gap-3"
           variants={fadeUp}
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.8, ease: "easeOut", delay: 0.35 }}
+          transition={{ duration: 0.8, ease, delay: 0.35 }}
           role="list"
           aria-label="Security features"
         >
           {badges.map(({ label, title }) => (
-            <span
-              key={label}
-              role="listitem"
-              title={title}
-              style={{
-                display: "inline-block",
-                padding: "0.4rem 1rem",
-                border: "1px solid rgba(184, 160, 216, 0.3)",
-                borderRadius: "9999px",
-                fontSize: "0.78rem",
-                fontWeight: 600,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--lavender)",
-                background: "rgba(184, 160, 216, 0.07)",
-              }}
-            >
+            <span key={label} role="listitem" title={title} className="pill">
               {label}
             </span>
           ))}

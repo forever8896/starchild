@@ -96,17 +96,32 @@ export default function Meeting() {
   // must not fire while the intro is still on screen (and the voice must wait
   // for the intro's tap so its reverb-bearing AudioContext can resume).
   const [begun, setBegun] = useState(false)
+  // When the genesis intro is SKIPPED (already seen this session — e.g. a reload
+  // mid-onboarding), no fresh user gesture is coming, so the naming voice cannot
+  // autoplay (and in a lenient/already-unlocked browser it fires unintentionally,
+  // skipping the ritual — "it just played"). Rather than begin without a gesture,
+  // gate the scene behind our OWN 'tap to begin': the tap unlocks audio so the
+  // line always lands, and the moment stays intentional. Fresh first-run instead
+  // waits for the intro cinematic's own tap (via `starchild:intro-done`).
+  const [needTap, setNeedTap] = useState(false)
   useEffect(() => {
     let done = false
     const begin = () => { if (done) return; done = true; setBegun(true) }
-    try {
-      // Intro already seen this session (or unavailable) → begin right away.
-      if (sessionStorage.getItem('starchild_intro_seen') === '1') { begin(); return }
-    } catch { begin(); return }
+    let introSeen = false
+    try { introSeen = sessionStorage.getItem('starchild_intro_seen') === '1' } catch { introSeen = true }
+    if (introSeen) { setNeedTap(true); return } // await our own tap-gate (below)
     window.addEventListener('starchild:intro-done', begin, { once: true })
     const safety = setTimeout(begin, 14000) // never strand the user if the intro misfires
     return () => { window.removeEventListener('starchild:intro-done', begin); clearTimeout(safety) }
   }, [])
+
+  // The tap-gate's gesture: unlocks audio (music + the voice's AudioContext) and
+  // starts the reveal. Runs only on the intro-skipped path.
+  const beginByTap = useCallback(() => {
+    startMusic()
+    setNeedTap(false)
+    setBegun(true)
+  }, [startMusic])
 
   // The reveal timeline (starts once begun) — instant under reduced motion (also
   // what the e2e suite runs under, so onboarding stays fast + deterministic).
@@ -166,6 +181,37 @@ export default function Meeting() {
       style={{ background: 'radial-gradient(58% 44% at 50% 40%, rgba(184,160,216,.10), #070510 66%)' }}
       onClick={startMusic}
     >
+      {/* tap-gate — only when the intro was skipped, so the naming voice always
+          has a gesture to unlock audio. Overlays the floating creature; the
+          lines/ask stay hidden (begun=false) until the tap. NOT wrapped in
+          AnimatePresence: the pulsing "tap to begin" runs an infinite animation,
+          which stalls an AnimatePresence exit and would leave this full-screen
+          button in the DOM at opacity 0 — invisibly swallowing every click on
+          the naming field. Plain conditional render unmounts it instantly on tap. */}
+      {needTap && !begun && (
+        <motion.button
+          type="button"
+          onClick={beginByTap}
+          className="absolute inset-0 z-20 flex items-end justify-center pb-[13%]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8 }}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+          aria-label="Tap to begin"
+        >
+          <motion.span
+            animate={{ opacity: [0.35, 0.8, 0.35] }}
+            transition={{ opacity: { duration: 3.2, repeat: Infinity, ease: 'easeInOut' } }}
+            style={{
+              fontSize: 12.5, letterSpacing: '0.34em', textTransform: 'uppercase',
+              fontWeight: 400, color: 'rgba(237,232,245,0.85)', pointerEvents: 'none',
+            }}
+          >
+            tap to begin
+          </motion.span>
+        </motion.button>
+      )}
+
       {/* starfield */}
       <div aria-hidden className="absolute inset-0 pointer-events-none">
         {STARS.map((s, i) => (

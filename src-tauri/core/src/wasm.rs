@@ -189,6 +189,13 @@ pub fn is_quest_offer(text: &str) -> bool {
     quest::is_quest_offer(text)
 }
 
+/// True when a human message signals crisis / self-harm. The shell must NOT
+/// capture such a message as a vision, crystallize it, or turn it into a quest.
+#[wasm_bindgen]
+pub fn detect_crisis(text: &str) -> bool {
+    ai::detect_crisis(text)
+}
+
 /// The system message for the extraction LLM call.
 #[wasm_bindgen]
 pub fn quest_extraction_system() -> String {

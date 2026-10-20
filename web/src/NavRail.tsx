@@ -13,6 +13,61 @@ import starchildLogo from '../../src/assets/starchild-logo.png'
 
 type NavKey = 'chat' | 'tree' | 'feedback' | 'settings'
 
+// ─── Nav icons ────────────────────────────────────────────────────────────────
+// A single, consistent line-icon language (stroke, round joins) — replacing the
+// mismatched Unicode glyphs (✦ ✴ ◐) whose weights and baselines never agreed.
+// The creature's ✦ sparkle stays a *decorative* motif elsewhere; navigation gets
+// legible, purpose-built marks.
+
+const stroke = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.7,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+}
+
+function TalkIcon() {
+  // A speech bubble — the conversation itself.
+  return (
+    <svg viewBox="0 0 24 24" width={23} height={23} {...stroke} aria-hidden="true">
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+    </svg>
+  )
+}
+
+function TreeIcon() {
+  // A branching vision tree — one root, two boughs.
+  return (
+    <svg viewBox="0 0 24 24" width={23} height={23} {...stroke} aria-hidden="true">
+      <circle cx="12" cy="5" r="2.5" />
+      <circle cx="6" cy="19" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="M12 7.5v4.5" />
+      <path d="M6 16.5v-3a1.5 1.5 0 0 1 1.5-1.5h9a1.5 1.5 0 0 1 1.5 1.5v3" />
+    </svg>
+  )
+}
+
+function NoteIcon() {
+  // A solid heart — the one warm, coloured mark (feedback, once unlocked).
+  return (
+    <svg viewBox="0 0 24 24" width={21} height={21} fill="currentColor" aria-hidden="true">
+      <path d="M12 21.35c-.3 0-.6-.1-.83-.32l-8.1-7.78a5.5 5.5 0 0 1 7.78-7.78L12 6.6l1.15-1.13a5.5 5.5 0 0 1 7.78 7.78l-8.1 7.78c-.23.22-.53.32-.83.32Z" />
+    </svg>
+  )
+}
+
+function YouIcon() {
+  // A person — "you & this space".
+  return (
+    <svg viewBox="0 0 24 24" width={23} height={23} {...stroke} aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  )
+}
+
 function RailButton({
   active, onClick, title, glyph, label, narrow,
 }: {
@@ -44,7 +99,7 @@ function RailButton({
       style={{ ...base, ...on }}
       className="nav-rail-btn"
     >
-      <span className="text-[21px] leading-none">{glyph}</span>
+      <span className="flex items-center justify-center" style={{ height: 24 }}>{glyph}</span>
       <span className="text-[10px] font-bold tracking-[.04em]">{label}</span>
     </button>
   )
@@ -82,14 +137,14 @@ export default function NavRail({
         <img
           src={starchildLogo}
           alt="Starchild"
-          className="object-contain mb-[18px]"
-          style={{ width: 52, height: 52, filter: 'drop-shadow(0 4px 12px rgba(184,160,216,.5))' }}
+          className="object-contain mb-[16px]"
+          style={{ width: 76, height: 76, filter: 'drop-shadow(0 6px 18px rgba(184,160,216,.55))' }}
           draggable={false}
         />
       )}
 
-      <RailButton narrow={narrow} active={active === 'chat'} onClick={() => onNav('chat')} title="Talk" label="talk" glyph="✦" />
-      <RailButton narrow={narrow} active={active === 'tree'} onClick={() => onNav('tree')} title="Vision Tree" label="tree" glyph="✴" />
+      <RailButton narrow={narrow} active={active === 'chat'} onClick={() => onNav('chat')} title="Talk" label="talk" glyph={<TalkIcon />} />
+      <RailButton narrow={narrow} active={active === 'tree'} onClick={() => onNav('tree')} title="Vision Tree" label="tree" glyph={<TreeIcon />} />
 
       {feedbackUnlocked && (
         <RailButton
@@ -98,13 +153,13 @@ export default function NavRail({
           onClick={onOpenFeedback}
           title="Share feedback"
           label="note"
-          glyph={<span style={{ color: 'var(--accent-rose)' }}>♡</span>}
+          glyph={<span style={{ color: 'var(--accent-rose)' }}><NoteIcon /></span>}
         />
       )}
 
       {!narrow && <div style={{ flex: 1 }} />}
 
-      <RailButton narrow={narrow} active={active === 'settings'} onClick={() => onNav('settings')} title="You & this space" label="you" glyph="◐" />
+      <RailButton narrow={narrow} active={active === 'settings'} onClick={() => onNav('settings')} title="You & this space" label="you" glyph={<YouIcon />} />
     </nav>
   )
 }

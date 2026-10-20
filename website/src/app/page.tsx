@@ -3,60 +3,64 @@ import Hero from "@/components/Hero";
 import FeatureSection from "@/components/FeatureSection";
 import Privacy from "@/components/Privacy";
 import Download from "@/components/Download";
+import Footer from "@/components/Footer";
 
 /**
- * Starchild landing page
+ * Starchild landing page.
  *
- * Section order:
- *  1. Hero         — starchild1.webm (awakening, plays once)
- *  2. Magic Wand   — starchild5.webm (reaching toward viewer)
- *  3. Conversation — starchild3.webm (curious / thinking)
- *  4. Vision Tree  — skilltree.mp4   (constellation skill tree)
- *  5. Quests       — starchild4.webm (celebration)
- *  6. Privacy      — no video
- *  7. Download CTA — starchild2.webm (breathing loop)
+ * Section order (creature clip in parentheses):
+ *  1. Hero         (starchild1 - awakening, plays once) + browser / desktop CTAs
+ *  2. Magic Wand   (starchild5 - reaching toward you)
+ *  3. Conversation (starchild3 - curious / thinking)
+ *  4. Vision Tree  (skilltree  - constellation skill tree, full-bleed)
+ *  5. Quests       (starchild4 - celebration)
+ *  6. Privacy      (no video, centered focus)
+ *  7. Download     (starchild2 - breathing loop) browser-first, desktop second
  */
 export default function Page() {
   return (
     <main>
       <Navbar />
 
-      {/* ─── 1. HERO ─────────────────────────────────────────── */}
       <Hero />
 
-      {/* ─── 2. THE MAGIC WAND ───────────────────────────────── */}
       <FeatureSection
         videoSrc="/videos/starchild5.webm"
         alignment="left"
         eyebrow="where it begins"
-        title="your journey begins with one question"
+        title={
+          <>
+            your journey begins with <span className="accent">one question</span>
+          </>
+        }
         body="Imagine a world where money and work don't exist. You wake up fully free. What do you find yourself doing? Your answer becomes the star you're growing toward."
         glowColor="rgba(184, 160, 216, 0.2)"
       />
 
-      {/* ─── 3. THE CONVERSATION ─────────────────────────────── */}
       <FeatureSection
         videoSrc="/videos/starchild3.webm"
         alignment="right"
         eyebrow="the intelligence within"
         title="it listens differently than anything you've known"
-        body="Starchild doesn't give advice. It asks the questions you've been avoiding. It connects patterns you can't see. It challenges you with love — never lectures."
-        footnote="Powered by a research-backed conversation arc: Motivational Interviewing, Clean Language, IFS, Solution-Focused Therapy — woven into every exchange."
+        body="Starchild doesn't give advice. It asks the questions you've been avoiding. It connects patterns you can't see. It challenges you with love, never lectures."
+        footnote="Powered by a research-backed conversation arc: Motivational Interviewing, Clean Language, IFS, and Solution-Focused Therapy, woven into every exchange."
         glowColor="rgba(140, 100, 220, 0.18)"
       />
 
-      {/* ─── 4. THE VISION TREE ──────────────────────────────── */}
       <FeatureSection
         videoSrc="/videos/skilltree.mp4"
         alignment="left"
         eyebrow="your map"
-        title="your growth, mapped in constellations"
-        body="Every quest you complete lights up a node on your vision tree. Three branches — Body, Mind, Spirit — growing toward the life you described."
+        title={
+          <>
+            your growth, mapped in <span className="accent-gold">constellations</span>
+          </>
+        }
+        body="Every quest you complete lights up a node on your vision tree. Three branches (Body, Mind, Spirit) growing toward the life you described."
         glowColor="rgba(232, 216, 168, 0.12)"
         wide
       />
 
-      {/* ─── 5. QUEST SYSTEM ─────────────────────────────────── */}
       <FeatureSection
         videoSrc="/videos/starchild4.webm"
         alignment="left"
@@ -66,28 +70,11 @@ export default function Page() {
         glowColor="rgba(232, 216, 168, 0.2)"
       />
 
-      {/* ─── 6. PRIVACY ──────────────────────────────────────── */}
       <Privacy />
 
-      {/* ─── 7. DOWNLOAD / CTA ───────────────────────────────── */}
       <Download />
 
-      {/* ─── FOOTER ─────────────────────────────────────────── */}
-      <footer
-        style={{
-          padding: "2.5rem 2rem",
-          textAlign: "center",
-          fontSize: "0.78rem",
-          color: "rgba(255,255,255,0.3)",
-          borderTop: "1px solid rgba(184, 160, 216, 0.1)",
-        }}
-      >
-        powered by{" "}
-        <a href="https://venice.ai" target="_blank" style={{ color: "var(--lavender)", opacity: 0.6 }}>venice.ai</a>
-        {" "}&middot;{" "}
-        built for the{" "}
-        <a href="https://synthesis.md" target="_blank" style={{ color: "var(--lavender)", opacity: 0.6 }}>synthesis hackathon</a>
-      </footer>
+      <Footer />
     </main>
   );
 }

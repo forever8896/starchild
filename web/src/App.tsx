@@ -21,11 +21,21 @@ import Meeting from './Meeting'
 import ErrorBoundary from '../../src/components/ErrorBoundary'
 import NavRail from './NavRail'
 import ChatView from './ChatView'
+import QuestAcceptScene from './QuestAcceptScene'
+import * as sound from './sound'
 import {
   FEEDBACK_UNLOCKED_KEY,
   FEEDBACK_SUBMITTED_KEY,
   FEEDBACK_NUDGE_SEEN_KEY,
+  FEEDBACK_QUEST_THRESHOLD,
 } from './feedback'
+
+// Plane → colour for the quest-accept bloom (mirrors SkillTree's CATEGORIES).
+const PLANE_COLOR: Record<string, string> = { body: '#a8d8b8', mind: '#e8d8a8', spirit: '#b8a0d8' }
+function questColor(category: string | null): string {
+  const c = (category ?? '').toLowerCase()
+  return c === 'body' ? PLANE_COLOR.body : c === 'mind' ? PLANE_COLOR.mind : PLANE_COLOR.spirit
+}
 
 // Heavy, conditionally-rendered panels — split into their own async chunks so
 // they don't weigh down the initial chat/onboarding render.
@@ -59,14 +69,18 @@ export default function App() {
   const setStarchildState = useAppStore((s) => s.setStarchildState)
   const currentView = useAppStore((s) => s.currentView)
   const setCurrentView = useAppStore((s) => s.setCurrentView)
+  const treeIntro = useAppStore((s) => s.treeIntro)
+  const setTreeIntro = useAppStore((s) => s.setTreeIntro)
   const setShowQuestOffer = useAppStore((s) => s.setShowQuestOffer)
   const narrow = useIsNarrow()
 
-  // Gated feedback (the first usage of the incentive fund). Unlocks after the
-  // first completed quest; `feedbackNudge` is the one-time prompt at that moment.
+  // Gated feedback (the first usage of the incentive fund). Unlocks after three
+  // completed quests; `feedbackNudge` is the one-time prompt at that moment.
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackUnlocked, setFeedbackUnlocked] = useState(false)
   const [feedbackNudge, setFeedbackNudge] = useState(false)
+  // The quest-accept cinematic (overlaid as the tree mounts beneath it).
+  const [acceptScene, setAcceptScene] = useState<{ title: string; color: string } | null>(null)
 
   // Warm the E2EE trial handshake + enclave early (during intro/onboarding) so
   // the first message doesn't wait on the attestation round-trip or a cold
@@ -96,7 +110,7 @@ export default function App() {
         let unlocked = (await platform.getSetting(FEEDBACK_UNLOCKED_KEY)) === 'true'
         if (!unlocked) {
           const completed = await platform.getQuests('completed')
-          unlocked = completed.length > 0
+          unlocked = completed.length >= FEEDBACK_QUEST_THRESHOLD
           if (unlocked) await platform.setSetting(FEEDBACK_UNLOCKED_KEY, 'true')
         }
         if (!cancelled) setFeedbackUnlocked(unlocked)
@@ -108,6 +122,34 @@ export default function App() {
     return () => { cancelled = true }
   }, [platform, setOnboardingComplete, setOnboardingChecked, setStarchildState])
 
+  // A soft tick on every button press. Also serves as the WebAudio unlock — the
+  // audio context resumes on this first user gesture, so later cue sounds play.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const el = (e.target as Element | null)?.closest('button, [role="button"], a') as HTMLButtonElement | null
+      if (el && !el.disabled) sound.click()
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [])
+
+  // A quest is accepted → play the vow, carry the user to the tree, and lay the
+  // accept cinematic over it; it fades to reveal the tree with its new fruit.
+  useEffect(() => {
+    return platform.subscribe('quest-accepted', (payload) => {
+      const quest = (payload as { quest?: { title?: string; category?: string | null } } | undefined)?.quest
+      sound.questAccept()
+      setCurrentView('tree')
+      setAcceptScene({ title: quest?.title || 'A new quest', color: questColor(quest?.category ?? null) })
+      window.setTimeout(() => setAcceptScene(null), 2600)
+    })
+  }, [platform, setCurrentView])
+
+  // The vision crystallizes → the wide, magical rise.
+  useEffect(() => {
+    return platform.subscribe('vision-crystallized', () => sound.crystallize())
+  }, [platform])
+
   // Surface the accept/decline UI when the Starchild offers a quest, pulling the
   // user back to chat so the offer is visible.
   useEffect(() => {
@@ -117,18 +159,23 @@ export default function App() {
     })
   }, [platform, setShowQuestOffer, setCurrentView])
 
-  // Completing a quest unlocks feedback. Flip it live + persist, and raise the
-  // one-time nudge (only if it hasn't been seen and feedback isn't already sent).
+  // Feedback unlocks once the human has completed FEEDBACK_QUEST_THRESHOLD (3)
+  // quests — enough of the experience to have something worth saying. On each
+  // completion, check the total; when it reaches the threshold, flip it live +
+  // persist and raise the one-time nudge (unless already seen or already sent).
   useEffect(() => {
     return platform.subscribe('quest-completed', () => {
+      sound.questComplete()
       void (async () => {
+        const completed = await platform.getQuests('completed')
+        if (completed.length < FEEDBACK_QUEST_THRESHOLD) return
         await platform.setSetting(FEEDBACK_UNLOCKED_KEY, 'true')
         setFeedbackUnlocked(true)
         const [nudgeSeen, submitted] = await Promise.all([
           platform.getSetting(FEEDBACK_NUDGE_SEEN_KEY),
           platform.getSetting(FEEDBACK_SUBMITTED_KEY),
         ])
-        if (nudgeSeen !== 'true' && submitted !== 'true') setFeedbackNudge(true)
+        if (nudgeSeen !== 'true' && submitted !== 'true') { sound.unlock(); setFeedbackNudge(true) }
       })()
     })
   }, [platform])
@@ -188,7 +235,11 @@ export default function App() {
               >
                 <ErrorBoundary>
                   <Suspense fallback={null}>
-                    <SkillTree onBack={() => setCurrentView('chat')} />
+                    <SkillTree
+                      showIntro={treeIntro}
+                      showLogo={false}
+                      onBack={() => { setTreeIntro(false); setCurrentView('chat') }}
+                    />
                   </Suspense>
                 </ErrorBoundary>
               </motion.div>
@@ -219,6 +270,11 @@ export default function App() {
         </main>
       </div>
 
+      {/* Quest-accept cinematic — overlays the tree as it mounts, then fades. */}
+      <AnimatePresence>
+        {acceptScene && <QuestAcceptScene key="accept-scene" title={acceptScene.title} color={acceptScene.color} />}
+      </AnimatePresence>
+
       {/* Feedback form — gated; the first usage of the incentive fund. */}
       {showFeedback && (
         <Suspense fallback={null}>
@@ -226,7 +282,7 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* One-time nudge when feedback unlocks (first completed quest). */}
+      {/* One-time nudge when feedback unlocks (three completed quests). */}
       <AnimatePresence>
         {feedbackNudge && currentView === 'chat' && !showFeedback && (
           <motion.div
@@ -239,7 +295,7 @@ export default function App() {
             style={{ backgroundColor: 'var(--bg-card)', border: '1.5px solid var(--outline)', maxWidth: 'calc(100vw - 32px)' }}
           >
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              First quest done. Care to help shape Starchild?
+              Three quests done. Care to help shape Starchild?
             </span>
             <button
               onClick={openFeedback}

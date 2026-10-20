@@ -221,6 +221,10 @@ pub enum ConversationPhase {
     Proof,
     /// Close the thread — affirm, release, let it breathe.
     Release,
+    /// The human signalled crisis / self-harm. Drop the game entirely: no
+    /// vision-capture, no crystallize, no quest, no reframe. Meet them as a
+    /// person and point to real support. Takes priority over every other phase.
+    Crisis,
 }
 
 impl ConversationPhase {
@@ -235,8 +239,41 @@ impl ConversationPhase {
             Self::Negotiate => "negotiate",
             Self::Proof => "proof",
             Self::Release => "release",
+            Self::Crisis => "crisis",
         }
     }
+}
+
+/// True when a message signals acute crisis / self-harm / suicidal intent.
+///
+/// Deliberately high-recall and dependency-free — a keyword net, not an ML
+/// classifier. False positives (routing a dark-but-safe message to Crisis) are
+/// far cheaper than false negatives here. Extend the phrase list as needed; the
+/// unit tests pin the must-catch cases.
+pub fn detect_crisis(text: &str) -> bool {
+    let t = text.to_lowercase();
+    const STRONG: [&str; 17] = [
+        "kill myself", "killing myself", "end my life", "ending my life",
+        "take my own life", "hurt myself", "harm myself", "self harm", "self-harm",
+        "cut myself", "cutting myself", "don't want to exist", "dont want to exist",
+        "don't want to be alive", "not want to be alive", "suicidal", "suicide",
+    ];
+    if STRONG.iter().any(|m| t.contains(m)) {
+        return true;
+    }
+    // "want to die" family — real, but ambiguous with the "die/dye my hair"
+    // false friend, so guard it.
+    let hair = t.contains("die my hair") || t.contains("dye my hair") || t.contains("die your hair");
+    if !hair && (t.contains("want to die") || t.contains("wanna die")) {
+        return true;
+    }
+    // "disappear forever" — vanish-intent; require a nearby self/pain cue to avoid
+    // flagging e.g. "i wish this deadline would disappear forever" (still allowed
+    // to over-flag — false positives are cheaper than misses here).
+    let vanish = t.contains("disappear forever") || t.contains("disappear and never");
+    let self_pain = t.starts_with("i ") || t.contains(" i ") || t.contains("myself")
+        || t.contains("the pain") || t.contains("my pain");
+    vanish && self_pain
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +309,13 @@ impl PhaseDetector {
             .collect();
 
         let exchange_count = user_msgs.len();
+
+        // ── Priority 0: Crisis overrides EVERYTHING ──
+        // If the most recent human message signals self-harm, never capture it as
+        // a vision, crystallize it, or turn it into a quest. Meet the person.
+        if user_msgs.last().is_some_and(|m| detect_crisis(m)) {
+            return ConversationPhase::Crisis;
+        }
 
         // ── Priority 1: Quest already offered → check for negotiation or release ──
         let quest_offered = assistant_msgs.iter().rev().take(3).any(|m| {
@@ -879,6 +923,26 @@ impl PromptBuilder {
                      If they bring up something NEW, start a fresh arc (back to Arrive).\n\
                      Do NOT loop back into the same topic. It's complete."
                 }
+                ConversationPhase::Crisis => {
+                    "YOU ARE IN: CRISIS — the human has signalled self-harm or suicidal pain.\n\
+                     STOP THE GAME COMPLETELY. This is not a vision, a quest, or a metaphor.\n\
+                     \n\
+                     ABSOLUTE RULES:\n\
+                     - Do NOT place anything on the vision tree. Do NOT offer a quest. Do NOT reframe.\n\
+                     - Do NOT romanticize, poeticize, or spiritualize what they said.\n\
+                     - Do NOT append '✦' or any tree/quest meta-instruction.\n\
+                     \n\
+                     YOUR MOVE: Meet them as a caring presence, plainly and warmly.\n\
+                     1. Acknowledge the pain directly and without flinching.\n\
+                     2. Make clear they matter and are not alone.\n\
+                     3. Gently encourage them to reach a real person who can help right now —\n\
+                        a crisis line, a trusted person, or emergency services. In the US/Canada\n\
+                        they can call or text 988; elsewhere, a local crisis line or emergency number.\n\
+                     4. Ask one gentle, present-tense question about how they're doing right now —\n\
+                        or simply stay with them. No pressure, no fixing.\n\
+                     \n\
+                     Keep it human and short. You are a companion here, not a therapist and not a game."
+                }
             };
 
             layers.push(format!(
@@ -1411,6 +1475,88 @@ mod tests {
             PhaseDetector::detect_with_context(&msgs2, true),
             ConversationPhase::Crystallize
         );
+    }
+
+    // -- Guardrail: crisis / self-harm ---------------------------------------
+
+    #[test]
+    fn detect_crisis_flags_self_harm() {
+        // The exact red-team inputs that must never become a "vision" + variants.
+        let positives = [
+            "honestly? nothing. even in that world I would just want to hurt myself and disappear forever",
+            "the pain goes quiet. I just dont want to exist anymore",
+            "i want to kill myself",
+            "i've been feeling suicidal lately",
+            "sometimes i think about ending my life",
+            "i keep cutting myself when it gets bad",
+            "i don't want to be alive anymore",
+        ];
+        for s in positives {
+            assert!(detect_crisis(s), "should flag as crisis: {s:?}");
+        }
+    }
+
+    #[test]
+    fn detect_crisis_ignores_benign_goals() {
+        // Ordinary aspirations must NOT trip the net.
+        let negatives = [
+            "i'd be painting outdoors every morning, feeling calm and creative",
+            "i want to study alchemy in the forest",
+            "my goal is to run a marathon and feel strong",
+            "i'd build a cabin and live off the land with friends nearby",
+            "i want to die my hair blue", // 'die' the word, not the intent
+        ];
+        for s in negatives {
+            assert!(!detect_crisis(s), "should NOT flag as crisis: {s:?}");
+        }
+    }
+
+    #[test]
+    fn crisis_overrides_crystallize() {
+        // A distress answer during onboarding must route to Crisis, never
+        // Crystallize — the app must not place self-harm on the vision tree.
+        let msgs = vec![
+            ChatMessage::user("honestly nothing, i'd just want to hurt myself"),
+            ChatMessage::assistant("i'm here. when you imagine that — what goes quiet?"),
+            ChatMessage::user("the pain goes quiet. i just dont want to exist anymore"),
+        ];
+        assert_eq!(
+            PhaseDetector::detect_with_context(&msgs, true),
+            ConversationPhase::Crisis,
+        );
+    }
+
+    #[test]
+    fn crisis_prompt_drops_the_game_and_offers_support() {
+        let prompt = PromptBuilder::build(
+            &StarchildState::default(), &PersonalityParams::default(),
+            &[], &[], &[], ConversationPhase::Crisis, None,
+        );
+        assert!(prompt.contains("current phase: crisis"));
+        assert!(prompt.contains("988"), "should point to a crisis line");
+        assert!(prompt.contains("Do NOT offer a quest"));
+        assert!(prompt.contains("Do NOT place anything on the vision tree"));
+    }
+
+    // -- Retention loop: a quick, same-day quest -----------------------------
+
+    #[test]
+    fn loop_delivers_quick_same_day_quest() {
+        // Once the vision is placed, asking "what do i do" lands a quest at once.
+        let msgs = vec![
+            ChatMessage::user("i want to paint outdoors every morning"),
+            ChatMessage::assistant("painting at dawn. let's place this on your vision tree ✦"),
+            ChatMessage::user("what should i do first?"),
+        ];
+        assert_eq!(PhaseDetector::detect(&msgs), ConversationPhase::Quest);
+
+        // And the quest the model is told to offer must be tiny + doable today.
+        let prompt = PromptBuilder::build(
+            &StarchildState::default(), &PersonalityParams::default(),
+            &[], &[], &[], ConversationPhase::Quest, None,
+        );
+        assert!(prompt.contains("TINY"));
+        assert!(prompt.to_lowercase().contains("today"));
     }
 
     #[test]

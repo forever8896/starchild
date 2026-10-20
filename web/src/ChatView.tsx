@@ -12,7 +12,7 @@
  * quest offer / proof flow. No text or copy of the conversation is altered.
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore, type Message, type StarchildState } from '../../src/store'
 import { usePlatform } from '../../src/platform/usePlatform'
@@ -85,10 +85,31 @@ function useCharReveal(content: string, isAssistant: boolean, messageId: string)
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
-function SpeakerIcon() {
+function SpeakerIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+    <svg viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
       <path d="M10.5 3.75a.75.75 0 00-1.264-.546L5.203 7H2.667a.75.75 0 00-.7.48A6.985 6.985 0 001.5 10c0 .887.165 1.737.468 2.52.111.29.39.48.7.48h2.535l4.033 3.796A.75.75 0 0010.5 16.25V3.75zM15.95 5.05a.75.75 0 00-1.06 1.061 5.5 5.5 0 010 7.778.75.75 0 001.06 1.06 7 7 0 000-9.899z" />
+    </svg>
+  )
+}
+
+// Muted speaker (voice off) — the same cone as SpeakerIcon with a soft ✕, so the
+// on/off pair reads as one control rather than two unrelated glyphs.
+function SpeakerMuteIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M10.5 3.75a.75.75 0 00-1.264-.546L5.203 7H2.667a.75.75 0 00-.7.48A6.985 6.985 0 001.5 10c0 .887.165 1.737.468 2.52.111.29.39.48.7.48h2.535l4.033 3.796A.75.75 0 0010.5 16.25V3.75z" />
+      <path d="M13.28 6.22a.75.75 0 00-1.06 1.06L14.44 9.5l-2.22 2.22a.75.75 0 101.06 1.06l2.22-2.22 2.22 2.22a.75.75 0 101.06-1.06L16.56 9.5l2.22-2.22a.75.75 0 00-1.06-1.06L15.5 8.44l-2.22-2.22z" />
+    </svg>
+  )
+}
+
+// A beamed pair of notes — the ambient music toggle, monochrome to sit inside the
+// lavender/gold palette rather than the raw ♪/🔊 emoji it replaces.
+function MusicIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M16.75 2.62a.75.75 0 00-.93-.73l-8 2A.75.75 0 007.25 4.6v8.2a2.75 2.75 0 101.5 2.45V7.34l6.5-1.63v4.84a2.75 2.75 0 101.5 2.45V2.62z" />
     </svg>
   )
 }
@@ -158,11 +179,18 @@ function PlayButton({ message }: { message: Message }) {
 
 // ─── Message bubble ──────────────────────────────────────────────────────────
 
-function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id: string) => void }) {
+// Memoized: while a reply streams, `updateLastMessage` changes ONLY the last
+// message's object identity — every other bubble keeps its reference, `onDelete`
+// is a stable useCallback, and `live` stays false for non-streaming bubbles. So
+// memo lets the whole settled history bail out of re-render on every token; only
+// the one live bubble re-renders. Without this, each streamed token re-rendered
+// all N bubbles (each running its char-reveal + framer-motion) — O(tokens × N),
+// which froze the main thread for tens of seconds on a long conversation.
+const MessageBubble = memo(function MessageBubble({ message, onDelete, live = false }: { message: Message; onDelete: (id: string) => void; live?: boolean }) {
   const isUser = message.role === 'user'
   const isAssistant = message.role === 'assistant'
   const displayContent = useCharReveal(message.content, isAssistant, message.id)
-  const streaming = isAssistant && displayContent.length < message.content.length
+  const streaming = isAssistant && (live || displayContent.length < message.content.length)
 
   const DeleteBtn = (
     <button
@@ -242,7 +270,7 @@ function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id:
       </div>
     </div>
   )
-}
+})
 
 // ─── Thinking dots ───────────────────────────────────────────────────────────
 
@@ -324,6 +352,8 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   const setIsLoading      = useAppStore((s) => s.setIsLoading)
   const setStarchildState = useAppStore((s) => s.setStarchildState)
   const setCurrentView    = useAppStore((s) => s.setCurrentView)
+  const setTreeIntro      = useAppStore((s) => s.setTreeIntro)
+  const updateLastMessage = useAppStore((s) => s.updateLastMessage)
   const ttsEnabled        = useAppStore((s) => s.ttsEnabled)
   const setTtsEnabled     = useAppStore((s) => s.setTtsEnabled)
   const setCreatureActivity = useAppStore((s) => s.setCreatureActivity)
@@ -346,12 +376,48 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const streamAccRef = useRef('')
+  // Set when the platform reports the vision just crystallized this turn; handled
+  // once the reply finishes revealing so we carry the user to the tree to watch
+  // their north star land (the placement is silent otherwise).
+  const pendingVisionNavRef = useRef(false)
   const micStreamRef = useRef<{ stream: MediaStream; context: AudioContext; processor: ScriptProcessorNode; chunks: Float32Array[] } | null>(null)
+  // Id of the reply currently streaming in token-by-token (shows the live cursor).
+  const [streamingId, setStreamingId] = useState<string | null>(null)
 
+  // Fetch + play the voice for a reply WITHOUT ever blocking the text. Runs in
+  // parallel to the streamed/typed reveal; if the char-reveal is still going when
+  // the audio lands it syncs to it, otherwise the voice simply narrates.
+  const speakParallel = useCallback(async (text: string) => {
+    const voiceWanted = platform.supportsTts && useAppStore.getState().ttsEnabled
+    if (!voiceWanted) { (window as any).__ttsAudio = null; setCreatureActivity('idle'); return }
+    setCreatureActivity('thinking')
+    try {
+      const b64 = await platform.ttsSpeak(text)
+      const audio = createEtherealAudio(b64)
+      ;(window as any).__ttsAudio = audio
+      setCreatureActivity('speaking')
+      audio.onended = () => { (window as any).__ttsAudio = null; setCreatureActivity('idle') }
+      audio.onerror = () => { (window as any).__ttsAudio = null; setCreatureActivity('idle') }
+      await audio.play()
+    } catch (err) {
+      console.error('TTS failed:', err)
+      ;(window as any).__ttsAudio = null
+      setCreatureActivity('idle')
+    }
+  }, [platform, setCreatureActivity])
+
+  // Stable identity (deps: only `platform`) — read `messages` fresh from the
+  // store at call time instead of closing over it. If this closed over
+  // `messages`, its identity would change on every streamed token, changing the
+  // `onDelete` prop and defeating MessageBubble's memo (all bubbles would
+  // re-render per token again).
   const handleDeleteMessage = useCallback(async (id: string) => {
-    try { await platform.deleteMessage(id); setMessages(messages.filter((m) => m.id !== id)) }
-    catch (err) { console.error('Failed to delete message:', err) }
-  }, [platform, messages, setMessages])
+    try {
+      await platform.deleteMessage(id)
+      const { messages, setMessages } = useAppStore.getState()
+      setMessages(messages.filter((m) => m.id !== id))
+    } catch (err) { console.error('Failed to delete message:', err) }
+  }, [platform])
 
   // Speak a finished reply AND reveal its bubble in lockstep with the voice.
   // The order matters: we prepare the audio FIRST (thinking dots stay up during
@@ -361,32 +427,14 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
   // `id` prefix `reveal-`/`first-` flags it for the reveal.
   const speakAndReveal = useCallback(async (text: string, id: string, awakening = false) => {
     if (awakening) { if (awakeningRevealed) return; awakeningRevealed = true }
-    const drop = () => {
-      freshlyRevealed.add(id) // mark it to animate in before it enters the list
-      addMessage({ id, role: 'assistant', content: text, created_at: new Date().toISOString() })
-    }
-    const voiceWanted = platform.supportsTts && useAppStore.getState().ttsEnabled
-    if (voiceWanted) {
-      try {
-        const b64 = await platform.ttsSpeak(text)
-        const audio = createEtherealAudio(b64)
-        ;(window as any).__ttsAudio = audio
-        setIsTyping(false)
-        drop()
-        setCreatureActivity('speaking')
-        audio.onended = () => { (window as any).__ttsAudio = null; setCreatureActivity('idle') }
-        audio.onerror = () => { (window as any).__ttsAudio = null; setCreatureActivity('idle') }
-        await audio.play()
-        return
-      } catch (err) {
-        console.error('TTS failed; typing the reply instead:', err)
-      }
-    }
+    // The awakening isn't token-streamed (it's pre-generated), so it drops whole
+    // and char-reveals; voice narrates in parallel and never blocks it.
     ;(window as any).__ttsAudio = null
     setIsTyping(false)
-    drop()
-    setCreatureActivity('idle')
-  }, [platform, addMessage, setCreatureActivity])
+    freshlyRevealed.add(id) // mark it to animate in before it enters the list
+    addMessage({ id, role: 'assistant', content: text, created_at: new Date().toISOString() })
+    await speakParallel(text)
+  }, [addMessage, speakParallel])
 
   // First mount (and "try again ✦"): load history; if empty, generate the local
   // awakening message. A failure flips `initFailed` so the empty state shows a
@@ -459,36 +507,62 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     addMessage({ id: tmpId, role: 'user', content: text, created_at: new Date().toISOString() })
     if (inputRef.current) inputRef.current.style.height = 'auto'
     streamAccRef.current = ''
+    const streamId = `stream-${Date.now()}`
+    let started = false
     try {
-      // Accumulate the reply SILENTLY (thinking dots stay); we reveal it in sync
-      // with the voice once it's ready — never an all-at-once pop mid-stream.
+      // Stream the reply LIVE — words appear as the model writes them, so the
+      // first paint lands in ~2-4s no matter how long the reply is. The voice is
+      // fetched in parallel afterward and never blocks the text.
       for await (const token of platform.sendMessage(text)) {
         streamAccRef.current += token
+        if (!started) {
+          if (!streamAccRef.current.trim()) continue // hold the dots over leading whitespace
+          started = true
+          setStreamingId(streamId)
+          setIsTyping(false)
+          // stream-* id is NOT in freshlyRevealed → renders its full content live
+          addMessage({ id: streamId, role: 'assistant', content: streamAccRef.current, created_at: new Date().toISOString() })
+        } else {
+          updateLastMessage(streamAccRef.current)
+        }
       }
+      if (!started) {
+        setIsTyping(false)
+        addMessage({ id: streamId, role: 'assistant', content: streamAccRef.current || '…', created_at: new Date().toISOString() })
+      }
+      setStreamingId(null)
       setIsLoading(false)
       try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
-      await speakAndReveal(streamAccRef.current, `reveal-${Date.now()}`)
+      void speakParallel(streamAccRef.current)
+      // North star just placed — let the words + voice land, then carry the user
+      // to the tree to witness it. (Text is already fully shown; this is a beat.)
+      if (pendingVisionNavRef.current) {
+        pendingVisionNavRef.current = false
+        setTimeout(() => { setTreeIntro(true); setCurrentView('tree') }, 2600)
+      }
       inputRef.current?.focus()
     } catch (err) {
-      setIsTyping(false); setIsLoading(false); setCreatureActivity('idle')
+      setIsTyping(false); setStreamingId(null); setIsLoading(false); setCreatureActivity('idle')
       console.error('Failed to send message:', err)
       // The platform rolled the turn back — mirror that in the UI: drop the
-      // optimistic user bubble and hand the user their words back to retry.
+      // optimistic user bubble (and any partial reply) and hand the words back.
       setMessages(
-        useAppStore.getState().messages.filter((m) => m.id !== tmpId),
+        useAppStore.getState().messages.filter((m) => m.id !== tmpId && m.id !== streamId),
       )
       setInput(text)
       setError(friendlyError(err))
       inputRef.current?.focus()
     }
-  }, [platform, input, isLoading, addMessage, setIsLoading, setStarchildState, setMessages, setCreatureActivity, speakAndReveal])
+  }, [platform, input, isLoading, addMessage, updateLastMessage, setIsLoading, setStarchildState, setMessages, setCreatureActivity, speakParallel, setCurrentView, setTreeIntro])
 
   const handleAcceptQuest = useCallback(async () => {
     setAcceptingQuest(true); setShowQuestOffer(false)
-    try { await platform.acceptQuest(); setCurrentView('tree') }
+    // acceptQuest emits `quest-accepted`; App plays the cinematic + carries us to
+    // the tree, so we don't navigate here (that would race the scene).
+    try { await platform.acceptQuest() }
     catch (err) { console.error('Failed to accept quest:', err) }
     finally { setAcceptingQuest(false) }
-  }, [platform, setShowQuestOffer, setCurrentView])
+  }, [platform, setShowQuestOffer])
 
   const handleDeclineQuest = useCallback(() => { setShowQuestOffer(false); inputRef.current?.focus() }, [setShowQuestOffer])
 
@@ -500,26 +574,42 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
     const tmpId = `quest-proof-${Date.now()}`
     addMessage({ id: tmpId, role: 'user', content: displayText, created_at: new Date().toISOString() })
     streamAccRef.current = ''
+    const streamId = `stream-${Date.now()}`
+    let started = false
     ;(async () => {
       try {
         for await (const token of platform.sendMessage(triggerText)) {
           streamAccRef.current += token
+          if (!started) {
+            if (!streamAccRef.current.trim()) continue
+            started = true
+            setStreamingId(streamId)
+            setIsTyping(false)
+            addMessage({ id: streamId, role: 'assistant', content: streamAccRef.current, created_at: new Date().toISOString() })
+          } else {
+            updateLastMessage(streamAccRef.current)
+          }
         }
+        if (!started) {
+          setIsTyping(false)
+          addMessage({ id: streamId, role: 'assistant', content: streamAccRef.current || '…', created_at: new Date().toISOString() })
+        }
+        setStreamingId(null)
         setIsLoading(false)
         try { setStarchildState(await platform.getState()) } catch { /* non-critical */ }
-        await speakAndReveal(streamAccRef.current, `reveal-${Date.now()}`)
+        void speakParallel(streamAccRef.current)
         inputRef.current?.focus()
       } catch (err) {
-        setIsTyping(false); setIsLoading(false); setCreatureActivity('idle')
+        setIsTyping(false); setStreamingId(null); setIsLoading(false); setCreatureActivity('idle')
         // The platform rolled the proof turn back (quest stays completable) —
         // drop the optimistic user bubble so the thread matches what happened.
         setMessages(
-          useAppStore.getState().messages.filter((m) => m.id !== tmpId),
+          useAppStore.getState().messages.filter((m) => m.id !== tmpId && m.id !== streamId),
         )
         setError(friendlyError(err))
       }
     })()
-  }, [platform, addMessage, setIsLoading, setStarchildState, setMessages, setCreatureActivity, speakAndReveal])
+  }, [platform, addMessage, updateLastMessage, setIsLoading, setStarchildState, setMessages, setCreatureActivity, speakParallel])
 
   useEffect(() => {
     return platform.subscribe('quest-completed', (payload) => {
@@ -528,6 +618,13 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
       if (p?.xp_reward) { setXpGain(p.xp_reward); setTimeout(() => setXpGain(null), 3000) }
     })
   }, [platform, setStarchildState])
+
+  // The vision crystallized this turn — arm the navigation. handleSend performs
+  // it after speakAndReveal so the Starchild finishes the "let's place this on
+  // your vision tree" line before the view glides to the tree.
+  useEffect(() => {
+    return platform.subscribe('vision-crystallized', () => { pendingVisionNavRef.current = true })
+  }, [platform])
 
   const handleMicToggle = useCallback(async () => {
     if (isRecording && micStreamRef.current) {
@@ -620,22 +717,24 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
             <button
               onClick={toggleMusic}
               aria-label={bgMusicMuted ? 'Turn music on' : 'Turn music off'}
-              className="cursor-pointer text-[13px] font-bold px-[15px] py-[9px] rounded-[18px]"
+              className="cursor-pointer inline-flex items-center gap-1.5 text-[13px] font-bold px-[15px] py-[9px] rounded-[18px]"
               style={!bgMusicMuted
                 ? { border: '1px solid rgba(184,160,216,.5)', color: 'var(--accent-lavender)', background: 'rgba(184,160,216,.12)' }
                 : { border: '1px solid rgba(74,63,96,.7)', color: 'var(--text-muted)', background: 'rgba(48,41,69,.5)' }}
             >
-              {bgMusicMuted ? '♪ music off' : '♪ music on'}
+              <MusicIcon className="w-4 h-4" />
+              {bgMusicMuted ? 'music off' : 'music on'}
             </button>
             {platform.supportsTts && (
               <button
                 onClick={() => setTtsEnabled(!ttsEnabled)}
-                className="cursor-pointer text-[13px] font-bold px-[15px] py-[9px] rounded-[18px]"
+                className="cursor-pointer inline-flex items-center gap-1.5 text-[13px] font-bold px-[15px] py-[9px] rounded-[18px]"
                 style={ttsEnabled
                   ? { border: '1px solid rgba(232,216,168,.5)', color: 'var(--accent-gold)', background: 'rgba(232,216,168,.12)' }
                   : { border: '1px solid rgba(74,63,96,.7)', color: 'var(--text-muted)', background: 'rgba(48,41,69,.5)' }}
               >
-                {ttsEnabled ? '🔊 voice on' : '🔈 voice off'}
+                {ttsEnabled ? <SpeakerIcon className="w-4 h-4" /> : <SpeakerMuteIcon className="w-4 h-4" />}
+                {ttsEnabled ? 'voice on' : 'voice off'}
               </button>
             )}
           </div>
@@ -668,7 +767,7 @@ export default function ChatView({ narrow }: { narrow: boolean }) {
           ) : (
             <>
               {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} onDelete={handleDeleteMessage} />
+                <MessageBubble key={msg.id} message={msg} onDelete={handleDeleteMessage} live={msg.id === streamingId} />
               ))}
               <AnimatePresence>
                 {isTyping && (

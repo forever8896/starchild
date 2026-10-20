@@ -1,11 +1,40 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Starchild design tokens - one accent system, one radius system, one rhythm.
+   Soul preserved: lavender + gold on pure void. Overhaul lives in the scale,
+   the type pairing, and the asymmetry, not the palette.
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
+  /* Brand */
   --lavender: #b8a0d8;
-  --gold: #e8d8a8;
+  --lavender-bright: #cbb8e6;
   --lavender-dim: #7a5fa8;
-  --lavender-glow: rgba(184, 160, 216, 0.15);
-  --gold-glow: rgba(232, 216, 168, 0.12);
+  --gold: #e8d8a8;
+  --void: #000000;
+
+  /* Text ladder (opacity tokens, used everywhere instead of ad-hoc rgba) */
+  --text-strong: rgba(255, 255, 255, 0.94);
+  --text-body: rgba(255, 255, 255, 0.58);
+  --text-muted: rgba(255, 255, 255, 0.36);
+  --text-faint: rgba(255, 255, 255, 0.22);
+
+  /* Radii - the single shape system */
+  --r-sm: 12px;
+  --r-md: 18px;
+  --r-lg: 28px;
+  --r-full: 9999px;
+
+  /* Glow */
+  --glow-lavender: rgba(184, 160, 216, 0.35);
+  --glow-gold: rgba(232, 216, 168, 0.3);
+  --line: rgba(184, 160, 216, 0.16);
+  --line-strong: rgba(184, 160, 216, 0.32);
+
+  /* Rhythm */
+  --pad-x: clamp(1.5rem, 5vw, 3rem);
+  --section-y: clamp(6rem, 13vh, 11rem);
+  --maxw: 74rem;
 }
 
 *,
@@ -17,59 +46,172 @@
 }
 
 html {
-  background: #000;
+  background: var(--void);
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: #000;
+  background: var(--void);
   color: #fff;
   overflow-x: hidden;
 }
 
-/* Scrollbar */
+/* ─── Type primitives ──────────────────────────────────────────────────── */
+
+/* Newsreader italic is the literary display voice (the mystical headline).
+   Inter carries eyebrows, body, and UI. This pairing is the typography lift. */
+.font-display {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-style: italic;
+  font-weight: 300;
+  letter-spacing: -0.005em;
+}
+
+.eyebrow {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lavender);
+}
+
+.lead {
+  color: var(--text-body);
+  line-height: 1.75;
+  font-weight: 400;
+}
+
+.accent {
+  color: var(--lavender);
+}
+.accent-gold {
+  color: var(--gold);
+}
+
+/* ─── Buttons - one radius, AA-safe contrast ───────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border-radius: var(--r-full);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 0.9rem 1.6rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.25s ease, border-color 0.25s ease,
+    box-shadow 0.25s ease, color 0.2s ease;
+  text-decoration: none;
+}
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+/* Primary: solid lavender, near-black ink (contrast ~9:1, passes AA) */
+.btn-primary {
+  background: var(--lavender);
+  color: #17121f;
+  box-shadow: 0 8px 34px -8px var(--glow-lavender);
+}
+.btn-primary:hover {
+  background: var(--lavender-bright);
+  box-shadow: 0 12px 44px -8px var(--glow-lavender);
+}
+
+/* Secondary: quiet outline on the void */
+.btn-ghost {
+  background: rgba(184, 160, 216, 0.06);
+  color: #fff;
+  border: 1px solid var(--line-strong);
+}
+.btn-ghost:hover {
+  background: rgba(184, 160, 216, 0.12);
+  border-color: var(--lavender);
+}
+
+/* ─── Surfaces ─────────────────────────────────────────────────────────── */
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: rgba(184, 160, 216, 0.04);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.95rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-full);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lavender);
+  background: rgba(184, 160, 216, 0.06);
+}
+
+/* ─── Glow + ambient ───────────────────────────────────────────────────── */
+
+.glow-lavender {
+  filter: drop-shadow(0 0 40px var(--glow-lavender));
+}
+.glow-gold {
+  filter: drop-shadow(0 0 40px var(--glow-gold));
+}
+
+/* A reusable, positioned aurora blob (color set inline per section) */
+.aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Hairline top border used by footers/dividers */
+.hairline {
+  border-top: 1px solid var(--line);
+}
+
+/* ─── Scrollbar + selection ────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 ::-webkit-scrollbar-track {
   background: #000;
 }
 ::-webkit-scrollbar-thumb {
   background: #3a2a5a;
-  border-radius: 2px;
+  border-radius: var(--r-full);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--lavender-dim);
 }
-
-/* Selection */
 ::selection {
   background: rgba(184, 160, 216, 0.3);
   color: #fff;
 }
 
-/* Glow utility — used by animated elements */
-.glow-lavender {
-  filter: drop-shadow(0 0 40px rgba(184, 160, 216, 0.35));
-}
-
-.glow-gold {
-  filter: drop-shadow(0 0 40px rgba(232, 216, 168, 0.35));
-}
-
-/* ─── Mobile responsiveness ─────────────────────────────────────────── */
-
-@media (max-width: 768px) {
-  /* More horizontal padding on all sections */
-  section {
-    padding-left: 1.5rem !important;
-    padding-right: 1.5rem !important;
+/* ─── Reduced motion (Section 6.B) ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
-
-  /* Feature sections: stack vertically with less gap */
-  section .lg\:flex-row {
-    gap: 2rem !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .btn:hover {
+    transform: none;
   }
 }

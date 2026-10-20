@@ -7,7 +7,11 @@
 // settings store as the rest of the web shell's flags (read/written through the
 // shared `Platform` seam — never IndexedDB directly).
 
-/** Set to 'true' once the human has completed their first quest. */
+/** How many quests the human must complete before feedback unlocks — enough of
+ *  the experience to have something worth saying (raised from 1 to 3). */
+export const FEEDBACK_QUEST_THRESHOLD = 3
+
+/** Set to 'true' once the human has completed FEEDBACK_QUEST_THRESHOLD quests. */
 export const FEEDBACK_UNLOCKED_KEY = 'feedback_unlocked'
 /** Set to 'true' after a successful submission (so the nudge never returns). */
 export const FEEDBACK_SUBMITTED_KEY = 'feedback_submitted'
@@ -15,7 +19,7 @@ export const FEEDBACK_SUBMITTED_KEY = 'feedback_submitted'
 export const FEEDBACK_NUDGE_SEEN_KEY = 'feedback_nudge_seen'
 
 /** The unlock milestone, sent as context so submissions are legible. */
-export const FEEDBACK_STAGE = 'first-quest-completed'
+export const FEEDBACK_STAGE = 'three-quests-completed'
 
 export interface FeedbackInput {
   rating: number | null

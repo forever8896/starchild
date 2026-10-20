@@ -2,8 +2,8 @@
  * FeedbackForm.tsx — the web shell's gated feedback panel.
  *
  * This is the web launch's first usage of the Starchild incentive fund: it
- * unlocks only AFTER the human has completed their first quest (App.tsx gates on
- * the `quest-completed` event + the persisted `feedback_unlocked` flag), so
+ * unlocks only AFTER the human has completed three quests (App.tsx gates on the
+ * `quest-completed` event count + the persisted `feedback_unlocked` flag), so
  * feedback comes from people who actually went through the experience — which is
  * the feedback worth rewarding, and the gate kills drive-by spam on its own.
  *
@@ -112,7 +112,7 @@ export default function FeedbackForm({ onClose }: { onClose: () => void }) {
               Shape Starchild
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              You completed your first quest. Tell me what's working and what isn't —
+              You've completed three quests. Tell me what's working and what isn't —
               genuine feedback shapes the core product, and is rewarded from the community
               incentive fund.
             </p>

@@ -82,6 +82,10 @@ interface AppState {
   // Navigation
   currentView: 'chat' | 'settings' | 'tree'
   setCurrentView: (view: AppState['currentView']) => void
+  // True for one tree visit: the vision just crystallized, so the tree should
+  // play its cinematic intro (video → star reveal) rather than open flat.
+  treeIntro: boolean
+  setTreeIntro: (v: boolean) => void
 
   // Chat
   messages: Message[]
@@ -155,6 +159,8 @@ export const useAppStore = create<AppState>((set) => ({
   // Navigation
   currentView: 'chat',
   setCurrentView: (view) => set({ currentView: view }),
+  treeIntro: false,
+  setTreeIntro: (treeIntro) => set({ treeIntro }),
 
   // Chat
   messages: [],

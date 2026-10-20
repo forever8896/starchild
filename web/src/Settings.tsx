@@ -223,7 +223,7 @@ function VoiceSection() {
   }
 
   return (
-    <SectionCard accent="#e8d8a8" title="The voice it speaks in" subtitle="Auto-plays each reply · silence it with 🔊 in the chat header">
+    <SectionCard accent="#e8d8a8" title="The voice it speaks in" subtitle="Auto-plays each reply · silence it with the voice toggle in the chat header">
       <div className="flex items-center gap-3">
         <label htmlFor="voice-select" className="text-[13px] shrink-0" style={{ color: 'var(--text-secondary)' }}>Speaks as</label>
         <select
