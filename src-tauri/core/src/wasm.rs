@@ -491,3 +491,97 @@ pub fn apply_evidence(
     pos.ingest_evidence(ev, now_iso);
     Ok(serde_wasm_bindgen::to_value(&pos)?)
 }
+
+// ---------------------------------------------------------------------------
+// Listening pass, reply-shape awareness, open threads
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct ListenInput {
+    #[serde(default)]
+    recent_messages: Vec<ChatMessage>,
+    #[serde(default)]
+    phase: Option<String>,
+    #[serde(default)]
+    context: String,
+}
+
+/// Whether this phase gets a listening pass before the reply.
+#[wasm_bindgen]
+pub fn listen_wanted(phase: &str) -> bool {
+    crate::listen::listen_wanted(phase_from_str(phase))
+}
+
+/// The listener's system prompt (`{recent_messages, phase, context}`).
+#[wasm_bindgen]
+pub fn listen_prompt(input: JsValue) -> Result<String, JsValue> {
+    let inp: ListenInput = serde_wasm_bindgen::from_value(input)?;
+    let phase = phase_from_str(inp.phase.as_deref().unwrap_or("arrive"));
+    Ok(crate::listen::listen_prompt(&inp.recent_messages, phase, &inp.context))
+}
+
+#[wasm_bindgen]
+pub fn listen_trigger() -> String {
+    crate::listen::LISTEN_TRIGGER.to_string()
+}
+
+/// Parse the listener's raw output → a `Listening` object, or `null`.
+#[wasm_bindgen]
+pub fn parse_listening(raw: &str) -> Result<JsValue, JsValue> {
+    match crate::listen::parse_listening(raw) {
+        Some(l) => Ok(serde_wasm_bindgen::to_value(&l)?),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Render a parsed `Listening` as the reply prompt's final layer.
+#[wasm_bindgen]
+pub fn listening_fragment(listening: JsValue, phase: &str) -> Result<String, JsValue> {
+    let l: crate::listen::Listening = serde_wasm_bindgen::from_value(listening)?;
+    Ok(crate::listen::listening_fragment(&l, phase_from_str(phase)))
+}
+
+/// A "vary this now" note from the recent assistant replies, or "".
+#[wasm_bindgen]
+pub fn shape_fragment(recent_replies: JsValue) -> Result<String, JsValue> {
+    let r: Vec<String> = serde_wasm_bindgen::from_value(recent_replies)?;
+    Ok(crate::shape::shape_fragment(&r))
+}
+
+#[wasm_bindgen]
+pub fn threads_extraction_system() -> String {
+    crate::threads::threads_extraction_system()
+}
+
+#[wasm_bindgen]
+pub fn build_threads_extraction_input(
+    threads: JsValue,
+    user_message: &str,
+    ai_response: &str,
+    now_ms: f64,
+) -> Result<String, JsValue> {
+    let t: Vec<crate::threads::OpenThread> = serde_wasm_bindgen::from_value(threads)?;
+    Ok(crate::threads::build_threads_extraction_input(&t, user_message, ai_response, now_ms as i64))
+}
+
+/// Fold one extraction result into the thread list; returns the new list.
+#[wasm_bindgen]
+pub fn apply_thread_update(threads: JsValue, raw: &str, now_ms: f64) -> Result<JsValue, JsValue> {
+    let t: Vec<crate::threads::OpenThread> = serde_wasm_bindgen::from_value(threads)?;
+    let out = crate::threads::apply_thread_update(&t, raw, now_ms as i64);
+    Ok(serde_wasm_bindgen::to_value(&out)?)
+}
+
+/// The open-threads prompt layer (`gap_ms` = time since their previous message).
+#[wasm_bindgen]
+pub fn threads_fragment(threads: JsValue, now_ms: f64, gap_ms: f64) -> Result<String, JsValue> {
+    let t: Vec<crate::threads::OpenThread> = serde_wasm_bindgen::from_value(threads)?;
+    Ok(crate::threads::threads_fragment(&t, now_ms as i64, gap_ms as i64))
+}
+
+/// Whether conversation replies let the model reason first (core
+/// `ai::REPLY_REASONING`); background calls never do.
+#[wasm_bindgen]
+pub fn reply_reasoning() -> bool {
+    ai::REPLY_REASONING
+}

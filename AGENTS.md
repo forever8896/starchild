@@ -19,7 +19,8 @@ Starchild is a privacy-first AI companion desktop app that helps users find thei
 - **Landing page:** https://starchild-bay.vercel.app
 - **Downloads:** https://github.com/forever8896/starchild/releases/tag/v0.3.0
 - **API requirement:** A Venice AI API key is needed (free tier works). Set via the onboarding UI or `VENICE_API_KEY` env var
-- **E2E tests:** Run `npm run test:e2e` to see conversation quality verified by an LLM judge
+- **E2E tests:** Run `npm run test:e2e` to see conversation quality verified by an LLM judge (over the compiled core — `npm run build:wasm --prefix web` first)
+- **Conversation eval:** `cd web && npx vite-node scripts/convo-eval.ts <label>` — simulated people (guarded, grieving, terse, returning after days…) talk to the real Starchild for many turns; a judge scores each conversation (heard, natural, depth, honesty, restraint, continuity). Run before and after any conversation change
 - **No cloud dependency:** All data is local SQLite. The only external call is to Venice AI (zero retention, E2EE) — there is no blockchain, no relay, no telemetry
 
 ### Run the web edition (in-browser)
@@ -29,21 +30,22 @@ The full experience also runs in a browser — local-first (IndexedDB), no insta
 
 | Capability | Description |
 |-----------|-------------|
-| **Conversation** | Purpose-built conversation arc using MI, Clean Language, SFBT, ACT techniques |
+| **Conversation** | Purpose-built conversation arc using MI, Clean Language, SFBT, ACT techniques. Each turn starts with a private **listening pass** (what they said, what it means to them, what they need, which move fits) that the reply is written from, plus **reply-habit awareness** so it doesn't fall into one shape |
+| **Open threads** | Remembers what's still unfolding in the person's life (an upcoming hard talk, an intention, an ongoing situation) with dates, and asks after it lightly once it has likely moved |
 | **Memory** | FTS5 full-text search over accumulated user knowledge, recalled into every prompt |
 | **Knowing** | 7-dimension user profile (values, desires, fears, thinking patterns, relationships, life situation, growth edges) |
 | **Quest System** | AI-generated quests across 3 life branches (Body, Mind, Spirit) with accept/decline, proof-of-completion, negotiation |
 | **Skill Tree** | SVG constellation map visualizing user's growth toward their preferential reality |
 | **Creature** | Tamagotchi-style entity with hunger decay, mood states, XP, leveling, bond system |
 | **TTS** | Venice text-to-speech (Bella voice) with character-by-character synced text reveal |
-| **E2EE** | AES-256-GCM + HKDF key derivation; conversation runs on GLM-4.7 inside a Venice TEE |
+| **E2EE** | secp256k1 ECDH + HKDF + AES-256-GCM; conversation runs on a ranked allow-list of Venice TEE models (Qwen3.8-27B first) |
 | **Multi-channel** | Desktop + Telegram bot + WhatsApp bot, unified conversation context |
 
 ## Architecture Summary
 
 - **Frontend:** React 19 + TypeScript + Tailwind CSS 4 + Framer Motion (shared across both shells)
 - **Backend:** Rust — a pure `starchild_core` crate (native **and** WASM) + thin platform adapters (Tauri/SQLite for desktop; IndexedDB + a WASM bridge for web)
-- **AI:** Venice API (E2EE, zero retention) — GLM-4.7 for conversation, Llama 3.3 70B for internal tasks
+- **AI:** Venice API (E2EE, zero retention) — a TEE model allow-list (`E2EE_MODELS`, Qwen3.8-27B first) for conversation and for internal tasks (listening pass, memory/thread extraction, summaries)
 - **Landing page + token site:** Next.js on Vercel
 - **Prompt System:** 11 composable layers with conversation phase detection and quest cycling
 
@@ -87,6 +89,6 @@ Full plan: `docs/web-app-prd.md`. Extraction notes: `docs/phase1-core-extraction
 
 - **Agent harness:** Claude Code CLI
 - **Model:** Claude Opus 4.6 (1M context)
-- **AI inference (runtime):** Venice AI API — GLM-4.7 (E2EE conversation), Llama 3.3 70B (internal tasks)
+- **AI inference (runtime):** Venice AI API — E2EE TEE models (Qwen3.8-27B first) for conversation and internal tasks
 - **Skills/tools used:** Read, Write, Edit, Bash, Grep, Glob, Agent (subagents for parallel work)
 - **Multi-agent framework:** The Agency v2 (custom, open-source, markdown-based coordination)

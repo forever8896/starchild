@@ -22,7 +22,10 @@ pub mod opus;
 pub mod quest;
 pub mod recall;
 pub mod safety;
+pub mod listen;
+pub mod shape;
 pub mod summary;
+pub mod threads;
 pub mod storage;
 
 // The WASM bridge exposes the PURE engine functions to JS. It compiles only for

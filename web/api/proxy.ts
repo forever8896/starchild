@@ -25,11 +25,15 @@
 //                           proxy then refuses to serve (fail-closed) so a
 //                           misconfig can never silently uncap spend.
 //   TRIAL_MODEL             (optional) Pinned model id. Default: a cheap one.
-//   TRIAL_MAX_TOKENS        (optional) Hard ceiling on completion length. Def 400.
+//   TRIAL_MAX_TOKENS        (optional) Hard ceiling on completion length,
+//                           including the model's hidden reasoning. Def 1500.
 //   TRIAL_RATE_LIMIT        (optional) Max requests per IP per window. Def 20.
 //   TRIAL_RATE_WINDOW_SEC   (optional) Rate-limit window seconds. Def 3600.
 //   TRIAL_WARM_RATE_LIMIT   (optional) Max enclave keep-alive pings per IP per
 //                           window, metered apart from messages. Def 40.
+//   TRIAL_INTERNAL_RATE_LIMIT(optional) Max background calls (the listening
+//                           pass, memory/thread extraction, summaries) per IP
+//                           per window, metered apart from messages. Def 60.
 //   TRIAL_MONTHLY_BUDGET_USD(optional) Monthly spend ceiling. Def 50.
 //   TRIAL_USD_PER_MTOK      (optional) Blended $ per 1M tokens, for the spend
 //                           estimate. Def 0.7 (cheap model ballpark; tune it).
@@ -47,10 +51,17 @@ const MODEL = process.env.TRIAL_MODEL ?? 'llama-3.3-70b'
 // The E2EE tier: content is encrypted browser↔enclave (this proxy only injects
 // the key + relays ciphertext). The client names the model its session attested;
 // only allow-listed ids (`src/e2ee-models.ts`) are accepted, never a pricier one.
-const MAX_TOKENS = int(process.env.TRIAL_MAX_TOKENS, 400)
+// Replies reason before answering (300-550 hidden tokens that count here), so
+// the ceiling leaves room for that plus the reply; at 400 replies came back
+// cut off or empty.
+const MAX_TOKENS = int(process.env.TRIAL_MAX_TOKENS, 1500)
 const RATE_LIMIT = int(process.env.TRIAL_RATE_LIMIT, 20)
 const RATE_WINDOW_SEC = int(process.env.TRIAL_RATE_WINDOW_SEC, 3600)
 const WARM_RATE_LIMIT = int(process.env.TRIAL_WARM_RATE_LIMIT, 40)
+// Each reply brings ~3 background calls (listening pass, knowing + thread
+// extraction); they get their own bucket so they don't eat the message
+// allowance. Same token cap and spend metering as any request.
+const INTERNAL_RATE_LIMIT = int(process.env.TRIAL_INTERNAL_RATE_LIMIT, 60)
 // A keep-alive ping is one encrypted "hi": ~200 hex chars. Anything bigger is
 // not a ping and doesn't get the ping bucket.
 const WARM_MAX_CONTENT = 1024
@@ -118,12 +129,16 @@ export default async function handler(req: Request): Promise<Response> {
     messages.length === 1 &&
     String((messages[0] as { content?: unknown })?.content ?? '').length <= WARM_MAX_CONTENT
 
+  const internal = !warm && body?.internal === true
+
   const ip = clientIp(req)
 
   // 1) Per-IP rate limit (fixed window). First hit in a window sets the TTL.
   try {
-    const count = await redisIncrTtl(warm ? `trial:warm:${ip}` : `trial:rl:${ip}`, RATE_WINDOW_SEC)
-    if (count > (warm ? WARM_RATE_LIMIT : RATE_LIMIT)) {
+    const bucket = warm ? 'warm' : internal ? 'int' : 'rl'
+    const limit = warm ? WARM_RATE_LIMIT : internal ? INTERNAL_RATE_LIMIT : RATE_LIMIT
+    const count = await redisIncrTtl(`trial:${bucket}:${ip}`, RATE_WINDOW_SEC)
+    if (count > limit) {
       return json({ error: 'rate limited, take a breath and try again soon' }, 429, {
         'Retry-After': String(RATE_WINDOW_SEC),
       })
@@ -162,6 +177,9 @@ export default async function handler(req: Request): Promise<Response> {
       messages,
       temperature: clampTemp(body?.temperature),
       max_tokens: warm ? 1 : MAX_TOKENS,
+      // The client may skip the model's hidden reasoning (faster, and cheaper
+      // — reasoning tokens are billed). It can only ever reduce spend.
+      ...(body?.noThinking === true || warm ? { venice_parameters: { disable_thinking: true } } : {}),
       stream: true,
       stream_options: { include_usage: true },
     }),

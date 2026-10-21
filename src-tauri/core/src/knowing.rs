@@ -162,7 +162,7 @@ const STOPWORDS: &[&str] = &[
     "really", "feels", "feel", "wants", "want", "who", "which",
 ];
 
-fn content_words(s: &str) -> std::collections::BTreeSet<String> {
+pub(crate) fn content_words(s: &str) -> std::collections::BTreeSet<String> {
     s.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() > 1 && !STOPWORDS.contains(w))

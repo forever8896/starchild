@@ -53,6 +53,17 @@ import init, {
   summary_fragment,
   derive_state_from_position,
   apply_evidence,
+  listen_wanted,
+  reply_reasoning,
+  listen_prompt,
+  listen_trigger,
+  parse_listening,
+  listening_fragment,
+  shape_fragment,
+  threads_extraction_system,
+  build_threads_extraction_input,
+  apply_thread_update,
+  threads_fragment,
 } from './wasm/starchild_core.js'
 
 // ── Boundary types (mirror the core Rust structs) ─────────────────────────
@@ -153,6 +164,36 @@ export interface MemoryItem {
   content: string
   /** Unix epoch milliseconds; `0`/omitted = unknown (no recency signal). */
   created_at_ms?: number
+}
+
+/** The listening pass's private read of the latest message (core `listen::Listening`). */
+export interface Listening {
+  heard: string
+  meaning: string
+  feeling: string
+  unsaid: string
+  /** The most tender thing they let slip (or ""). */
+  tender: string
+  /** A detail they left unexplained — a door for a plain question (or ""). */
+  door: string
+  need: string
+  move: string
+  question: boolean
+  avoid: string
+  length: string
+  quest_ok: boolean
+}
+
+/** Something still unfolding in the person's life (core `threads::OpenThread`). */
+export interface OpenThread {
+  id: string
+  kind: string
+  summary: string
+  due_ms?: number | null
+  created_ms: number
+  touched_ms: number
+  resolved?: boolean
+  checked_in?: boolean
 }
 
 /** A categorized fact about the human (core `knowing::KnownFact`). */
@@ -278,6 +319,24 @@ export interface Core {
   // ── Authored copy ────────────────────────────────────────────────────────
   /** The Starchild's fixed awakening (first) message for the given user name. */
   awakeningMessage(name: string): string
+  /** Whether this phase gets a listening pass (not crisis / crystallize). */
+  listenWanted(phase: ConversationPhase): boolean
+  /** Whether replies let the model reason first (slow); background calls never do. */
+  replyReasoning(): boolean
+  /** The listener's system prompt; `context` = knowing/summary/threads fragments. */
+  listenPrompt(input: { recent_messages: ChatMessage[]; phase: ConversationPhase; context?: string }): string
+  listenTrigger(): string
+  parseListening(raw: string): Listening | null
+  /** The read, rendered as the reply prompt's final layer. */
+  listeningFragment(listening: Listening, phase: ConversationPhase): string
+  /** A "vary this now" note from recent assistant replies (oldest first), or "". */
+  shapeFragment(recentReplies: string[]): string
+  threadsExtractionSystem(): string
+  buildThreadsExtractionInput(threads: OpenThread[], userMessage: string, aiResponse: string, nowMs?: number): string
+  /** Fold one raw extraction result into the thread list. */
+  applyThreadUpdate(threads: OpenThread[], raw: string, nowMs?: number): OpenThread[]
+  /** Open-threads prompt layer; `gapMs` = time since their previous message. */
+  threadsFragment(threads: OpenThread[], nowMs?: number, gapMs?: number): string
 
   /** The loaded core crate version (sanity check). */
   version(): string
@@ -345,6 +404,19 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     applyEvidence: (position, evidence, nowIso = new Date().toISOString()) =>
       apply_evidence(position, evidence, nowIso) as import('../../src/store').GreatWorkPosition,
     awakeningMessage: (name) => awakening_message(name),
+    listenWanted: (phase) => listen_wanted(phase),
+    replyReasoning: () => reply_reasoning(),
+    listenPrompt: (input) => listen_prompt(input),
+    listenTrigger: () => listen_trigger(),
+    parseListening: (raw) => (parse_listening(raw) as Listening | null) ?? null,
+    listeningFragment: (listening, phase) => listening_fragment(listening, phase),
+    shapeFragment: (recentReplies) => shape_fragment(recentReplies),
+    threadsExtractionSystem: () => threads_extraction_system(),
+    buildThreadsExtractionInput: (threads, userMessage, aiResponse, nowMs = Date.now()) =>
+      build_threads_extraction_input(threads, userMessage, aiResponse, nowMs),
+    applyThreadUpdate: (threads, raw, nowMs = Date.now()) =>
+      apply_thread_update(threads, raw, nowMs) as OpenThread[],
+    threadsFragment: (threads, nowMs = Date.now(), gapMs = 0) => threads_fragment(threads, nowMs, gapMs),
     version: () => core_version(),
   }))
   return corePromise
