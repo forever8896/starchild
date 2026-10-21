@@ -24,6 +24,7 @@ pub mod recall;
 pub mod safety;
 pub mod listen;
 pub mod shape;
+pub mod style;
 pub mod summary;
 pub mod threads;
 pub mod storage;

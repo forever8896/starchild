@@ -29,8 +29,8 @@ if (!KEY) throw new Error('VENICE_API_KEY is not set (source ../.env)')
 const SIM_MODEL = process.env.EVAL_SIM_MODEL ?? 'claude-sonnet-5-5'
 const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? 'claude-opus-5-5'
 const DAY = 86_400_000
-/** Let the reply model reason before answering (slow: 7-11 s). Background calls never do. */
-const REPLY_THINKING = process.env.EVAL_REPLY_THINKING === '1'
+/** Reply reasoning: the core's production policy unless EVAL_REPLY_THINKING=0/1 overrides. Background calls never reason. */
+let REPLY_THINKING = process.env.EVAL_REPLY_THINKING === '1'
 
 // ── Personas ─────────────────────────────────────────────────────────────────
 // `sessions` > 1 means the conversation resumes after `gapDays`, carrying what
@@ -44,6 +44,8 @@ interface Persona {
   turns: number[]
   gapDays?: number
   brief: string
+  /** The person's fixed first message, so every variant meets the same opening. */
+  opener: string
   /** What happened between sessions (only the simulated human knows). */
   between?: string
   /** Per-session instructions for the simulated human (index = session). */
@@ -55,6 +57,7 @@ interface Persona {
 const PERSONAS: Persona[] = [
   {
     id: 'founder',
+    opener: 'building software to bring positive change into humanity, financially free, with my dearest, taking care of children',
     name: 'Kilian-like founder, first conversation',
     first: true,
     turns: [8],
@@ -63,6 +66,7 @@ const PERSONAS: Persona[] = [
   },
   {
     id: 'skeptic',
+    opener: 'idk. probably sleep in. fix up old motorbikes maybe. near the sea',
     name: 'Guarded skeptic, first conversation',
     first: true,
     turns: [8],
@@ -71,6 +75,7 @@ const PERSONAS: Persona[] = [
   },
   {
     id: 'grief',
+    opener: 'busy week. cleaning out some stuff',
     name: 'Quiet grief, returning user',
     first: false,
     turns: [8],
@@ -85,6 +90,7 @@ const PERSONAS: Persona[] = [
   },
   {
     id: 'rambler',
+    opener: "ok so sorry this is a lot but i've been thinking about the ux thing again and also my sister's wedding is in 3 weeks and i have to do a speech and i haven't even started and also i'm 34 which feels kind of too old to switch careers?? anyway how are you",
     name: 'Anxious overthinker, returning user',
     first: false,
     turns: [8],
@@ -98,6 +104,7 @@ const PERSONAS: Persona[] = [
   },
   {
     id: 'pushback',
+    opener: "ok before you ask, no i haven't done the walk thing",
     name: 'Defensive about a quest, returning user',
     first: false,
     turns: [7],
@@ -111,6 +118,7 @@ const PERSONAS: Persona[] = [
   },
   {
     id: 'terse',
+    opener: 'meh',
     name: 'Low energy, terse, returning user',
     first: false,
     turns: [7],
@@ -121,6 +129,7 @@ const PERSONAS: Persona[] = [
   },
   {
     id: 'continuity',
+    opener: 'hey. kinda nervous about thursday honestly',
     name: 'Continuity across sessions (3 days apart)',
     first: false,
     turns: [6, 5],
@@ -134,6 +143,48 @@ const PERSONAS: Persona[] = [
     between: 'The cofounder conversation happened on Thursday and went badly — she took it as you quitting. You ran twice.',
     seedFacts: [['desires', 'Wants a calmer, healthier pace of work']],
     seedSummary: 'They co-run a small startup and have been burning out.',
+  },
+  {
+    id: 'playful',
+    name: 'Playful joker, returning user',
+    first: false,
+    turns: [7],
+    opener: 'ok starchild. hit me. what wisdom do the stars have for a guy who ate cereal for dinner 3 nights in a row',
+    brief:
+      "You deflect with humour and want banter — a companion that can be funny back. Under the jokes: you've been eating badly and staying up late since moving to a new city alone 2 months ago, and you're lonelier than you let on. You stay jokey unless the companion is genuinely fun AND notices the real thing gently; solemn or preachy replies make you double down on jokes.",
+    seedFacts: [['life_situation', 'Moved to a new city recently for work']],
+    seedSummary: 'They like to joke around and recently moved cities.',
+  },
+  {
+    id: 'spiritual',
+    name: 'Loves the cosmic voice, first conversation',
+    first: true,
+    turns: [7],
+    opener: 'i see myself living near the forest, studying alchemy and the old mystery schools, teaching people to listen to their intuition, a little garden of herbs',
+    brief:
+      "You're deeply into spirituality, tarot, alchemy and synchronicity, and you LOVE poetic, cosmic language — it makes you feel met. You get a little deflated if the companion is clinical or flat. Under it: your family thinks it's all nonsense and you've been hiding this side of yourself at your office job.",
+  },
+  {
+    id: 'practical',
+    name: 'Wants concrete help, returning user',
+    first: false,
+    turns: [7],
+    opener: "i have to tell my landlord the heating's been broken for 3 weeks and he's kind of scary. how do i even say it",
+    brief:
+      "You came with a concrete problem and want concrete help — a draft of what to say, a plan. Reflections without help annoy you ('ok but what do i actually say'). Underneath: you avoid conflict with anyone in authority and always have, and you'd be quietly glad if the companion noticed that AFTER helping, not instead of helping.",
+    seedFacts: [['growth_edges', 'Avoids conflict, especially with authority figures']],
+    seedSummary: 'They have mentioned finding confrontation hard.',
+  },
+  {
+    id: 'esl',
+    name: 'Non-native English, returning user',
+    first: false,
+    turns: [7],
+    opener: 'hello. today i am little bit sad, my exam was not good',
+    brief:
+      "English is your second language (you're Brazilian, studying nursing in Germany). You write simple, slightly broken English. You get lost with idioms, poetry and long sentences — then you answer shorter or say 'sorry i dont understand'. Underneath: you failed a German language exam you need for your nursing licence, and you feel your family's sacrifice to send you abroad weighs on you.",
+    seedFacts: [['life_situation', 'Studying nursing abroad, far from family']],
+    seedSummary: 'They are studying abroad and miss home.',
   },
 ]
 
@@ -192,10 +243,11 @@ interface Companion {
   lastUserAt: number
   replyMs: number[]
   listenings: string[]
+  styleNotes: unknown[]
 }
 
 const OFF = new Set(process.argv.filter((a) => a.startsWith('--no-')).map((a) => a.slice(5)))
-const FLAG: Record<string, string> = { listenPrompt: 'listen', threadsFragment: 'threads', threadsExtractionSystem: 'threads', shapeFragment: 'shape' }
+const FLAG: Record<string, string> = { listenPrompt: 'listen', threadsFragment: 'threads', threadsExtractionSystem: 'threads', shapeFragment: 'shape', styleFragment: 'style' }
 /** A core feature is used when the build has it and it isn't switched off (--no-listen/--no-threads/--no-shape). */
 const has = (c: Core, fn: string) => typeof (c as unknown as Record<string, unknown>)[fn] === 'function' && !OFF.has(FLAG[fn] ?? '')
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -243,14 +295,17 @@ async function starchildTurn(c: Core, st: Companion, text: string): Promise<stri
     const shape: string = k.shapeFragment(recent.filter((m) => m.role === 'assistant').map((m) => m.content))
     if (shape) system += `\n\n${shape}`
   }
+  const styleFrag: string = has(c, 'styleFragment') ? k.styleFragment(st.styleNotes) : ''
+  if (styleFrag) system += `\n\n${styleFrag}`
   if (has(c, 'listenPrompt') && k.listenWanted(phase)) {
     const raw = await private_([
-      { role: 'system', content: k.listenPrompt({ recent_messages: recent, phase, context: [knowing, summary, threadsFrag].filter(Boolean).join('\n\n') }) },
+      { role: 'system', content: k.listenPrompt({ recent_messages: recent, phase, context: [knowing, summary, threadsFrag, styleFrag].filter(Boolean).join('\n\n') }) },
       { role: 'user', content: k.listenTrigger() },
     ], 0.3).catch(() => '')
     const listening = k.parseListening(raw)
     if (listening) {
       system += `\n\n${k.listeningFragment(listening, phase)}`
+      if (has(c, 'styleFragment') && listening.style?.trim()) st.styleNotes = k.mergeStyleNote(st.styleNotes, listening.style, st.now)
       st.listenings.push(JSON.stringify(listening))
     } else st.listenings.push('(listen failed)')
   }
@@ -390,12 +445,13 @@ function metrics(replies: string[]) {
 const args = process.argv.slice(2)
 const label = args[0] ?? 'eval'
 const filter = args[1] && !args[1].startsWith('--') ? args[1] : undefined
-const takes = Number(args[args.indexOf('--takes') + 1]) || (args.includes('--takes') ? 1 : 1)
+const takes = args.includes('--takes') ? Number(args[args.indexOf('--takes') + 1]) || 1 : 3
 
 const wasm = await readFile(process.env.EVAL_WASM ?? fileURLToPath(new URL('../src/wasm/starchild_core_bg.wasm', import.meta.url)))
 const c = await loadCore(new Uint8Array(wasm))
 session = await establishE2eeSession(VENICE_ATTEST_URL)
-const features = ['listenPrompt', 'threadsFragment', 'shapeFragment'].filter((f) => has(c, f))
+if (process.env.EVAL_REPLY_THINKING === undefined && has(c, 'replyReasoning')) REPLY_THINKING = anyCore(c).replyReasoning()
+const features = ['listenPrompt', 'threadsFragment', 'shapeFragment', 'styleFragment'].filter((f) => has(c, f))
 console.log(`core ${c.version()} · model ${session.model} · features: ${features.join(', ') || 'none'}`)
 
 interface Result { persona: Persona; take: number; transcript: string; replies: string[]; scores: Scores; replyMs: number[]; listenings: string[] }
@@ -403,7 +459,7 @@ interface Result { persona: Persona; take: number; transcript: string; replies: 
 async function runOne(p: Persona, take: number): Promise<Result> {
   const st: Companion & { id: string } = {
     id: p.id, msgs: [], facts: [], summary: p.seedSummary ?? '', threads: [], pr: '', visionRevealed: !p.first, hadQuests: !p.first,
-    now: Date.parse('2026-10-20T19:00:00Z'), lastUserAt: 0, replyMs: [], listenings: [],
+    now: Date.parse('2026-10-20T19:00:00Z'), lastUserAt: 0, replyMs: [], listenings: [], styleNotes: [],
   }
   ;(p.seedFacts ?? []).forEach(([category, fact], i) =>
     st.facts.push({ id: `seed${i}`, category, fact, importance: 0.7, confidence: 0.8, created_at: new Date(st.now - 10 * DAY).toISOString() }))
@@ -421,7 +477,7 @@ async function runOne(p: Persona, take: number): Promise<Result> {
     const sessionStart = st.msgs.length
     if (p.first && s === 0) transcript += `starchild: ${st.msgs[0].content}\n`
     for (let t = 0; t < p.turns[s]; t++) {
-      const human = await simTurn(p, s, st.msgs.slice(sessionStart), st.msgs.slice(0, sessionStart).slice(-8))
+      const human = s === 0 && t === 0 ? p.opener : await simTurn(p, s, st.msgs.slice(sessionStart), st.msgs.slice(0, sessionStart).slice(-8))
       transcript += `human: ${human}\n`
       st.now += 90_000
       const reply = await starchildTurn(c, st, human)
@@ -430,6 +486,7 @@ async function runOne(p: Persona, take: number): Promise<Result> {
       process.stdout.write('.')
     }
   }
+  if (st.styleNotes.length) st.listenings.push(`STYLE NOTES: ${JSON.stringify(st.styleNotes)}`)
   const scores = await judge(p, transcript)
   return { persona: p, take, transcript, replies, scores, replyMs: st.replyMs, listenings: st.listenings }
 }
@@ -441,7 +498,7 @@ const jobs = PERSONAS.filter((p) => !filter || p.id.includes(filter)).flatMap((p
   })))
 // Bounded concurrency: the enclave slows sharply under many parallel streams
 // (and reply latency is part of what we measure).
-const CONCURRENCY = Number(process.env.EVAL_CONCURRENCY ?? 4)
+const CONCURRENCY = Number(process.env.EVAL_CONCURRENCY ?? 5)
 const settled: (Result | null)[] = []
 let next = 0
 await Promise.all(Array.from({ length: CONCURRENCY }, async () => {

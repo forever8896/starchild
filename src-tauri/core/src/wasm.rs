@@ -585,3 +585,17 @@ pub fn threads_fragment(threads: JsValue, now_ms: f64, gap_ms: f64) -> Result<St
 pub fn reply_reasoning() -> bool {
     ai::REPLY_REASONING
 }
+
+/// Fold one style signal (from the listening pass) into the person's notes.
+#[wasm_bindgen]
+pub fn merge_style_note(notes: JsValue, signal: &str, now_ms: f64) -> Result<JsValue, JsValue> {
+    let n: Vec<crate::style::StyleNote> = serde_wasm_bindgen::from_value(notes)?;
+    Ok(serde_wasm_bindgen::to_value(&crate::style::merge_style_note(&n, signal, now_ms as i64))?)
+}
+
+/// The "how they like to be spoken to" prompt layer, or "".
+#[wasm_bindgen]
+pub fn style_fragment(notes: JsValue) -> Result<String, JsValue> {
+    let n: Vec<crate::style::StyleNote> = serde_wasm_bindgen::from_value(notes)?;
+    Ok(crate::style::style_fragment(&n))
+}

@@ -61,6 +61,11 @@ pub struct Listening {
     /// simply ask about (or "").
     #[serde(default)]
     pub door: String,
+    /// What this message shows about how they like to be spoken to — a
+    /// reaction to Starchild's tone, or their own register (or ""). Folded
+    /// into the person's style notes (core `style`).
+    #[serde(default)]
+    pub style: String,
     /// One of [`NEEDS`].
     #[serde(default)]
     pub need: String,
@@ -156,6 +161,11 @@ pub fn listen_prompt(recent: &[ChatMessage], phase: ConversationPhase, context: 
          - If a thread you know about has likely moved and their message leaves room, \"connect\" \
          or \"ask\" about it by its specifics.\n\
          - If they hinted at something hard and moved on, notice it gently rather than retracting.\n\
+         - \"style\": only when this message shows how they like to be spoken to — a reaction to \
+         Starchild's last reply (eye-roll at poetic or cosmic language, laughing at a joke, \
+         \"just tell me what to do\", irritation at questions) or something clear about their own \
+         way of talking (dry and brief, playful, loves the spiritual). One short line, as advice \
+         (\"keep it plain — cosmic language reads as cheesy to them\"). Usually empty.\n\
          - Look at what Starchild's last replies did — if they kept asking, choose differently; \
          if they haven't asked anything in a while and there's a door, ask. If they kept the same \
          shape or kept reaching for poetry or big interpretations, go plainer.\n\
@@ -167,7 +177,7 @@ pub fn listen_prompt(recent: &[ChatMessage], phase: ConversationPhase, context: 
          \n\
          Reply with ONLY this JSON — every text value under 15 words, plain and concrete:\n\
          {{\"heard\":\"…\",\"meaning\":\"…\",\"feeling\":\"…\",\"unsaid\":\"… or empty\",\
-         \"tender\":\"… or empty\",\"door\":\"… or empty\",\
+         \"tender\":\"… or empty\",\"door\":\"… or empty\",\"style\":\"… or empty\",\
          \"need\":\"<need>\",\"move\":\"<move>\",\"question\":true|false,\
          \"avoid\":\"the specific mistake the reply must not make here\",\
          \"length\":\"short|medium\",\"quest_ok\":true|false}}",

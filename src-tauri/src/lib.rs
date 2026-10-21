@@ -27,7 +27,7 @@ use db::Database;
 use game::StarchildState;
 // Pure quest logic + authored copy now live once in the shared core; the desktop
 // shell calls the SAME functions the web shell does (see web/src/quests.ts).
-use starchild_core::{listen, messages, quest, safety, shape, threads};
+use starchild_core::{listen, messages, quest, safety, shape, style, threads};
 use knowing::KnowingSystem;
 use memory::MemorySystem;
 use telegram::TelegramBotHandle;
@@ -993,6 +993,19 @@ async fn send_message_stream(
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&habits);
     }
+    // How they like to be spoken to — learned from their reactions (below).
+    let style_notes: Vec<style::StyleNote> = state
+        .db
+        .get_setting("style_notes")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let style_frag = style::style_fragment(&style_notes);
+    if !style_frag.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&style_frag);
+    }
 
     // ── The listening pass (shared core) ──
     // A short private read of the person before the reply — what they said,
@@ -1000,7 +1013,7 @@ async fn send_message_stream(
     // it outweighs the phase template. E2EE internal tier; bounded; on any
     // failure the reply simply goes ahead without it.
     if listen::listen_wanted(phase) {
-        let context = [knowing_fragment.as_str(), summary_fragment.as_str(), threads_frag.as_str()]
+        let context = [knowing_fragment.as_str(), summary_fragment.as_str(), threads_frag.as_str(), style_frag.as_str()]
             .iter()
             .filter(|s| !s.is_empty())
             .cloned()
@@ -1020,6 +1033,13 @@ async fn send_message_stream(
                 if let Some(l) = listen::parse_listening(&raw) {
                     system_prompt.push_str("\n\n");
                     system_prompt.push_str(&listen::listening_fragment(&l, phase));
+                    // Their reaction to how Starchild spoke shapes every later reply.
+                    if !l.style.trim().is_empty() && !is_crisis {
+                        let merged = style::merge_style_note(&style_notes, &l.style, now_ms);
+                        if let Ok(json) = serde_json::to_string(&merged) {
+                            let _ = state.db.set_setting("style_notes", &json);
+                        }
+                    }
                 }
             }
             Ok(Err(e)) => log::warn!("Listening pass failed: {e}"),

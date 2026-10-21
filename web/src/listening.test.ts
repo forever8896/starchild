@@ -82,3 +82,15 @@ describe('open threads', () => {
     expect(core.threadsFragment([], later, DAY)).toBe('')
   })
 })
+
+describe('style notes', () => {
+  it('learns from a reaction and renders the layer', () => {
+    let notes = core.mergeStyleNote([], 'keep it plain — cosmic language reads as cheesy to them', NOW)
+    notes = core.mergeStyleNote(JSON.parse(JSON.stringify(notes)), 'cosmic language feels cheesy to them, keep it plain', NOW + 1)
+    expect(notes).toHaveLength(1)
+    expect(notes[0].seen).toBe(2)
+    expect(core.styleFragment(notes)).toContain('HOW THIS PERSON LIKES TO BE SPOKEN TO')
+    expect(core.mergeStyleNote([], 'none', NOW)).toHaveLength(0)
+    expect(core.styleFragment([])).toBe('')
+  })
+})

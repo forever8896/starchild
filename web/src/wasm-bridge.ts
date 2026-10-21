@@ -54,6 +54,8 @@ import init, {
   derive_state_from_position,
   apply_evidence,
   listen_wanted,
+  merge_style_note,
+  style_fragment,
   reply_reasoning,
   listen_prompt,
   listen_trigger,
@@ -176,12 +178,21 @@ export interface Listening {
   tender: string
   /** A detail they left unexplained — a door for a plain question (or ""). */
   door: string
+  /** How they like to be spoken to, as shown by this message (or ""). */
+  style: string
   need: string
   move: string
   question: boolean
   avoid: string
   length: string
   quest_ok: boolean
+}
+
+/** One learned observation of how they like to be spoken to (core `style::StyleNote`). */
+export interface StyleNote {
+  note: string
+  seen: number
+  last_ms: number
 }
 
 /** Something still unfolding in the person's life (core `threads::OpenThread`). */
@@ -321,6 +332,10 @@ export interface Core {
   awakeningMessage(name: string): string
   /** Whether this phase gets a listening pass (not crisis / crystallize). */
   listenWanted(phase: ConversationPhase): boolean
+  /** Fold a listening-pass style signal into the person's style notes. */
+  mergeStyleNote(notes: StyleNote[], signal: string, nowMs?: number): StyleNote[]
+  /** "How they like to be spoken to" prompt layer, or "". */
+  styleFragment(notes: StyleNote[]): string
   /** Whether replies let the model reason first (slow); background calls never do. */
   replyReasoning(): boolean
   /** The listener's system prompt; `context` = knowing/summary/threads fragments. */
@@ -405,6 +420,8 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
       apply_evidence(position, evidence, nowIso) as import('../../src/store').GreatWorkPosition,
     awakeningMessage: (name) => awakening_message(name),
     listenWanted: (phase) => listen_wanted(phase),
+    mergeStyleNote: (notes, signal, nowMs = Date.now()) => merge_style_note(notes, signal, nowMs) as StyleNote[],
+    styleFragment: (notes) => style_fragment(notes),
     replyReasoning: () => reply_reasoning(),
     listenPrompt: (input) => listen_prompt(input),
     listenTrigger: () => listen_trigger(),

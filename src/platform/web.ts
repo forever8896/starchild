@@ -480,6 +480,17 @@ const LISTEN_TIMEOUT_MS = 8_000
 
 type OpenThread = import('../../web/src/wasm-bridge').OpenThread
 
+/** How they like to be spoken to (core `style`), stored as one setting. */
+async function loadStyleNotes(): Promise<import('../../web/src/wasm-bridge').StyleNote[]> {
+  try {
+    const raw = await (await storage()).getSetting('style_notes')
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? (parsed as import('../../web/src/wasm-bridge').StyleNote[]) : []
+  } catch {
+    return []
+  }
+}
+
 /** The open threads of their life (core `threads`), stored as one setting. */
 async function loadThreads(): Promise<OpenThread[]> {
   try {
@@ -851,6 +862,10 @@ export const webPlatform: Platform = {
     if (threadsFrag) system += `\n\n${threadsFrag}`
     const shape = c.shapeFragment(chatMessages.filter((m) => m.role === 'assistant').map((m) => m.content))
     if (shape) system += `\n\n${shape}`
+    // How they like to be spoken to — learned from their reactions (below).
+    const styleNotes = await loadStyleNotes()
+    const styleFrag = c.styleFragment(styleNotes)
+    if (styleFrag) system += `\n\n${styleFrag}`
 
     // ── Quest-branch steering (mirrors desktop's SKILL TREE BRANCHES block) ──
     // The Quest phase instruction references "SKILL TREE BRANCHES below"; supply
@@ -916,7 +931,7 @@ export const webPlatform: Platform = {
     // any failure just means replying without the read.
     if (c.listenWanted(phase)) {
       try {
-        const context = [knowingFragment, summaryFragment, threadsFrag].filter(Boolean).join('\n\n')
+        const context = [knowingFragment, summaryFragment, threadsFrag, styleFrag].filter(Boolean).join('\n\n')
         let raw = ''
         for await (const tok of v.streamChat(
           [
@@ -926,7 +941,13 @@ export const webPlatform: Platform = {
           { mode, apiKey, e2eeSession, temperature: 0.3, internal: true, noThinking: true, signal: AbortSignal.timeout(LISTEN_TIMEOUT_MS) },
         )) raw += tok
         const listening = c.parseListening(raw)
-        if (listening) system += `\n\n${c.listeningFragment(listening, phase)}`
+        if (listening) {
+          system += `\n\n${c.listeningFragment(listening, phase)}`
+          // Their reaction to how Starchild spoke shapes every later reply.
+          if (listening.style.trim() && !isCrisis) {
+            await s.setSetting('style_notes', JSON.stringify(c.mergeStyleNote(styleNotes, listening.style, Date.now())))
+          }
+        }
       } catch (err) {
         console.warn('Listening pass skipped:', err)
       }
