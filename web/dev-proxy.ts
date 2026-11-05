@@ -80,7 +80,9 @@ export function devProxy(): Plugin {
               model,
               messages: body.messages ?? [],
               stream: true,
-              max_tokens: warm ? 1 : 600,
+              max_tokens: warm ? 1 : 1500,
+              ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+              ...(body.noThinking === true || warm ? { venice_parameters: { disable_thinking: true } } : {}),
             }),
           },
         );

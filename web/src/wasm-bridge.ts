@@ -19,6 +19,13 @@ import init, {
   is_quest_offer,
   detect_crisis,
   judge_proof,
+  vision_from_crystallize,
+  conversation_temperature,
+  vision_synthesis_prompt,
+  vision_synthesis_trigger,
+  clean_vision,
+  crystallize_suffix,
+  strip_placement,
   proof_note,
   proof_max_unclear,
   crisis_active,
@@ -46,6 +53,19 @@ import init, {
   summary_fragment,
   derive_state_from_position,
   apply_evidence,
+  listen_wanted,
+  merge_style_note,
+  style_fragment,
+  reply_reasoning,
+  listen_prompt,
+  listen_trigger,
+  parse_listening,
+  listening_fragment,
+  shape_fragment,
+  threads_extraction_system,
+  build_threads_extraction_input,
+  apply_thread_update,
+  threads_fragment,
 } from './wasm/starchild_core.js'
 
 // ── Boundary types (mirror the core Rust structs) ─────────────────────────
@@ -148,6 +168,45 @@ export interface MemoryItem {
   created_at_ms?: number
 }
 
+/** The listening pass's private read of the latest message (core `listen::Listening`). */
+export interface Listening {
+  heard: string
+  meaning: string
+  feeling: string
+  unsaid: string
+  /** The most tender thing they let slip (or ""). */
+  tender: string
+  /** A detail they left unexplained — a door for a plain question (or ""). */
+  door: string
+  /** How they like to be spoken to, as shown by this message (or ""). */
+  style: string
+  need: string
+  move: string
+  question: boolean
+  avoid: string
+  length: string
+  quest_ok: boolean
+}
+
+/** One learned observation of how they like to be spoken to (core `style::StyleNote`). */
+export interface StyleNote {
+  note: string
+  seen: number
+  last_ms: number
+}
+
+/** Something still unfolding in the person's life (core `threads::OpenThread`). */
+export interface OpenThread {
+  id: string
+  kind: string
+  summary: string
+  due_ms?: number | null
+  created_ms: number
+  touched_ms: number
+  resolved?: boolean
+  checked_in?: boolean
+}
+
 /** A categorized fact about the human (core `knowing::KnownFact`). */
 export interface KnownFact {
   id: string
@@ -178,6 +237,19 @@ export interface Core {
   tickGameState(state: GameState, nowMs?: number): GameState
   /** Construct a fresh creature state at the given timestamp (epoch ms). */
   newGameState(nowMs?: number): GameState
+  // ── Crystallize: the vision line is its own call; the reply answers them ──
+  visionSynthesisPrompt(preferentialReality: string, conversation: string): string
+  visionSynthesisTrigger(): string
+  /** Tidy a synthesized vision; "" if unusable. */
+  cleanVision(raw: string): string
+  /** The vision + placement text appended after the acknowledgement. */
+  crystallizeSuffix(vision: string): string
+  /** Remove a "let's place this on your vision tree ✦" tail. */
+  stripPlacement(reply: string): string
+  /** Sampling temperature for the conversation in this phase. */
+  conversationTemperature(phase: ConversationPhase): number
+  /** The vision sentence from a Crystallize reply (what goes on the tree). */
+  visionFromCrystallize(reply: string): string
   /** Post-process a model response for the given phase. */
   postprocess(text: string, phase: ConversationPhase): string
 
@@ -258,6 +330,28 @@ export interface Core {
   // ── Authored copy ────────────────────────────────────────────────────────
   /** The Starchild's fixed awakening (first) message for the given user name. */
   awakeningMessage(name: string): string
+  /** Whether this phase gets a listening pass (not crisis / crystallize). */
+  listenWanted(phase: ConversationPhase): boolean
+  /** Fold a listening-pass style signal into the person's style notes. */
+  mergeStyleNote(notes: StyleNote[], signal: string, nowMs?: number): StyleNote[]
+  /** "How they like to be spoken to" prompt layer, or "". */
+  styleFragment(notes: StyleNote[]): string
+  /** Whether replies let the model reason first (slow); background calls never do. */
+  replyReasoning(): boolean
+  /** The listener's system prompt; `context` = knowing/summary/threads fragments. */
+  listenPrompt(input: { recent_messages: ChatMessage[]; phase: ConversationPhase; context?: string }): string
+  listenTrigger(): string
+  parseListening(raw: string): Listening | null
+  /** The read, rendered as the reply prompt's final layer. */
+  listeningFragment(listening: Listening, phase: ConversationPhase): string
+  /** A "vary this now" note from recent assistant replies (oldest first), or "". */
+  shapeFragment(recentReplies: string[]): string
+  threadsExtractionSystem(): string
+  buildThreadsExtractionInput(threads: OpenThread[], userMessage: string, aiResponse: string, nowMs?: number): string
+  /** Fold one raw extraction result into the thread list. */
+  applyThreadUpdate(threads: OpenThread[], raw: string, nowMs?: number): OpenThread[]
+  /** Open-threads prompt layer; `gapMs` = time since their previous message. */
+  threadsFragment(threads: OpenThread[], nowMs?: number, gapMs?: number): string
 
   /** The loaded core crate version (sanity check). */
   version(): string
@@ -284,6 +378,13 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     tickGameState: (state, nowMs = Date.now()) => tick_game_state(state, nowMs) as GameState,
     newGameState: (nowMs = Date.now()) => new_game_state(nowMs) as GameState,
     postprocess: (text, phase) => postprocess(text, phase),
+    visionFromCrystallize: (reply) => vision_from_crystallize(reply),
+    conversationTemperature: (phase) => conversation_temperature(phase),
+    visionSynthesisPrompt: (pr, conversation) => vision_synthesis_prompt(pr, conversation),
+    visionSynthesisTrigger: () => vision_synthesis_trigger(),
+    cleanVision: (raw) => clean_vision(raw),
+    crystallizeSuffix: (vision) => crystallize_suffix(vision),
+    stripPlacement: (reply) => strip_placement(reply),
     detectCrisis: (text) => detect_crisis(text),
     crisisActive: (userMessages) => crisis_active(userMessages),
     crisisResources: (region) => crisis_resources(region) as CrisisResource[],
@@ -318,6 +419,21 @@ export function loadCore(initInput?: BufferSource | WebAssembly.Module | URL): P
     applyEvidence: (position, evidence, nowIso = new Date().toISOString()) =>
       apply_evidence(position, evidence, nowIso) as import('../../src/store').GreatWorkPosition,
     awakeningMessage: (name) => awakening_message(name),
+    listenWanted: (phase) => listen_wanted(phase),
+    mergeStyleNote: (notes, signal, nowMs = Date.now()) => merge_style_note(notes, signal, nowMs) as StyleNote[],
+    styleFragment: (notes) => style_fragment(notes),
+    replyReasoning: () => reply_reasoning(),
+    listenPrompt: (input) => listen_prompt(input),
+    listenTrigger: () => listen_trigger(),
+    parseListening: (raw) => (parse_listening(raw) as Listening | null) ?? null,
+    listeningFragment: (listening, phase) => listening_fragment(listening, phase),
+    shapeFragment: (recentReplies) => shape_fragment(recentReplies),
+    threadsExtractionSystem: () => threads_extraction_system(),
+    buildThreadsExtractionInput: (threads, userMessage, aiResponse, nowMs = Date.now()) =>
+      build_threads_extraction_input(threads, userMessage, aiResponse, nowMs),
+    applyThreadUpdate: (threads, raw, nowMs = Date.now()) =>
+      apply_thread_update(threads, raw, nowMs) as OpenThread[],
+    threadsFragment: (threads, nowMs = Date.now(), gapMs = 0) => threads_fragment(threads, nowMs, gapMs),
     version: () => core_version(),
   }))
   return corePromise

@@ -66,6 +66,19 @@ export interface StreamChatOptions {
    * message allowance) and caps it at a single token.
    */
   warm?: boolean;
+  /**
+   * TRIAL only: a background call (listening pass, memory/thread extraction,
+   * summary), not a reply. Metered in its own rate bucket so the companion's
+   * thinking doesn't eat the user's message allowance.
+   */
+  internal?: boolean;
+  /**
+   * Skip the model's hidden reasoning (Venice `disable_thinking`). The TEE
+   * models otherwise think for hundreds of tokens before answering — 7-70 s
+   * before the first word. Structured calls (the listening pass, extraction)
+   * don't need it, and the reply has the listening pass as its thinking.
+   */
+  noThinking?: boolean;
   /** BYOK only: Venice base URL. Defaults to {@link DEFAULT_VENICE_BASE_URL}. */
   baseUrl?: string;
   /** Abort the request (e.g. user cancels or the component unmounts). */
@@ -187,8 +200,10 @@ async function postTrial(
         messages: messages.map((m) => ({ role: m.role, content: session.encrypt(m.content) })),
         temperature: opts.temperature,
         ...(opts.warm ? { warm: true } : {}),
+        ...(opts.internal ? { internal: true } : {}),
+        ...(opts.noThinking ? { noThinking: true } : {}),
       }
-    : { messages, temperature: opts.temperature };
+    : { messages, temperature: opts.temperature, ...(opts.internal ? { internal: true } : {}), ...(opts.noThinking ? { noThinking: true } : {}) };
 
   // The proxy dictates model + token cap + streaming; we send only content.
   return doFetch(
@@ -232,6 +247,7 @@ async function postByok(
         ? messages.map((m) => ({ role: m.role, content: session.encrypt(m.content) }))
         : messages,
       temperature: opts.temperature ?? 0.7,
+      ...(opts.noThinking ? { venice_parameters: { disable_thinking: true } } : {}),
       stream: true,
       stream_options: { include_usage: true },
     },

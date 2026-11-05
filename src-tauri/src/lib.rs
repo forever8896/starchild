@@ -27,7 +27,7 @@ use db::Database;
 use game::StarchildState;
 // Pure quest logic + authored copy now live once in the shared core; the desktop
 // shell calls the SAME functions the web shell does (see web/src/quests.ts).
-use starchild_core::{messages, quest, safety};
+use starchild_core::{listen, messages, quest, safety, shape, style, threads};
 use knowing::KnowingSystem;
 use memory::MemorySystem;
 use telegram::TelegramBotHandle;
@@ -251,6 +251,37 @@ async fn send_message(
         },
         starchild_state: frontend_state,
     })
+}
+
+/// The open threads of their life (core `threads`), stored as one setting.
+fn load_threads(db: &Database) -> Vec<threads::OpenThread> {
+    db.get_setting("open_threads")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Fold one turn into the open threads (core prompt + merge; E2EE internal tier).
+async fn update_threads(
+    client: &AiClient,
+    db: &Database,
+    user_message: &str,
+    ai_response: &str,
+) -> Result<(), String> {
+    let current = load_threads(db);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let messages = vec![
+        ChatMessage::system(&threads::threads_extraction_system()),
+        ChatMessage::user(&threads::build_threads_extraction_input(&current, user_message, ai_response, now_ms)),
+    ];
+    let raw = client
+        .chat(messages, ai::ModelTier::Internal)
+        .await
+        .map_err(|e| e.to_string())?;
+    let updated = threads::apply_thread_update(&current, &raw, now_ms);
+    let json = serde_json::to_string(&updated).map_err(|e| e.to_string())?;
+    db.set_setting("open_threads", &json).map_err(|e| e.to_string())
 }
 
 /// Extract key user facts from a conversation turn via a Quick-tier AI call.
@@ -516,29 +547,10 @@ async fn crystallize_vision(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let prompt = format!(
-        "You are a vision crystallizer for a personal growth companion called Starchild.\n\n\
-         The human was asked: \"If money and work didn't exist, and you woke up fully free tomorrow, \
-         what would you find yourself doing?\"\n\n\
-         Their answer: \"{pr}\"\n\n\
-         The conversation that followed:\n{conversation}\n\n\
-         Your task: Synthesize their answers into a SINGLE beautiful vision statement \
-         (15-25 words max). This will appear at the crown of their skill tree as the star \
-         they're growing toward.\n\n\
-         Rules:\n\
-         - Write in SECOND PERSON (\"you\" not \"I\")\n\
-         - Distill the DEEPER PURPOSE — WHY do they want this, not just WHAT they described\n\
-         - Use ONLY words and images the human ACTUALLY said — never add details they didn't mention\n\
-         - If they said \"alchemy\", say \"alchemy\" — don't replace with \"cosmic harmony\" or \"sacred wisdom\"\n\
-         - If they did NOT mention a specific plant, tool, or object — do NOT invent one\n\
-         - BANNED WORDS: cosmic, harmony, sacred, tapestry, embody, journey, essence, universe, resonate, manifest, transcend, paradigm\n\
-         - Be concrete and grounded. Write like a poet, not a fortune cookie.\n\
-         - Return ONLY the vision statement, nothing else. No quotes, no explanation."
-    );
-
+    // Shared with the web shell (core): the prompt and the cleanup.
     let messages = vec![
-        ChatMessage::system(&prompt),
-        ChatMessage::user("Crystallize their vision now."),
+        ChatMessage::system(&ai::vision_synthesis_prompt(&pr, &conversation)),
+        ChatMessage::user(ai::VISION_SYNTHESIS_TRIGGER),
     ];
 
     let vision = client
@@ -546,9 +558,9 @@ async fn crystallize_vision(
         .await
         .map_err(|e| e.to_string())?;
 
-    let vision = vision.trim().trim_matches('"').trim().to_string();
+    let vision = ai::clean_vision(&vision);
 
-    if !vision.is_empty() && vision.len() < 200 {
+    if !vision.is_empty() {
         let _ = db.set_setting("vision_statement", &vision);
         let _ = app_handle.emit("vision-crystallized", ());
         // Don't reveal the tree here — let the Crystallize phase response happen first.
@@ -675,10 +687,12 @@ async fn send_message_stream(
 
     // Get recent messages for context (exclude the message we just saved —
     // chat_stream_auto appends the current user message itself)
+    // `get_messages` is newest-first: take the 14 MOST RECENT, then restore
+    // chronological order (reversing first used to keep the oldest 14 of the
+    // 20 and drop the latest turns from the model's view).
     let recent_msgs = state.db.get_messages(20).map_err(|e| e.to_string())?;
-    let history: Vec<ChatMessage> = recent_msgs
+    let mut history: Vec<ChatMessage> = recent_msgs
         .iter()
-        .rev()
         .filter(|m| m.role == "user" || m.role == "assistant")
         .filter(|m| m.id != user_msg_id) // exclude current message — added by chat_stream_auto
         .take(14)
@@ -687,6 +701,16 @@ async fn send_message_stream(
             content: m.content.clone(),
         })
         .collect();
+    history.reverse();
+
+    // Time since their previous message — a long gap makes this turn a return.
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let gap_ms = recent_msgs
+        .iter()
+        .find(|m| m.role == "user" && m.id != user_msg_id)
+        .and_then(|m| chrono::NaiveDateTime::parse_from_str(&m.created_at, "%Y-%m-%d %H:%M:%S").ok())
+        .map(|t| (now_ms - t.and_utc().timestamp_millis()).max(0))
+        .unwrap_or(0);
 
     // Load conversation summary (compressed history of older messages)
     let conversation_summary = state.db.get_setting("conversation_summary")
@@ -843,7 +867,9 @@ async fn send_message_stream(
             // Just completed a quest — explore, don't rush to the next one
             ai::ConversationPhase::Explore
         }
-        else if has_vision && !any_quest_offered && !has_active_quests && !recently_completed {
+        else if has_vision && !any_quest_offered && !has_active_quests && !recently_completed
+            && state.db.get_quests(None).map(|q| q.is_empty()).unwrap_or(false)
+        {
             // Vision is on the tree but no quest yet → offer first quest
             ai::ConversationPhase::Quest
         }
@@ -950,6 +976,77 @@ async fn send_message_stream(
         }
     }
 
+    // ── Open threads + reply habits (shared core) ──
+    let open_threads = load_threads(&state.db);
+    let threads_frag = threads::threads_fragment(&open_threads, now_ms, gap_ms);
+    if !threads_frag.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&threads_frag);
+    }
+    let recent_replies: Vec<String> = history
+        .iter()
+        .filter(|m| m.role == "assistant")
+        .map(|m| m.content.clone())
+        .collect();
+    let habits = shape::shape_fragment(&recent_replies);
+    if !habits.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&habits);
+    }
+    // How they like to be spoken to — learned from their reactions (below).
+    let style_notes: Vec<style::StyleNote> = state
+        .db
+        .get_setting("style_notes")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let style_frag = style::style_fragment(&style_notes);
+    if !style_frag.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&style_frag);
+    }
+
+    // ── The listening pass (shared core) ──
+    // A short private read of the person before the reply — what they said,
+    // what it means to them, what they need, which move fits. Appended last so
+    // it outweighs the phase template. E2EE internal tier; bounded; on any
+    // failure the reply simply goes ahead without it.
+    if listen::listen_wanted(phase) {
+        let context = [knowing_fragment.as_str(), summary_fragment.as_str(), threads_frag.as_str(), style_frag.as_str()]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let listen_msgs = vec![
+            ChatMessage::system(listen::listen_prompt(&phase_history, phase, &context)),
+            ChatMessage::user(listen::LISTEN_TRIGGER),
+        ];
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            ai_client.chat(listen_msgs, ai::ModelTier::Internal),
+        )
+        .await
+        {
+            Ok(Ok(raw)) => {
+                if let Some(l) = listen::parse_listening(&raw) {
+                    system_prompt.push_str("\n\n");
+                    system_prompt.push_str(&listen::listening_fragment(&l, phase));
+                    // Their reaction to how Starchild spoke shapes every later reply.
+                    if !l.style.trim().is_empty() && !is_crisis {
+                        let merged = style::merge_style_note(&style_notes, &l.style, now_ms);
+                        if let Ok(json) = serde_json::to_string(&merged) {
+                            let _ = state.db.set_setting("style_notes", &json);
+                        }
+                    }
+                }
+            }
+            Ok(Err(e)) => log::warn!("Listening pass failed: {e}"),
+            Err(_) => log::warn!("Listening pass timed out"),
+        }
+    }
+
     // Clone what we need for the streaming callback and post-response handlers
     let handle = app_handle.clone();
     let db = state.db.clone();
@@ -957,14 +1054,30 @@ async fn send_message_stream(
     let knowing_sys = state.knowing.clone();
     let user_msg_clone = message.clone();
 
-    // Stream AI response
-    let response_text = ai_client
-        .chat_stream_auto(&message, &system_prompt, history, |token| {
-            let _ = handle.emit("stream-chunk", StreamChunkPayload {
-                token: token.to_string(),
-            });
-        })
-        .await;
+    // Stream AI response (dropping leading blank lines some models open with,
+    // so the live bubble never starts empty — the final text is post-processed).
+    // The model occasionally finishes with no content at all; nothing has been
+    // shown then, so retry once silently — an empty reply is never stored.
+    let mut started = false;
+    let mut response_text = Err(ai::AiError::EmptyResponse);
+    for _ in 0..2 {
+        response_text = ai_client
+            .chat_stream_auto(&message, &system_prompt, history.clone(), |token| {
+                let t = if started { token } else { token.trim_start() };
+                if t.is_empty() {
+                    return;
+                }
+                started = true;
+                let _ = handle.emit("stream-chunk", StreamChunkPayload {
+                    token: t.to_string(),
+                });
+            })
+            .await;
+        match &response_text {
+            Ok(text) if text.trim().is_empty() => response_text = Err(ai::AiError::EmptyResponse),
+            _ => break,
+        }
+    }
 
     match response_text {
         Ok(raw_text) => {
@@ -1043,6 +1156,18 @@ async fn send_message_stream(
             // never on a crisis turn, even if the model slipped into quest wording.
             if !is_crisis && quest::is_quest_offer(&full_text) {
                 let _ = app_handle.emit("quest-offered", ());
+            }
+
+            // Background: fold this turn into the open threads (not on a crisis turn).
+            if !is_crisis {
+                let threads_client = ai_client.clone();
+                let threads_db = state.db.clone();
+                let (u, a) = (message.clone(), full_text.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = update_threads(&threads_client, &threads_db, &u, &a).await {
+                        log::warn!("Thread update failed: {e}");
+                    }
+                });
             }
 
             // Background: extract memories — skipped on a crisis turn; we don't

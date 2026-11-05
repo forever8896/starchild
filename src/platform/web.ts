@@ -399,7 +399,7 @@ async function extractOfferedQuest(): Promise<import('../../web/src/wasm-bridge'
           { role: 'system', content: c.questExtractionSystem() },
           { role: 'user', content: c.buildQuestExtractionPrompt(recentContext) },
         ],
-        { mode, apiKey, e2eeSession, temperature: 0.2 },
+        { mode, apiKey, e2eeSession, temperature: 0.2, internal: true, noThinking: true },
       )) {
         acc += token
       }
@@ -462,7 +462,7 @@ async function updateSummary(): Promise<void> {
         { role: 'system', content: c.summarySystem() },
         { role: 'user', content: c.buildSummaryPrompt(existing, older) },
       ],
-      { mode, apiKey, e2eeSession, temperature: 0.2 },
+      { mode, apiKey, e2eeSession, temperature: 0.2, internal: true, noThinking: true },
     )) {
       acc += token
     }
@@ -472,6 +472,62 @@ async function updateSummary(): Promise<void> {
     }
   } catch (err) {
     console.warn('Conversation summary update failed:', err)
+  }
+}
+
+/** Upper bound on the listening pass before the reply goes ahead without it. */
+const LISTEN_TIMEOUT_MS = 8_000
+
+type OpenThread = import('../../web/src/wasm-bridge').OpenThread
+
+/** How they like to be spoken to (core `style`), stored as one setting. */
+async function loadStyleNotes(): Promise<import('../../web/src/wasm-bridge').StyleNote[]> {
+  try {
+    const raw = await (await storage()).getSetting('style_notes')
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? (parsed as import('../../web/src/wasm-bridge').StyleNote[]) : []
+  } catch {
+    return []
+  }
+}
+
+/** The open threads of their life (core `threads`), stored as one setting. */
+async function loadThreads(): Promise<OpenThread[]> {
+  try {
+    const raw = await (await storage()).getSetting('open_threads')
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? (parsed as OpenThread[]) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Fold this turn into the open threads — new events/intentions/situations,
+ * ones that came up again, ones now settled (core prompt + merge). Background,
+ * E2EE-or-skip (never plaintext), errors swallowed.
+ */
+async function updateThreads(userMessage: string, aiResponse: string): Promise<void> {
+  try {
+    const [s, c, v] = await Promise.all([storage(), core(), venice()])
+    const inference = await privateInference(true)
+    if (!inference) return
+    const { mode, apiKey, e2eeSession } = inference
+    const threads = await loadThreads()
+    const now = Date.now()
+    let acc = ''
+    for await (const token of v.streamChat(
+      [
+        { role: 'system', content: c.threadsExtractionSystem() },
+        { role: 'user', content: c.buildThreadsExtractionInput(threads, userMessage, aiResponse, now) },
+      ],
+      { mode, apiKey, e2eeSession, temperature: 0.2, internal: true, noThinking: true },
+    )) {
+      acc += token
+    }
+    await s.setSetting('open_threads', JSON.stringify(c.applyThreadUpdate(threads, acc, now)))
+  } catch (err) {
+    console.warn('Thread update failed (non-fatal):', err)
   }
 }
 
@@ -499,7 +555,7 @@ async function extractKnowing(userMessage: string, aiResponse: string): Promise<
         { role: 'system', content: c.knowingExtractionSystem() },
         { role: 'user', content: c.buildKnowingExtractionInput(userMessage, aiResponse) },
       ],
-      { mode, apiKey, e2eeSession, temperature: 0.2 },
+      { mode, apiKey, e2eeSession, temperature: 0.2, internal: true, noThinking: true },
     )) {
       acc += token
     }
@@ -572,7 +628,7 @@ async function distillVisionShort(fullVision: string): Promise<void> {
         },
         { role: 'user', content: `Vision: ${fullVision}\n\nThe essence, in ≤6 words:` },
       ],
-      { mode, apiKey, e2eeSession, temperature: 0.3 },
+      { mode, apiKey, e2eeSession, temperature: 0.3, internal: true, noThinking: true },
     )) {
       acc += token
     }
@@ -756,8 +812,12 @@ export const webPlatform: Platform = {
     } else if (crystallizePending) {
       phase = c.detectPhase(chatMessages, true)
     } else {
+      // The first-quest push is for someone who has never had a quest — not
+      // for a returning user whose last offer just scrolled out of the window
+      // (that forced a quest onto a one-word "meh").
       const anyQuestOffered = chatMessages.some((m) => m.role === 'assistant' && c.isQuestOffer(m.content))
-      phase = visionRevealed && !anyQuestOffered && activeQuests.length === 0
+      const everHadQuest = (await s.getQuests()).length > 0
+      phase = visionRevealed && !anyQuestOffered && !everHadQuest
         ? 'quest'
         : c.detectPhase(chatMessages, false)
       if (phase === 'quest') {
@@ -791,6 +851,22 @@ export const webPlatform: Platform = {
     if (summaryFragment) system += `\n\n${summaryFragment}`
     if (proofVerdict && proofVerdict !== 'complete') system += `\n\n${c.proofNote(proofVerdict)}`
 
+    // ── Open threads + reply habits (shared core) ──
+    // What's still unfolding in their life (with the ones that have likely
+    // moved flagged on a return), and a note when the recent replies have
+    // fallen into a shape the person can feel.
+    const threads = await loadThreads()
+    const prevUser = [...history].reverse().find((m) => m.role === 'user' && m.id !== userMsg.id)
+    const gapMs = prevUser ? Date.now() - (Date.parse(prevUser.created_at) || Date.now()) : 0
+    const threadsFrag = c.threadsFragment(threads, Date.now(), gapMs)
+    if (threadsFrag) system += `\n\n${threadsFrag}`
+    const shape = c.shapeFragment(chatMessages.filter((m) => m.role === 'assistant').map((m) => m.content))
+    if (shape) system += `\n\n${shape}`
+    // How they like to be spoken to — learned from their reactions (below).
+    const styleNotes = await loadStyleNotes()
+    const styleFrag = c.styleFragment(styleNotes)
+    if (styleFrag) system += `\n\n${styleFrag}`
+
     // ── Quest-branch steering (mirrors desktop's SKILL TREE BRANCHES block) ──
     // The Quest phase instruction references "SKILL TREE BRANCHES below"; supply
     // it. The next category comes from the Great Work `active_cell` (the ripe
@@ -821,8 +897,6 @@ export const webPlatform: Platform = {
       system += steer
     }
 
-    const llmMessages = [{ role: 'system', content: system }, ...chatMessages]
-
     // A failed send must leave NO trace: un-persist the user turn (so the
     // thread doesn't desync from what actually happened) and dis-arm a proof
     // trigger (so the quest can't complete off a message that never landed).
@@ -849,12 +923,77 @@ export const webPlatform: Platform = {
     // Real traffic now keeps the enclave warm — stop the keep-alive pings.
     stopEnclaveKeepAlive()
 
+    // ── The listening pass (shared core) ──
+    // Before replying, a short private read of the person: what they said,
+    // what it seems to mean to them, what they need, which move fits, which
+    // trap to avoid. Appended last, so the reply is written from understanding
+    // rather than from the phase template. Same E2EE channel; bounded, and
+    // any failure just means replying without the read.
+    if (c.listenWanted(phase)) {
+      try {
+        const context = [knowingFragment, summaryFragment, threadsFrag, styleFrag].filter(Boolean).join('\n\n')
+        let raw = ''
+        for await (const tok of v.streamChat(
+          [
+            { role: 'system', content: c.listenPrompt({ recent_messages: chatMessages, phase, context }) },
+            { role: 'user', content: c.listenTrigger() },
+          ],
+          { mode, apiKey, e2eeSession, temperature: 0.3, internal: true, noThinking: true, signal: AbortSignal.timeout(LISTEN_TIMEOUT_MS) },
+        )) raw += tok
+        const listening = c.parseListening(raw)
+        if (listening) {
+          system += `\n\n${c.listeningFragment(listening, phase)}`
+          // Their reaction to how Starchild spoke shapes every later reply.
+          if (listening.style.trim() && !isCrisis) {
+            await s.setSetting('style_notes', JSON.stringify(c.mergeStyleNote(styleNotes, listening.style, Date.now())))
+          }
+        }
+      } catch (err) {
+        console.warn('Listening pass skipped:', err)
+      }
+    }
+    const llmMessages = [{ role: 'system', content: system }, ...chatMessages]
+
+    // Crystallize: the vision line is its own single-purpose call (core
+    // prompt), started now so it runs alongside the reply — the reply itself
+    // just answers what they said. Never blocks or fails the turn.
+    const visionP: Promise<string> = phase === 'crystallize'
+      ? (async () => {
+          try {
+            const pr = (await s.getSetting('preferential_reality')) ?? content
+            const convo = chatMessages.slice(-10).map((m) => `${m.role}: ${m.content}`).join('\n')
+            let raw = ''
+            for await (const tok of v.streamChat(
+              [
+                { role: 'system', content: c.visionSynthesisPrompt(pr, convo) },
+                { role: 'user', content: c.visionSynthesisTrigger() },
+              ],
+              { mode, apiKey, e2eeSession, temperature: 0.5, noThinking: true },
+            )) raw += tok
+            return c.cleanVision(raw)
+          } catch {
+            return ''
+          }
+        })()
+      : Promise.resolve('')
+
     let acc = ''
     try {
-      for await (const token of v.streamChat(llmMessages, { mode, apiKey, e2eeSession })) {
-        acc += token
-        yield token
+      const temperature = c.conversationTemperature(phase)
+      // The model occasionally finishes with no content at all. Nothing has
+      // been shown yet in that case, so one silent retry; an empty reply is
+      // never stored as a turn.
+      for (let attempt = 0; attempt < 2 && !acc.trim(); attempt++) {
+        for await (const token of v.streamChat(llmMessages, { mode, apiKey, e2eeSession, temperature, noThinking: !c.replyReasoning() })) {
+          // Some models open with blank lines; never show them as an empty bubble
+          // top (the final text is post-processed, but the stream is shown live).
+          const t = acc ? token : token.trimStart()
+          if (!t) continue
+          acc += t
+          yield t
+        }
       }
+      if (!acc.trim()) throw new Error('The reply came back empty — please try again.')
     } catch (err) {
       // A decrypt failure means the cached E2EE session likely went stale —
       // drop it so the user's retry performs a fresh handshake.
@@ -864,7 +1003,17 @@ export const webPlatform: Platform = {
     }
 
     // Post-process + persist the assistant turn and the fed creature.
-    const final = c.postprocess(acc, phase)
+    let final = c.postprocess(acc, phase)
+    let synthesizedVision = ''
+    if (phase === 'crystallize') {
+      synthesizedVision = await visionP
+      if (synthesizedVision) {
+        // Show (and speak) the vision right after their acknowledgement.
+        const suffix = c.crystallizeSuffix(synthesizedVision)
+        yield suffix
+        final = c.stripPlacement(final) + suffix
+      }
+    }
     await s.addMessage({
       id: uuid(),
       role: 'assistant',
@@ -882,11 +1031,14 @@ export const webPlatform: Platform = {
     if (phase === 'crystallize') {
       await s.setSetting('vision_revealed', 'true')
       let vision = (await s.getSetting('vision_statement')) ?? ''
+      if (!vision && synthesizedVision) {
+        vision = synthesizedVision
+        await s.setSetting('vision_statement', vision)
+      }
       if (!vision) {
-        vision = final
-          .replace(/let'?s place (this|it) on your vision tree.*$/is, '')
-          .replace(/[\s✦.,;:—-]+$/u, '')
-          .trim() || final
+        // Core takes the vision sentence only — the reply opens by answering
+        // what they just said, which is conversation, not their north star.
+        vision = c.visionFromCrystallize(final) || final
         await s.setSetting('vision_statement', vision)
       }
       // The crystallized vision is Great Work evidence — Spirit-plane work at
@@ -925,6 +1077,7 @@ export const webPlatform: Platform = {
     // Deferred so this E2EE extraction never contends with the reply's VOICE
     // (TTS + audio decode want the main thread for the first seconds after send).
     if (!isCrisis) deferBackground(() => void extractKnowing(content, final))
+    if (!isCrisis) deferBackground(() => void updateThreads(content, final))
     deferBackground(() => void updateSummary())
 
     // ── Quest completion (proof turn 2) ──

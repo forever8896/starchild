@@ -214,7 +214,7 @@ export function runAllChecks(
   if (phase === 'crystallize') {
     results.push(checkCrystallizeFormat(response))
   }
-  if (phase === 'commit') {
+  if (phase === 'quest') {
     results.push(checkCommitFormat(response))
   }
 

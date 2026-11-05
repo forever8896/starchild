@@ -27,6 +27,19 @@ struct ChatRequest {
     messages: Vec<ChatMessage>,
     temperature: f32,
     max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    venice_parameters: Option<VeniceParameters>,
+}
+
+/// Venice request extensions — here only `disable_thinking` (core
+/// `ModelTier::reasoning`).
+#[derive(Debug, Serialize)]
+struct VeniceParameters {
+    disable_thinking: bool,
+}
+
+fn venice_parameters(tier: ModelTier) -> Option<VeniceParameters> {
+    (!tier.reasoning()).then_some(VeniceParameters { disable_thinking: true })
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +111,8 @@ struct StreamChatRequest {
     temperature: f32,
     max_tokens: u32,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    venice_parameters: Option<VeniceParameters>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -344,6 +359,7 @@ impl AiClient {
             messages,
             temperature: tier.temperature(),
             max_tokens: tier.max_tokens(),
+            venice_parameters: venice_parameters(tier),
         };
 
         let url = format!("{VENICE_BASE_URL}/chat/completions");
@@ -440,6 +456,7 @@ impl AiClient {
             temperature: tier.temperature(),
             max_tokens: tier.max_tokens(),
             stream: true,
+            venice_parameters: venice_parameters(tier),
         };
 
         let url = format!("{VENICE_BASE_URL}/chat/completions");
@@ -734,9 +751,11 @@ mod tests {
             messages: vec![ChatMessage::user("hi")],
             temperature: 0.5,
             max_tokens: 100,
+            venice_parameters: venice_parameters(ModelTier::Internal),
         };
 
         let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["venice_parameters"]["disable_thinking"], true);
         assert_eq!(json["model"], "test-model");
         assert_eq!(json["temperature"], 0.5);
         assert_eq!(json["max_tokens"], 100);
